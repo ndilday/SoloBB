@@ -189,11 +189,11 @@ Assert(loadedMatch.FirstHalfReceivingTeamId == loadedLeague.Teams[0].Id, "home t
 Assert(loadedMatch.Placements.Count == 22, "match should place both teams in reserve");
 
 var awayPlayerToPlace = awayLeague.Teams[0].Players[0];
-var defenseSetupMatch = matchService.PlacePlayer(loadedMatch, ruleset, awayPlayerToPlace.Id, new(5, 5));
+var defenseSetupMatch = matchService.PlacePlayer(loadedMatch, ruleset, awayPlayerToPlace.Id, new(20, 5));
 var defensePlacedPlayer = defenseSetupMatch.Placements.Single(placement => placement.PlayerId == awayPlayerToPlace.Id);
 
 Assert(defensePlacedPlayer.State == PlayerPitchState.Standing, "defense player should stand on the pitch");
-Assert(defensePlacedPlayer.Square == new PitchSquare(5, 5), "defense player should keep assigned square");
+Assert(defensePlacedPlayer.Square == new PitchSquare(20, 5), "defense player should keep assigned square");
 
 var offenseSetupMatch = matchService.AdvancePhase(defenseSetupMatch);
 Assert(offenseSetupMatch.Phase == MatchPhase.OffenseSetup, "defense setup should advance to offense setup");
@@ -500,9 +500,9 @@ Assert(defensiveTurnMatch.ActiveTeamId == awayLeague.Teams[0].Id, "away team sho
 Assert(defensiveTurnMatch.HomeTurn == 2 && defensiveTurnMatch.AwayTurn == 1, "ending the offensive turn should consume home turn one");
 Assert(defensiveTurnMatch.Turn == 1, "defensive turn should use the active team's turn counter");
 
-var defensiveMoveMatch = matchService.MovePlayer(defensiveTurnMatch, ruleset, awayLeague.Teams[0], awayPlayerToPlace.Id, new(6, 5));
+var defensiveMoveMatch = matchService.MovePlayer(defensiveTurnMatch, ruleset, awayLeague.Teams[0], awayPlayerToPlace.Id, new(19, 5));
 var defensiveMovedPlayer = defensiveMoveMatch.Placements.Single(placement => placement.PlayerId == awayPlayerToPlace.Id);
-Assert(defensiveMovedPlayer.Square == new PitchSquare(6, 5), "defensive player should move during defensive turn");
+Assert(defensiveMovedPlayer.Square == new PitchSquare(19, 5), "defensive player should move during defensive turn");
 
 var nextOffensiveTurnMatch = matchService.AdvanceTurn(defensiveMoveMatch, ruleset);
 Assert(nextOffensiveTurnMatch.Phase == MatchPhase.OffensivePlayerTurn, "defensive turn should advance to next offensive player turn");
@@ -589,8 +589,22 @@ AssertThrows(
     "matches should require at least three players");
 
 AssertThrows(
-    () => matchService.PlacePlayer(defenseSetupMatch, ruleset, awayLeague.Teams[0].Players[1].Id, new(5, 5)),
+    () => matchService.PlacePlayer(defenseSetupMatch, ruleset, awayLeague.Teams[0].Players[1].Id, new(20, 5)),
     "placement should reject occupied squares");
+
+AssertThrows(
+    () => matchService.PlacePlayer(loadedMatch, ruleset, awayPlayerToPlace.Id, new(5, 5)),
+    "defense placement should reject the wrong side of the pitch");
+
+var wideZoneLimitMatch = matchService.PlacePlayer(
+    matchService.PlacePlayer(loadedMatch, ruleset, awayLeague.Teams[0].Players[0].Id, new(13, 0)),
+    ruleset,
+    awayLeague.Teams[0].Players[1].Id,
+    new(14, 0));
+
+AssertThrows(
+    () => matchService.PlacePlayer(wideZoneLimitMatch, ruleset, awayLeague.Teams[0].Players[2].Id, new(15, 1)),
+    "setup should reject more than two players in the same wide zone");
 
 AssertThrows(
     () => matchService.PlacePlayer(loadedMatch, ruleset, awayPlayerToPlace.Id, new(-1, 0)),
@@ -669,7 +683,7 @@ AssertThrows(
     "movement should reject destinations beyond movement plus go-for-it allowance");
 
 AssertThrows(
-    () => matchService.MovePlayer(offensiveTurnMatch, ruleset, loadedLeague.Teams[0], playerToPlace.Id, new(5, 5)),
+    () => matchService.MovePlayer(offensiveTurnMatch, ruleset, loadedLeague.Teams[0], playerToPlace.Id, new(20, 5)),
     "movement should reject occupied destinations");
 
 AssertThrows(
@@ -682,7 +696,7 @@ AssertThrows(
         ruleset,
         awayLeague.Teams[0],
         awayPlayerToPlace.Id,
-        new(6, 5)),
+        new(19, 5)),
     "movement should reject inactive teams during a turn");
 
 AssertThrows(

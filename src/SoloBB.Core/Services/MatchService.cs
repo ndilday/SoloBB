@@ -134,6 +134,16 @@ public sealed class MatchService
             throw new InvalidOperationException("Only the active setup team can place players.");
         }
 
+        if (!IsLegalSetupSide(match, ruleset, placement.TeamId, square))
+        {
+            throw new InvalidOperationException("Player must be placed on their team's side of the pitch.");
+        }
+
+        if (IsWideZone(ruleset, square) && CountTeamPlayersInWideZone(match, ruleset, placement.TeamId, square, playerId) >= 2)
+        {
+            throw new InvalidOperationException("A team can place no more than two players in the same wide zone.");
+        }
+
         if (match.Placements.Any(current => current.PlayerId != playerId && current.Square == square))
         {
             throw new InvalidOperationException($"Square {square.X},{square.Y} is already occupied.");
@@ -1440,6 +1450,34 @@ public sealed class MatchService
     private static bool IsOnPitch(Ruleset ruleset, PitchSquare square)
     {
         return square.X >= 0 && square.X < ruleset.PitchWidth && square.Y >= 0 && square.Y < ruleset.PitchHeight;
+    }
+
+    private static bool IsLegalSetupSide(MatchState match, Ruleset ruleset, Guid teamId, PitchSquare square)
+    {
+        return teamId == match.HomeTeamId
+            ? square.X < ruleset.PitchWidth / 2
+            : square.X >= ruleset.PitchWidth / 2;
+    }
+
+    private static bool IsWideZone(Ruleset ruleset, PitchSquare square)
+    {
+        return square.Y < 4 || square.Y >= ruleset.PitchHeight - 4;
+    }
+
+    private static int CountTeamPlayersInWideZone(MatchState match, Ruleset ruleset, Guid teamId, PitchSquare square, Guid ignoredPlayerId)
+    {
+        return match.Placements.Count(placement =>
+            placement.PlayerId != ignoredPlayerId &&
+            placement.TeamId == teamId &&
+            placement.State == PlayerPitchState.Standing &&
+            placement.Square is PitchSquare placedSquare &&
+            IsSameWideZone(ruleset, square, placedSquare));
+    }
+
+    private static bool IsSameWideZone(Ruleset ruleset, PitchSquare first, PitchSquare second)
+    {
+        return (first.Y < 4 && second.Y < 4) ||
+            (first.Y >= ruleset.PitchHeight - 4 && second.Y >= ruleset.PitchHeight - 4);
     }
 
     private static Guid GetOpponentTeamId(MatchState match, Guid teamId)
