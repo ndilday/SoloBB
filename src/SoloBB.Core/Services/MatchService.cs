@@ -19,9 +19,10 @@ public sealed class MatchService
             throw new InvalidOperationException("Home and away teams must be different teams.");
         }
 
-        if (homeTeam.Players.Count != ruleset.PlayersPerSide || awayTeam.Players.Count != ruleset.PlayersPerSide)
+        const int minimumPlayersToField = 3;
+        if (homeTeam.Players.Count < minimumPlayersToField || awayTeam.Players.Count < minimumPlayersToField)
         {
-            throw new InvalidOperationException($"Both teams must have {ruleset.PlayersPerSide} players.");
+            throw new InvalidOperationException($"Both teams must have at least {minimumPlayersToField} players available.");
         }
 
         return new MatchState

@@ -4,7 +4,10 @@ namespace SoloBB.Core.Services;
 
 public sealed class LeagueService
 {
-    public League CreateLeague(string name, Ruleset ruleset, IEnumerable<RosterSet> rosterSets)
+    private const int MaximumRosterPlayers = 16;
+    private const int FanFactorCost = 10_000;
+
+    public League CreateLeague(string name, Ruleset ruleset, IEnumerable<RosterSet> rosterSets, int targetTeamCount = 2)
     {
         var rosterSetIds = rosterSets.Select(set => set.Id).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         if (rosterSetIds.Length == 0)
@@ -12,11 +15,22 @@ public sealed class LeagueService
             throw new InvalidOperationException("At least one roster set is required to create a league.");
         }
 
+        if (targetTeamCount < 2)
+        {
+            throw new InvalidOperationException("A league must have at least two teams.");
+        }
+
+        if (targetTeamCount % 2 != 0)
+        {
+            throw new InvalidOperationException("League scheduling currently requires an even number of teams.");
+        }
+
         return new League
         {
             Id = Guid.NewGuid(),
             Name = RequireText(name, "League name is required."),
             RulesetId = ruleset.Id,
+            TargetTeamCount = targetTeamCount,
             RosterSetIds = rosterSetIds,
             Settings = new LeagueSettings()
         };
@@ -30,7 +44,7 @@ public sealed class LeagueService
         TeamRoster roster,
         IEnumerable<PlayerDraftPick> draft,
         int rerolls = 0,
-        int fanFactor = 0)
+        int fanFactor = 1)
     {
         if (!league.RosterSetIds.Any())
         {
@@ -40,9 +54,14 @@ public sealed class LeagueService
         var players = draft.Select(pick => CreatePlayer(roster, pick)).ToArray();
         ValidateDraft(roster, players);
 
-        if (players.Length != ruleset.PlayersPerSide)
+        if (players.Length < ruleset.PlayersPerSide)
         {
-            throw new InvalidOperationException($"Draft has {players.Length} players; ruleset requires {ruleset.PlayersPerSide}.");
+            throw new InvalidOperationException($"Draft has {players.Length} players; ruleset requires at least {ruleset.PlayersPerSide}.");
+        }
+
+        if (players.Length > MaximumRosterPlayers)
+        {
+            throw new InvalidOperationException($"Draft has {players.Length} players; rosters can include no more than {MaximumRosterPlayers}.");
         }
 
         if (rerolls < 0 || rerolls > ruleset.RerollCap)
@@ -50,35 +69,196 @@ public sealed class LeagueService
             throw new InvalidOperationException($"Rerolls must be between 0 and {ruleset.RerollCap}.");
         }
 
-        if (fanFactor < 0)
+        if (fanFactor < 1)
         {
-            throw new InvalidOperationException("Fan factor cannot be negative.");
+            throw new InvalidOperationException("Fan factor must be at least 1.");
         }
 
+        var team = BuildTeam(Guid.NewGuid(), ruleset, teamName, coachName, roster, players, rerolls, fanFactor);
+
+        return league with { Teams = [.. league.Teams, team] };
+    }
+
+    public League CreateSeason(League league, string seasonName = "Season 1")
+    {
+        if (league.Teams.Count != league.TargetTeamCount)
+        {
+            throw new InvalidOperationException($"League has {league.Teams.Count} teams; expected {league.TargetTeamCount}.");
+        }
+
+        if (league.Teams.Count < 2 || league.Teams.Count % 2 != 0)
+        {
+            throw new InvalidOperationException("League scheduling requires an even number of teams.");
+        }
+
+        if (league.Seasons.Any())
+        {
+            return league;
+        }
+
+        var season = new Season
+        {
+            Id = Guid.NewGuid(),
+            Name = seasonName,
+            CurrentWeek = 1,
+            Schedule = CreateDoubleRoundRobinSchedule(league.Teams)
+        };
+
+        return league with { Seasons = [season] };
+    }
+
+    public League UpdateTeam(
+        League league,
+        Ruleset ruleset,
+        Guid teamId,
+        string teamName,
+        string coachName,
+        TeamRoster roster,
+        IEnumerable<PlayerDraftPick> draft,
+        int rerolls = 0,
+        int fanFactor = 1)
+    {
+        if (!league.Teams.Any(team => team.Id == teamId))
+        {
+            throw new InvalidOperationException("Team is not part of this league.");
+        }
+
+        var players = draft.Select(pick => CreatePlayer(roster, pick)).ToArray();
+        ValidateDraft(roster, players);
+
+        if (players.Length < ruleset.PlayersPerSide)
+        {
+            throw new InvalidOperationException($"Draft has {players.Length} players; ruleset requires at least {ruleset.PlayersPerSide}.");
+        }
+
+        if (players.Length > MaximumRosterPlayers)
+        {
+            throw new InvalidOperationException($"Draft has {players.Length} players; rosters can include no more than {MaximumRosterPlayers}.");
+        }
+
+        if (rerolls < 0 || rerolls > ruleset.RerollCap)
+        {
+            throw new InvalidOperationException($"Rerolls must be between 0 and {ruleset.RerollCap}.");
+        }
+
+        if (fanFactor < 1)
+        {
+            throw new InvalidOperationException("Fan factor must be at least 1.");
+        }
+
+        var updatedTeam = BuildTeam(teamId, ruleset, teamName, coachName, roster, players, rerolls, fanFactor);
+
+        return league with
+        {
+            Teams = league.Teams
+                .Select(team => team.Id == teamId ? updatedTeam : team)
+                .ToArray()
+        };
+    }
+
+    private static LeagueTeam BuildTeam(
+        Guid teamId,
+        Ruleset ruleset,
+        string teamName,
+        string coachName,
+        TeamRoster roster,
+        IReadOnlyList<Player> players,
+        int rerolls,
+        int fanFactor)
+    {
         var playerCost = players.Sum(player => FindPosition(roster, player.PositionId).Cost);
         var rerollCost = rerolls * roster.RerollCost;
-        var totalCost = playerCost + rerollCost;
+        var fanFactorCost = Math.Max(0, fanFactor - 1) * FanFactorCost;
+        var totalCost = playerCost + rerollCost + fanFactorCost;
 
         if (totalCost > ruleset.StartingTreasury)
         {
             throw new InvalidOperationException($"Team cost {totalCost} exceeds starting treasury {ruleset.StartingTreasury}.");
         }
 
-        var treasury = ruleset.StartingTreasury - totalCost;
-
-        var team = new LeagueTeam
+        return new LeagueTeam
         {
-            Id = Guid.NewGuid(),
+            Id = teamId,
             Name = RequireText(teamName, "Team name is required."),
             CoachName = string.IsNullOrWhiteSpace(coachName) ? "Solo Coach" : coachName,
             RosterId = roster.Id,
-            Treasury = treasury,
+            Treasury = ruleset.StartingTreasury - totalCost,
+            TeamValue = totalCost,
             Rerolls = rerolls,
             FanFactor = fanFactor,
             Players = players
         };
+    }
 
-        return league with { Teams = [.. league.Teams, team] };
+    private static ScheduledMatch[] CreateDoubleRoundRobinSchedule(IReadOnlyList<LeagueTeam> teams)
+    {
+        var firstHalf = CreateSingleRoundRobinPairings(teams);
+        var secondHalfOrder = RotateRounds(firstHalf, Math.Max(1, firstHalf.Length / 2));
+        var matches = new List<ScheduledMatch>();
+
+        for (var roundIndex = 0; roundIndex < firstHalf.Length; roundIndex++)
+        {
+            foreach (var (homeTeamId, awayTeamId) in firstHalf[roundIndex])
+            {
+                matches.Add(new ScheduledMatch
+                {
+                    Id = Guid.NewGuid(),
+                    Week = roundIndex + 1,
+                    HomeTeamId = homeTeamId,
+                    AwayTeamId = awayTeamId
+                });
+            }
+        }
+
+        for (var roundIndex = 0; roundIndex < secondHalfOrder.Length; roundIndex++)
+        {
+            foreach (var (homeTeamId, awayTeamId) in secondHalfOrder[roundIndex])
+            {
+                matches.Add(new ScheduledMatch
+                {
+                    Id = Guid.NewGuid(),
+                    Week = firstHalf.Length + roundIndex + 1,
+                    HomeTeamId = awayTeamId,
+                    AwayTeamId = homeTeamId
+                });
+            }
+        }
+
+        return matches.ToArray();
+    }
+
+    private static (Guid HomeTeamId, Guid AwayTeamId)[][] CreateSingleRoundRobinPairings(IReadOnlyList<LeagueTeam> teams)
+    {
+        var rotatingTeams = teams.Select(team => team.Id).ToList();
+        var rounds = new List<(Guid HomeTeamId, Guid AwayTeamId)[]>();
+        var teamCount = rotatingTeams.Count;
+
+        for (var round = 0; round < teamCount - 1; round++)
+        {
+            var pairings = new List<(Guid HomeTeamId, Guid AwayTeamId)>();
+            for (var index = 0; index < teamCount / 2; index++)
+            {
+                var first = rotatingTeams[index];
+                var second = rotatingTeams[teamCount - 1 - index];
+                pairings.Add((round + index) % 2 == 0 ? (first, second) : (second, first));
+            }
+
+            rounds.Add(pairings.ToArray());
+
+            var moved = rotatingTeams[^1];
+            rotatingTeams.RemoveAt(teamCount - 1);
+            rotatingTeams.Insert(1, moved);
+        }
+
+        return rounds.ToArray();
+    }
+
+    private static T[] RotateRounds<T>(IReadOnlyList<T> rounds, int offset)
+    {
+        return rounds
+            .Skip(offset)
+            .Concat(rounds.Take(offset))
+            .ToArray();
     }
 
     private static Player CreatePlayer(TeamRoster roster, PlayerDraftPick pick)

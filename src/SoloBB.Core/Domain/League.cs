@@ -5,6 +5,7 @@ public sealed record League
     public required Guid Id { get; init; }
     public required string Name { get; init; }
     public required string RulesetId { get; init; }
+    public int TargetTeamCount { get; init; } = 2;
     public IReadOnlyList<string> RosterSetIds { get; init; } = [];
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
     public LeagueSettings Settings { get; init; } = new();
@@ -27,6 +28,7 @@ public sealed record LeagueTeam
     public required string RosterId { get; init; }
     public string CoachName { get; init; } = "Solo Coach";
     public int Treasury { get; init; }
+    public int TeamValue { get; init; }
     public int Rerolls { get; init; }
     public int FanFactor { get; init; }
     public IReadOnlyList<Player> Players { get; init; } = [];
@@ -57,12 +59,14 @@ public sealed record Season
 {
     public required Guid Id { get; init; }
     public required string Name { get; init; }
+    public int CurrentWeek { get; init; } = 1;
     public IReadOnlyList<ScheduledMatch> Schedule { get; init; } = [];
 }
 
 public sealed record ScheduledMatch
 {
     public required Guid Id { get; init; }
+    public int Week { get; init; }
     public required Guid HomeTeamId { get; init; }
     public required Guid AwayTeamId { get; init; }
     public MatchResult? Result { get; init; }

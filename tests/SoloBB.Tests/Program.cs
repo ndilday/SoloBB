@@ -10,7 +10,7 @@ Assert(ruleset.Id == "bb2020-lite", "ruleset id should load");
 Assert(rosterSet.Rosters.Count >= 2, "sample roster set should contain teams");
 
 var leagueService = new LeagueService();
-var league = leagueService.CreateLeague("Smoke League", ruleset, [rosterSet]);
+var league = leagueService.CreateLeague("Smoke League", ruleset, [rosterSet], targetTeamCount: 4);
 var humanRoster = rosterSet.Rosters.Single(roster => roster.Id == "human");
 
 league = leagueService.AddTeam(
@@ -39,7 +39,9 @@ await store.SaveLeagueAsync(leaguePath, league);
 var loadedLeague = await store.LoadLeagueAsync(leaguePath);
 
 Assert(loadedLeague.Teams.Count == 1, "saved league should round-trip with one team");
+Assert(loadedLeague.TargetTeamCount == 4, "saved league should round-trip target team count");
 Assert(loadedLeague.Teams[0].Players.Count == 11, "team should round-trip with eleven players");
+Assert(loadedLeague.Teams[0].TeamValue == 855_000, "team value should round-trip");
 
 var awayLeague = leagueService.CreateLeague("Away Smoke League", ruleset, [rosterSet]);
 awayLeague = leagueService.AddTeam(
@@ -51,12 +53,133 @@ awayLeague = leagueService.AddTeam(
     Enumerable.Range(1, 11).Select(index => new PlayerDraftPick($"Orc Lineman {index}", "lineman")),
     rerolls: 2);
 
+var benchLeague = leagueService.CreateLeague("Bench Smoke League", ruleset, [rosterSet]);
+benchLeague = leagueService.AddTeam(
+    benchLeague,
+    ruleset,
+    "Smoke Bench",
+    "Tester",
+    humanRoster,
+    Enumerable.Range(1, 12).Select(index => new PlayerDraftPick($"Bench Lineman {index}", "lineman")),
+    rerolls: 2);
+
+Assert(benchLeague.Teams[0].Players.Count == 12, "league teams should allow more than eleven players");
+Assert(benchLeague.Teams[0].TeamValue == 700_000, "team value should include players and rerolls");
+
+var fullRosterLeague = leagueService.CreateLeague("Full Roster League", ruleset, [rosterSet]);
+fullRosterLeague = leagueService.AddTeam(
+    fullRosterLeague,
+    ruleset,
+    "Smoke Full Roster",
+    "Tester",
+    humanRoster,
+    Enumerable.Range(1, 16).Select(index => new PlayerDraftPick($"Full Roster Lineman {index}", "lineman")),
+    rerolls: 0);
+
+Assert(fullRosterLeague.Teams[0].Players.Count == 16, "league teams should allow sixteen-player rosters");
+
+var fanFactorLeague = leagueService.CreateLeague("Fan Factor League", ruleset, [rosterSet]);
+fanFactorLeague = leagueService.AddTeam(
+    fanFactorLeague,
+    ruleset,
+    "Smoke Fans",
+    "Tester",
+    humanRoster,
+    Enumerable.Range(1, 11).Select(index => new PlayerDraftPick($"Fan Lineman {index}", "lineman")),
+    rerolls: 0,
+    fanFactor: 1);
+
+Assert(fanFactorLeague.Teams[0].Treasury == 450_000, "fan factor one should be free");
+Assert(fanFactorLeague.Teams[0].TeamValue == 550_000, "team value should include free fan factor correctly");
+
+var paidFanFactorLeague = leagueService.CreateLeague("Paid Fan Factor League", ruleset, [rosterSet]);
+paidFanFactorLeague = leagueService.AddTeam(
+    paidFanFactorLeague,
+    ruleset,
+    "Smoke Paid Fans",
+    "Tester",
+    humanRoster,
+    Enumerable.Range(1, 11).Select(index => new PlayerDraftPick($"Paid Fan Lineman {index}", "lineman")),
+    rerolls: 0,
+    fanFactor: 2);
+
+Assert(paidFanFactorLeague.Teams[0].Treasury == 440_000, "fan factor above one should cost 10,000 gp per point");
+Assert(paidFanFactorLeague.Teams[0].TeamValue == 560_000, "team value should include paid fan factor");
+
+var originalTeamId = fanFactorLeague.Teams[0].Id;
+fanFactorLeague = leagueService.UpdateTeam(
+    fanFactorLeague,
+    ruleset,
+    originalTeamId,
+    "Smoke Fans Edited",
+    "Editor",
+    humanRoster,
+    Enumerable.Range(1, 12).Select(index => new PlayerDraftPick($"Edited Lineman {index}", "lineman")),
+    rerolls: 0,
+    fanFactor: 1);
+
+Assert(fanFactorLeague.Teams.Count == 1, "editing a team should replace it rather than add a duplicate");
+Assert(fanFactorLeague.Teams[0].Id == originalTeamId, "editing a team should preserve the team id");
+Assert(fanFactorLeague.Teams[0].Name == "Smoke Fans Edited", "editing a team should update team details");
+Assert(fanFactorLeague.Teams[0].Players.Count == 12, "editing a team should update the roster draft");
+Assert(fanFactorLeague.Teams[0].TeamValue == 600_000, "editing a team should update team value");
+
+var scheduledLeague = leagueService.CreateLeague("Scheduled League", ruleset, [rosterSet], targetTeamCount: 4);
+for (var teamIndex = 1; teamIndex <= 4; teamIndex++)
+{
+    scheduledLeague = leagueService.AddTeam(
+        scheduledLeague,
+        ruleset,
+        $"Schedule Team {teamIndex}",
+        "Scheduler",
+        humanRoster,
+        Enumerable.Range(1, 11).Select(playerIndex => new PlayerDraftPick($"Schedule {teamIndex} Lineman {playerIndex}", "lineman")),
+        rerolls: 0);
+}
+
+scheduledLeague = leagueService.CreateSeason(scheduledLeague);
+var scheduledSeason = scheduledLeague.Seasons.Single();
+var scheduledWeeks = scheduledSeason.Schedule.GroupBy(match => match.Week).OrderBy(group => group.Key).ToArray();
+
+Assert(scheduledWeeks.Length == 6, "double round-robin should create (teams - 1) * 2 weeks");
+Assert(scheduledSeason.Schedule.Count == 12, "four-team double round-robin should create twelve matches");
+Assert(scheduledWeeks.All(group => group.Count() == 2), "each week should have two games for four teams");
+
+var scheduledPairs = scheduledSeason.Schedule
+    .GroupBy(match => string.Join(":", new[] { match.HomeTeamId, match.AwayTeamId }.Order()))
+    .ToArray();
+
+Assert(scheduledPairs.Length == 6, "each team pair should appear once as a pair");
+Assert(scheduledPairs.All(group => group.Count() == 2), "each team pair should play twice");
+Assert(scheduledPairs.All(group => group.Select(match => match.HomeTeamId).Distinct().Count() == 2), "each pair should swap home and away");
+
+foreach (var teamId in scheduledLeague.Teams.Select(team => team.Id))
+{
+    var opponentsByWeek = scheduledSeason.Schedule
+        .Where(match => match.HomeTeamId == teamId || match.AwayTeamId == teamId)
+        .OrderBy(match => match.Week)
+        .Select(match => match.HomeTeamId == teamId ? match.AwayTeamId : match.HomeTeamId)
+        .ToArray();
+
+    Assert(!opponentsByWeek.Zip(opponentsByWeek.Skip(1), (current, next) => current == next).Any(repeated => repeated), "teams should not play the same opponent twice in a row");
+}
+
+var firstHalfSequence = scheduledWeeks.Take(3).Select(group => string.Join(",", group.Select(match => string.Join(":", new[] { match.HomeTeamId, match.AwayTeamId }.Order())).Order())).ToArray();
+var secondHalfSequence = scheduledWeeks.Skip(3).Select(group => string.Join(",", group.Select(match => string.Join(":", new[] { match.HomeTeamId, match.AwayTeamId }.Order())).Order())).ToArray();
+
+Assert(!firstHalfSequence.SequenceEqual(secondHalfSequence), "second half schedule should not repeat the first-half sequence in the same order");
+
 var matchService = new MatchService();
 var match = matchService.CreateHotseatMatch(ruleset, loadedLeague.Teams[0], awayLeague.Teams[0]);
+var benchMatch = matchService.CreateHotseatMatch(ruleset, benchLeague.Teams[0], awayLeague.Teams[0]);
+var depletedTeam = benchLeague.Teams[0] with { Players = benchLeague.Teams[0].Players.Take(3).ToArray() };
+var depletedMatch = matchService.CreateHotseatMatch(ruleset, depletedTeam, awayLeague.Teams[0]);
 var matchPath = Path.Combine(root, "tests", "SoloBB.Tests", "bin", "smoke-match.json");
 await store.SaveMatchAsync(matchPath, match);
 var loadedMatch = await store.LoadMatchAsync(matchPath);
 
+Assert(benchMatch.Placements.Count == 23, "matches should accept teams with bench players");
+Assert(depletedMatch.Placements.Count == 14, "matches should accept teams with the three-player minimum");
 Assert(loadedMatch.HomeTeamId == loadedLeague.Teams[0].Id, "match home team should round-trip");
 Assert(loadedMatch.AwayTeamId == awayLeague.Teams[0].Id, "match away team should round-trip");
 Assert(loadedMatch.Phase == MatchPhase.DefenseSetup, "match should start with defense setup");
@@ -431,6 +554,17 @@ AssertThrows(
     () => leagueService.AddTeam(
         league,
         ruleset,
+        "Too Many Players",
+        "Tester",
+        humanRoster,
+        Enumerable.Range(1, 17).Select(index => new PlayerDraftPick($"Lineman {index}", "lineman")),
+        rerolls: 0),
+    "drafts above sixteen players should fail");
+
+AssertThrows(
+    () => leagueService.AddTeam(
+        league,
+        ruleset,
         "Too Many Rerolls",
         "Tester",
         humanRoster,
@@ -439,8 +573,20 @@ AssertThrows(
     "drafts above reroll cap should fail");
 
 AssertThrows(
+    () => leagueService.CreateLeague("Too Small", ruleset, [rosterSet], targetTeamCount: 1),
+    "leagues should require at least two teams");
+
+AssertThrows(
+    () => leagueService.CreateLeague("Odd League", ruleset, [rosterSet], targetTeamCount: 3),
+    "league scheduling should require an even number of teams");
+
+AssertThrows(
     () => matchService.CreateHotseatMatch(ruleset, loadedLeague.Teams[0], loadedLeague.Teams[0]),
     "matches should require two different teams");
+
+AssertThrows(
+    () => matchService.CreateHotseatMatch(ruleset, depletedTeam with { Players = depletedTeam.Players.Take(2).ToArray() }, awayLeague.Teams[0]),
+    "matches should require at least three players");
 
 AssertThrows(
     () => matchService.PlacePlayer(defenseSetupMatch, ruleset, awayLeague.Teams[0].Players[1].Id, new(5, 5)),
