@@ -1,0 +1,74 @@
+{
+  "id": "bb2020-lite",
+  "name": "BB2020 Lite",
+  "version": "0.1.0",
+  "pitchWidth": 26,
+  "pitchHeight": 15,
+  "playersPerSide": 11,
+  "turnsPerHalf": 8,
+  "startingTreasury": 1000000,
+  "rerollCap": 8,
+  "useTeamValueInducements": true,
+  "dice": {
+    "blockDieFaces": 6,
+    "agilityDieFaces": 6,
+    "naturalOneAlwaysFails": true,
+    "naturalSixAlwaysSucceeds": true
+  },
+  "skills": [
+    {
+      "id": "block",
+      "name": "Block",
+      "timing": "afterRoll",
+      "description": "Improves reliability during block results."
+    },
+    {
+      "id": "catch",
+      "name": "Catch",
+      "timing": "afterRoll",
+      "description": "Improves reliability when receiving the ball."
+    },
+    {
+      "id": "dodge",
+      "name": "Dodge",
+      "timing": "afterRoll",
+      "description": "Improves reliability when dodging away."
+    },
+    {
+      "id": "pass",
+      "name": "Pass",
+      "timing": "afterRoll",
+      "description": "Improves reliability when throwing the ball."
+    },
+    {
+      "id": "sure-hands",
+      "name": "Sure Hands",
+      "timing": "afterRoll",
+      "description": "Improves reliability when picking up the ball."
+    },
+    {
+      "id": "throw-team-mate",
+      "name": "Throw Team-mate",
+      "timing": "duringAction",
+      "description": "Allows a special throw action with an eligible team-mate."
+    },
+    {
+      "id": "bone-head",
+      "name": "Bone-head",
+      "timing": "beforeRoll",
+      "description": "Requires a reliability check before taking an action."
+    },
+    {
+      "id": "mighty-blow",
+      "name": "Mighty Blow",
+      "timing": "afterRoll",
+      "description": "Improves injury pressure after a successful hit."
+    }
+  ],
+  "advancementThresholds": {
+    "first": 6,
+    "second": 12,
+    "third": 18,
+    "fourth": 24
+  }
+}
