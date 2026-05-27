@@ -232,6 +232,44 @@ var movedPlayer = movedMatch.Placements.Single(placement => placement.PlayerId =
 Assert(movedPlayer.Square == new PitchSquare(3, 0), "moved player should keep destination square");
 Assert(movedMatch.Activations.Count == 1, "movement should activate the player");
 
+var pickupService = new MatchService(new FixedDiceRoller(d6: [2]));
+var pickupMatch = pickupService.MovePlayer(
+    offensiveTurnMatch with { Ball = new BallState { Square = new PitchSquare(2, 0) } },
+    ruleset,
+    loadedLeague.Teams[0],
+    playerToPlace.Id,
+    new(3, 0));
+
+Assert(pickupMatch.Ball.CarrierPlayerId == playerToPlace.Id, "moving over a loose ball should pick it up on a successful roll");
+Assert(pickupMatch.Placements.Single(placement => placement.PlayerId == playerToPlace.Id).Square == new PitchSquare(3, 0), "successful pickup should allow movement to continue");
+
+var failedPickupService = new MatchService(new FixedDiceRoller(d6: [1], d8: [5]));
+var failedPickupMatch = failedPickupService.MovePlayer(
+    offensiveTurnMatch with { Ball = new BallState { Square = new PitchSquare(2, 0) } },
+    ruleset,
+    loadedLeague.Teams[0],
+    playerToPlace.Id,
+    new(3, 0));
+Assert(failedPickupMatch.PendingReroll?.Kind == PendingRerollKind.Pickup, "failed pickup should offer a pending reroll before resolving failure");
+failedPickupMatch = failedPickupService.ResolvePendingReroll(failedPickupMatch, ruleset, loadedLeague.Teams[0], useTeamReroll: false);
+
+Assert(failedPickupMatch.Phase == MatchPhase.DefensiveTurn, "failed pickup should cause a turnover if the moving team does not recover the bounce");
+Assert(failedPickupMatch.Placements.Single(placement => placement.PlayerId == playerToPlace.Id).Square == new PitchSquare(2, 0), "failed pickup should stop movement on the pickup square");
+Assert(failedPickupMatch.Ball.Square == new PitchSquare(3, 0), "failed pickup should bounce the ball from the pickup square");
+
+var pickupRerollService = new MatchService(new FixedDiceRoller(d6: [1, 2]));
+var pickupRerollPendingMatch = pickupRerollService.MovePlayer(
+    offensiveTurnMatch with { Ball = new BallState { Square = new PitchSquare(2, 0) } },
+    ruleset,
+    loadedLeague.Teams[0],
+    playerToPlace.Id,
+    new(3, 0));
+var pickupRerollMatch = pickupRerollService.ResolvePendingReroll(pickupRerollPendingMatch, ruleset, loadedLeague.Teams[0], useTeamReroll: true);
+
+Assert(pickupRerollMatch.PendingReroll is null, "successful team reroll should clear pending pickup reroll");
+Assert(pickupRerollMatch.Ball.CarrierPlayerId == playerToPlace.Id, "successful pickup reroll should recover the ball");
+Assert(pickupRerollMatch.HomeRerollsRemaining == loadedLeague.Teams[0].Rerolls - 1, "team reroll should reduce remaining rerolls");
+
 var touchdownReadyMatch = offensiveTurnMatch with
 {
     Ball = new BallState { CarrierPlayerId = playerToPlace.Id },
@@ -486,6 +524,8 @@ var failedGoForItMatch = failedGoForItService.MovePlayer(
     loadedLeague.Teams[0],
     playerToPlace.Id,
     new(7, 0));
+Assert(failedGoForItMatch.PendingReroll?.Kind == PendingRerollKind.GoForIt, "failed go-for-it should offer a pending reroll before resolving failure");
+failedGoForItMatch = failedGoForItService.ResolvePendingReroll(failedGoForItMatch, ruleset, loadedLeague.Teams[0], useTeamReroll: false);
 var failedGoForItPlayer = failedGoForItMatch.Placements.Single(placement => placement.PlayerId == playerToPlace.Id);
 
 Assert(failedGoForItMatch.Phase == MatchPhase.DefensiveTurn, "failed offensive go-for-it should cause a turnover to defensive turn");
@@ -493,6 +533,54 @@ Assert(failedGoForItMatch.ActiveTeamId == awayLeague.Teams[0].Id, "failed offens
 Assert(failedGoForItPlayer.State == PlayerPitchState.Casualty, "failed go-for-it should resolve injury");
 Assert(failedGoForItMatch.Ball.CarrierPlayerId is null, "failed ball carrier go-for-it should drop the ball");
 Assert(failedGoForItMatch.Ball.Square == new PitchSquare(8, 0), "failed ball carrier go-for-it should scatter the ball");
+
+var dodgeReadyMatch = offensiveTurnMatch with
+{
+    Placements = offensiveTurnMatch.Placements
+        .Select(placement => placement.PlayerId == playerToPlace.Id
+            ? placement with { Square = new PitchSquare(1, 1), State = PlayerPitchState.Standing }
+            : placement.PlayerId == awayPlayerToPlace.Id
+                ? placement with { Square = new PitchSquare(2, 1), State = PlayerPitchState.Standing }
+                : placement)
+        .ToArray()
+};
+var dodgeService = new MatchService(new FixedDiceRoller(d6: [3]));
+var dodgedMatch = dodgeService.MovePlayer(dodgeReadyMatch, ruleset, loadedLeague.Teams[0], playerToPlace.Id, new(1, 2));
+
+Assert(dodgedMatch.Placements.Single(placement => placement.PlayerId == playerToPlace.Id).Square == new PitchSquare(1, 2), "successful dodge should move the player");
+Assert(dodgedMatch.Phase == MatchPhase.OffensivePlayerTurn, "successful dodge should not cause a turnover");
+
+var twoTackleZoneDodgeMatch = dodgeReadyMatch with
+{
+    Placements = dodgeReadyMatch.Placements
+        .Select(placement => placement.PlayerId == awayLeague.Teams[0].Players[1].Id
+            ? placement with { Square = new PitchSquare(1, 3), State = PlayerPitchState.Standing }
+            : placement)
+        .ToArray()
+};
+var markedDodgeService = new MatchService(new FixedDiceRoller(d6: [3, 6, 6], d8: [5]));
+var markedDodgeMatch = markedDodgeService.MovePlayer(twoTackleZoneDodgeMatch, ruleset, loadedLeague.Teams[0], playerToPlace.Id, new(1, 2));
+Assert(markedDodgeMatch.PendingReroll?.Kind == PendingRerollKind.Dodge, "failed marked dodge should offer a pending reroll");
+markedDodgeMatch = markedDodgeService.ResolvePendingReroll(markedDodgeMatch, ruleset, loadedLeague.Teams[0], useTeamReroll: false);
+
+Assert(markedDodgeMatch.Phase == MatchPhase.DefensiveTurn, "dodging into two opposing tackle zones should need worse than a 3+");
+Assert(markedDodgeMatch.Placements.Single(placement => placement.PlayerId == playerToPlace.Id).State != PlayerPitchState.Standing, "failed marked dodge should knock the player down");
+
+var failedDodgeService = new MatchService(new FixedDiceRoller(d6: [1, 6, 6, 6, 6], d8: [5]));
+var failedDodgeMatch = failedDodgeService.MovePlayer(
+    dodgeReadyMatch with { Ball = new BallState { CarrierPlayerId = playerToPlace.Id } },
+    ruleset,
+    loadedLeague.Teams[0],
+    playerToPlace.Id,
+    new(1, 2));
+Assert(failedDodgeMatch.PendingReroll?.Kind == PendingRerollKind.Dodge, "failed dodge should offer a pending reroll before resolving failure");
+failedDodgeMatch = failedDodgeService.ResolvePendingReroll(failedDodgeMatch, ruleset, loadedLeague.Teams[0], useTeamReroll: false);
+var failedDodgePlayer = failedDodgeMatch.Placements.Single(placement => placement.PlayerId == playerToPlace.Id);
+
+Assert(failedDodgeMatch.Phase == MatchPhase.DefensiveTurn, "failed dodge should cause a turnover");
+Assert(failedDodgePlayer.Square == new PitchSquare(1, 2), "failed dodge should knock the player down in the destination square");
+Assert(failedDodgePlayer.State == PlayerPitchState.Casualty, "failed dodge should resolve injury");
+Assert(failedDodgeMatch.Ball.Square == new PitchSquare(2, 2), "failed dodge by ball carrier should scatter the ball");
 
 var defensiveTurnMatch = matchService.AdvancePhase(movedMatch);
 Assert(defensiveTurnMatch.Phase == MatchPhase.DefensiveTurn, "offensive player turn should advance to defensive turn");

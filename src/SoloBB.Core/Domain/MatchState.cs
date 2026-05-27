@@ -15,11 +15,15 @@ public sealed record MatchState
     public MatchPhase Phase { get; init; } = MatchPhase.DefenseSetup;
     public int HomeScore { get; init; }
     public int AwayScore { get; init; }
+    public int HomeRerollsRemaining { get; init; }
+    public int AwayRerollsRemaining { get; init; }
     public BallState Ball { get; init; } = new();
     public IReadOnlyList<PlayerPlacement> Placements { get; init; } = [];
     public IReadOnlyList<PlayerTurnActivation> Activations { get; init; } = [];
+    public IReadOnlyList<TeamRerollUse> TeamRerollUses { get; init; } = [];
     public PendingBlockChoice? PendingBlock { get; init; }
     public PendingInterceptionChoice? PendingInterception { get; init; }
+    public PendingRerollChoice? PendingReroll { get; init; }
     public IReadOnlyList<MatchLogEntry> Log { get; init; } = [];
 }
 
@@ -60,6 +64,13 @@ public sealed record PlayerTurnActivation
     public PlayerTurnAction Action { get; init; } = PlayerTurnAction.Move;
 }
 
+public sealed record TeamRerollUse
+{
+    public required Guid TeamId { get; init; }
+    public int Half { get; init; }
+    public int Turn { get; init; }
+}
+
 public enum PlayerTurnAction
 {
     Move,
@@ -90,6 +101,35 @@ public sealed record PendingInterceptionChoice
     public required int PassRoll { get; init; }
     public required int PassTarget { get; init; }
     public required string PassRangeName { get; init; }
+}
+
+public sealed record PendingRerollChoice
+{
+    public required Guid TeamId { get; init; }
+    public required Guid PlayerId { get; init; }
+    public required PendingRerollKind Kind { get; init; }
+    public required int Roll { get; init; }
+    public required int Target { get; init; }
+    public bool TeamRerollAvailable { get; init; }
+    public IReadOnlyList<string> SkillRerollIds { get; init; } = [];
+    public required PendingRerollContext Context { get; init; }
+}
+
+public enum PendingRerollKind
+{
+    Dodge,
+    GoForIt,
+    Pickup
+}
+
+public sealed record PendingRerollContext
+{
+    public required MatchState MatchBeforeRoll { get; init; }
+    public required PlayerTurnAction Action { get; init; }
+    public required PitchSquare Destination { get; init; }
+    public required IReadOnlyList<PitchSquare> Path { get; init; }
+    public required int StepIndex { get; init; }
+    public int GoForItNumber { get; init; }
 }
 
 public enum PlayerPitchState

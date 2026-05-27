@@ -34,6 +34,8 @@ public sealed class MatchService
             ActiveTeamId = awayTeam.Id,
             FirstHalfReceivingTeamId = homeTeam.Id,
             Phase = MatchPhase.DefenseSetup,
+            HomeRerollsRemaining = homeTeam.Rerolls,
+            AwayRerollsRemaining = awayTeam.Rerolls,
             Placements = CreateInitialPlacements(homeTeam, awayTeam),
             Log =
             [
@@ -75,6 +77,7 @@ public sealed class MatchService
             Phase = nextPhase,
             ActiveTeamId = nextActiveTeam,
             Activations = [],
+            PendingReroll = null,
             Log = [.. match.Log, new MatchLogEntry { Message = message }]
         };
     }
@@ -104,6 +107,7 @@ public sealed class MatchService
             ActiveTeamId = nextActiveTeam,
             Turn = GetTeamTurn(consumedTurnMatch, nextActiveTeam),
             Activations = [],
+            PendingReroll = null,
             Log =
             [
                 .. consumedTurnMatch.Log,
@@ -661,6 +665,11 @@ public sealed class MatchService
             throw new InvalidOperationException("Players can only move during a player turn.");
         }
 
+        if (match.PendingReroll is not null)
+        {
+            throw new InvalidOperationException("Resolve the pending reroll before taking another action.");
+        }
+
         if (team.Id != match.ActiveTeamId)
         {
             throw new InvalidOperationException("Only the active team can move during its turn.");
@@ -686,46 +695,117 @@ public sealed class MatchService
             throw new InvalidOperationException("Only standing players on the pitch can move.");
         }
 
-        if (match.Placements.Any(current => current.PlayerId != playerId && current.Square == destination))
-        {
-            throw new InvalidOperationException($"Square {destination.X},{destination.Y} is already occupied.");
-        }
-
         if (GetActivation(match, playerId, team.Id) is not null)
         {
             throw new InvalidOperationException($"{player.Name} has already been activated this turn.");
         }
 
-        var distance = Math.Max(Math.Abs(destination.X - placement.Square.X), Math.Abs(destination.Y - placement.Square.Y));
-        var goForItsUsed = Math.Max(0, distance - player.Stats.Movement);
+        var path = BuildMovementPath(placement.Square!, destination);
+        if (path.Length == 0)
+        {
+            throw new InvalidOperationException("Choose a different square to move to.");
+        }
+
+        if (path.Any(square => match.Placements.Any(current => current.PlayerId != playerId && current.Square == square)))
+        {
+            throw new InvalidOperationException("Movement paths cannot pass through occupied squares.");
+        }
+
+        var goForItsUsed = Math.Max(0, path.Length - player.Stats.Movement);
         if (goForItsUsed > MaxGoForItsPerActivation)
         {
-            throw new InvalidOperationException($"{player.Name} can move {player.Stats.Movement} squares plus {MaxGoForItsPerActivation} go-for-its, not {distance}.");
+            throw new InvalidOperationException($"{player.Name} can move {player.Stats.Movement} squares plus {MaxGoForItsPerActivation} go-for-its, not {path.Length}.");
         }
 
         var nextMatch = AddActivation(match, playerId, team.Id, action, goForItsUsed);
+        var goForItNumber = 0;
 
-        for (var goForIt = 1; goForIt <= goForItsUsed; goForIt++)
+        for (var stepIndex = 0; stepIndex < path.Length; stepIndex++)
         {
-            var roll = _dice.RollD6();
-            if (roll == 1)
+            var currentPlacement = nextMatch.Placements.First(current => current.PlayerId == playerId);
+            var currentSquare = currentPlacement.Square!;
+            var nextSquare = path[stepIndex];
+
+            if (IsMarkedByOpponent(nextMatch, team.Id, playerId, currentSquare))
             {
-                return ResolveFailedGoForIt(nextMatch, ruleset, team, player, placement, destination, goForIt, roll);
+                var dodgeRoll = _dice.RollD6();
+                var opposingTackleZones = CountOpposingTackleZones(nextMatch, team.Id, playerId, nextSquare);
+                var dodgeTarget = DodgeTarget(player, opposingTackleZones);
+                if (!RollSucceeds(dodgeRoll, dodgeTarget, ruleset.Dice))
+                {
+                    return CreatePendingMovementReroll(
+                        nextMatch,
+                        team,
+                        player,
+                        PendingRerollKind.Dodge,
+                        dodgeRoll,
+                        dodgeTarget,
+                        action,
+                        destination,
+                        path,
+                        stepIndex);
+                }
+
+                nextMatch = nextMatch with
+                {
+                    Log =
+                    [
+                        .. nextMatch.Log,
+                        new MatchLogEntry { Message = $"{player.Name} dodges from {currentSquare.X},{currentSquare.Y} to {nextSquare.X},{nextSquare.Y}: rolled {dodgeRoll} vs {dodgeTarget}+ ({opposingTackleZones} opposing tackle zones), success." }
+                    ]
+                };
+            }
+
+            if (stepIndex >= player.Stats.Movement)
+            {
+                goForItNumber++;
+                var roll = _dice.RollD6();
+                if (roll == 1)
+                {
+                    return CreatePendingMovementReroll(
+                        nextMatch,
+                        team,
+                        player,
+                        PendingRerollKind.GoForIt,
+                        roll,
+                        2,
+                        action,
+                        destination,
+                        path,
+                        stepIndex,
+                        goForItNumber);
+                }
+
+                nextMatch = nextMatch with
+                {
+                    Log = [.. nextMatch.Log, new MatchLogEntry { Message = $"{player.Name} go-for-it {goForItNumber}/{goForItsUsed}: rolled {roll}, success." }]
+                };
             }
 
             nextMatch = nextMatch with
             {
-                Log = [.. nextMatch.Log, new MatchLogEntry { Message = $"{player.Name} go-for-it {goForIt}/{goForItsUsed}: rolled {roll}, success." }]
+                Placements = nextMatch.Placements
+                    .Select(current => current.PlayerId == playerId
+                        ? current with { Square = nextSquare }
+                        : current)
+                    .ToArray()
             };
+
+            if (nextMatch.Ball.CarrierPlayerId is null && nextMatch.Ball.Square == nextSquare)
+            {
+                var pickupMatch = ResolvePickup(nextMatch, ruleset, team, player, nextSquare, action, destination, path, stepIndex);
+                if (pickupMatch.Ball.CarrierPlayerId == playerId)
+                {
+                    nextMatch = pickupMatch;
+                    continue;
+                }
+
+                return pickupMatch;
+            }
         }
 
-        var movedMatch = nextMatch with
+        var completedMoveMatch = nextMatch with
         {
-            Placements = nextMatch.Placements
-                .Select(current => current.PlayerId == playerId
-                    ? current with { Square = destination }
-                    : current)
-                .ToArray(),
             Activations = nextMatch.Activations,
             Log =
             [
@@ -734,9 +814,9 @@ public sealed class MatchService
             ]
         };
 
-        return IsTouchdown(movedMatch, ruleset, team, playerId, destination)
-            ? ScoreTouchdown(movedMatch, ruleset, team)
-            : movedMatch;
+        return IsTouchdown(completedMoveMatch, ruleset, team, playerId, destination)
+            ? ScoreTouchdown(completedMoveMatch, ruleset, team)
+            : completedMoveMatch;
     }
 
     private MatchState ResolveBlock(
@@ -868,6 +948,16 @@ public sealed class MatchService
             placement.State == PlayerPitchState.Standing &&
             placement.Square is PitchSquare square &&
             IsAdjacent(square, assistingSquare));
+    }
+
+    private static bool IsMarkedByOpponent(MatchState match, Guid teamId, Guid playerId, PitchSquare square)
+    {
+        return match.Placements.Any(placement =>
+            placement.TeamId != teamId &&
+            placement.PlayerId != playerId &&
+            placement.State == PlayerPitchState.Standing &&
+            placement.Square is PitchSquare opponentSquare &&
+            IsAdjacent(opponentSquare, square));
     }
 
     private static int ResolveBlockDice(int attackerStrength, int defenderStrength)
@@ -1058,6 +1148,392 @@ public sealed class MatchService
         return ApplyTurnover(fallenMatch, ruleset, team.Id);
     }
 
+    private MatchState ResolveFailedDodge(
+        MatchState match,
+        Ruleset ruleset,
+        LeagueTeam team,
+        Player player,
+        PitchSquare destination,
+        int roll,
+        int target)
+    {
+        var injuryState = ResolveFallInjury(player);
+        var ball = match.Ball;
+        var log = new List<MatchLogEntry>
+        {
+            new() { Message = $"{player.Name} dodges to {destination.X},{destination.Y}: rolled {roll} vs {target}+, failed." },
+            new() { Message = $"{player.Name} falls at {destination.X},{destination.Y} and is {FormatPitchState(injuryState)}." }
+        };
+
+        if (ball.CarrierPlayerId == player.Id)
+        {
+            var scatterSquare = ScatterFrom(ruleset, destination);
+            ball = new BallState { Square = scatterSquare };
+            log.Add(new MatchLogEntry { Message = $"Ball scatters to {scatterSquare.X},{scatterSquare.Y}." });
+        }
+
+        var fallenMatch = match with
+        {
+            Ball = ball,
+            Placements = match.Placements
+                .Select(current => current.PlayerId == player.Id
+                    ? current with { Square = destination, State = injuryState }
+                    : current)
+                .ToArray(),
+            Log = [.. match.Log, .. log]
+        };
+
+        return ApplyTurnover(fallenMatch, ruleset, team.Id);
+    }
+
+    private MatchState ResolvePickup(
+        MatchState match,
+        Ruleset ruleset,
+        LeagueTeam team,
+        Player player,
+        PitchSquare square,
+        PlayerTurnAction action,
+        PitchSquare destination,
+        IReadOnlyList<PitchSquare> path,
+        int stepIndex)
+    {
+        var opposingTackleZones = CountOpposingTackleZones(match, team.Id, player.Id, square);
+        var target = PickupTarget(player, opposingTackleZones);
+        var roll = _dice.RollD6();
+
+        if (RollSucceeds(roll, target, ruleset.Dice))
+        {
+            return match with
+            {
+                Ball = new BallState { CarrierPlayerId = player.Id },
+                Log =
+                [
+                    .. match.Log,
+                    new MatchLogEntry { Message = $"{player.Name} picks up the ball on {roll} vs {target}+ ({opposingTackleZones} opposing tackle zones)." }
+                ]
+            };
+        }
+
+        return CreatePendingMovementReroll(
+            match,
+            team,
+            player,
+            PendingRerollKind.Pickup,
+            roll,
+            target,
+            action,
+            destination,
+            path,
+            stepIndex);
+    }
+
+    public MatchState ResolvePendingReroll(
+        MatchState match,
+        Ruleset ruleset,
+        LeagueTeam team,
+        bool useTeamReroll,
+        string? skillId = null)
+    {
+        var pending = match.PendingReroll
+            ?? throw new InvalidOperationException("There is no pending reroll.");
+
+        if (pending.TeamId != team.Id)
+        {
+            throw new InvalidOperationException("Pending reroll belongs to another team.");
+        }
+
+        if (useTeamReroll && !pending.TeamRerollAvailable)
+        {
+            throw new InvalidOperationException($"{team.Name} has no team rerolls available.");
+        }
+
+        if (!string.IsNullOrWhiteSpace(skillId) && !pending.SkillRerollIds.Contains(skillId))
+        {
+            throw new InvalidOperationException("That skill reroll is not available.");
+        }
+
+        var baseMatch = pending.Context.MatchBeforeRoll with { PendingReroll = null };
+        var player = FindTeamPlayer(team, pending.PlayerId);
+        if (!useTeamReroll && string.IsNullOrWhiteSpace(skillId))
+        {
+            return ResolveDeclinedMovementReroll(baseMatch, ruleset, team, player, pending);
+        }
+
+        var reroll = _dice.RollD6();
+        var rerolledMatch = useTeamReroll
+            ? SpendTeamReroll(baseMatch, team.Id)
+            : baseMatch;
+        rerolledMatch = rerolledMatch with
+        {
+            Log =
+            [
+                .. rerolledMatch.Log,
+                new MatchLogEntry
+                {
+                    Message = useTeamReroll
+                        ? $"{team.Name} uses a team reroll: {FormatRerollKind(pending.Kind)} rerolled from {pending.Roll} to {reroll} vs {pending.Target}+."
+                        : $"{player.Name} uses {skillId}: {FormatRerollKind(pending.Kind)} rerolled from {pending.Roll} to {reroll} vs {pending.Target}+."
+                }
+            ]
+        };
+
+        if (!RollSucceeds(reroll, pending.Target, ruleset.Dice))
+        {
+            return ResolveDeclinedMovementReroll(rerolledMatch, ruleset, team, player, pending with { Roll = reroll });
+        }
+
+        return ContinueMovementAfterRerollSuccess(rerolledMatch, ruleset, team, player, pending, reroll);
+    }
+
+    private MatchState CreatePendingMovementReroll(
+        MatchState match,
+        LeagueTeam team,
+        Player player,
+        PendingRerollKind kind,
+        int roll,
+        int target,
+        PlayerTurnAction action,
+        PitchSquare destination,
+        IReadOnlyList<PitchSquare> path,
+        int stepIndex,
+        int goForItNumber = 0)
+    {
+        return match with
+        {
+            PendingReroll = new PendingRerollChoice
+            {
+                TeamId = team.Id,
+                PlayerId = player.Id,
+                Kind = kind,
+                Roll = roll,
+                Target = target,
+                TeamRerollAvailable = CanUseTeamReroll(match, team.Id),
+                SkillRerollIds = AvailableSkillRerolls(player, kind),
+                Context = new PendingRerollContext
+                {
+                    MatchBeforeRoll = match,
+                    Action = action,
+                    Destination = destination,
+                    Path = path.ToArray(),
+                    StepIndex = stepIndex,
+                    GoForItNumber = goForItNumber
+                }
+            },
+            Log =
+            [
+                .. match.Log,
+                new MatchLogEntry { Message = $"{player.Name} failed {FormatRerollKind(kind)} on {roll} vs {target}+. Choose whether to reroll." }
+            ]
+        };
+    }
+
+    private MatchState ResolveDeclinedMovementReroll(
+        MatchState match,
+        Ruleset ruleset,
+        LeagueTeam team,
+        Player player,
+        PendingRerollChoice pending)
+    {
+        var square = pending.Context.Path[pending.Context.StepIndex];
+        return pending.Kind switch
+        {
+            PendingRerollKind.Dodge => ResolveFailedDodge(match, ruleset, team, player, square, pending.Roll, pending.Target),
+            PendingRerollKind.GoForIt => ResolveFailedGoForIt(
+                match,
+                ruleset,
+                team,
+                player,
+                match.Placements.First(placement => placement.PlayerId == player.Id),
+                square,
+                pending.Context.GoForItNumber,
+                pending.Roll),
+            PendingRerollKind.Pickup => ResolveFailedPickup(match, ruleset, team, player, square, pending.Roll, pending.Target),
+            _ => throw new InvalidOperationException("Unknown reroll kind.")
+        };
+    }
+
+    private MatchState ContinueMovementAfterRerollSuccess(
+        MatchState match,
+        Ruleset ruleset,
+        LeagueTeam team,
+        Player player,
+        PendingRerollChoice pending,
+        int reroll)
+    {
+        var context = pending.Context;
+        var path = context.Path.ToArray();
+        var nextMatch = match;
+        var stepIndex = context.StepIndex;
+        var nextSquare = path[stepIndex];
+        var goForItNumber = context.GoForItNumber;
+
+        nextMatch = nextMatch with
+        {
+            Log =
+            [
+                .. nextMatch.Log,
+                new MatchLogEntry { Message = $"{player.Name} succeeds on the rerolled {FormatRerollKind(pending.Kind)}." }
+            ]
+        };
+
+        if (pending.Kind == PendingRerollKind.Dodge && stepIndex >= player.Stats.Movement)
+        {
+            goForItNumber++;
+            var goForItRoll = _dice.RollD6();
+            if (goForItRoll == 1)
+            {
+                return CreatePendingMovementReroll(
+                    nextMatch,
+                    team,
+                    player,
+                    PendingRerollKind.GoForIt,
+                    goForItRoll,
+                    2,
+                    context.Action,
+                    context.Destination,
+                    path,
+                    stepIndex,
+                    goForItNumber);
+            }
+
+            nextMatch = nextMatch with
+            {
+                Log = [.. nextMatch.Log, new MatchLogEntry { Message = $"{player.Name} go-for-it {goForItNumber}: rolled {goForItRoll}, success." }]
+            };
+        }
+
+        nextMatch = nextMatch with
+        {
+            Placements = nextMatch.Placements
+                .Select(current => current.PlayerId == player.Id
+                    ? current with { Square = nextSquare }
+                    : current)
+                .ToArray()
+        };
+
+        if (pending.Kind != PendingRerollKind.Pickup &&
+            nextMatch.Ball.CarrierPlayerId is null &&
+            nextMatch.Ball.Square == nextSquare)
+        {
+            var pickupMatch = ResolvePickup(nextMatch, ruleset, team, player, nextSquare, context.Action, context.Destination, path, stepIndex);
+            if (pickupMatch.Ball.CarrierPlayerId != player.Id)
+            {
+                return pickupMatch;
+            }
+
+            nextMatch = pickupMatch;
+        }
+        else if (pending.Kind == PendingRerollKind.Pickup)
+        {
+            nextMatch = nextMatch with { Ball = new BallState { CarrierPlayerId = player.Id } };
+        }
+
+        return ContinueMovementFromStep(nextMatch, ruleset, team, player, context.Action, context.Destination, path, stepIndex + 1, goForItNumber);
+    }
+
+    private MatchState ContinueMovementFromStep(
+        MatchState match,
+        Ruleset ruleset,
+        LeagueTeam team,
+        Player player,
+        PlayerTurnAction action,
+        PitchSquare destination,
+        IReadOnlyList<PitchSquare> path,
+        int startStepIndex,
+        int goForItNumber)
+    {
+        var nextMatch = match;
+        for (var stepIndex = startStepIndex; stepIndex < path.Count; stepIndex++)
+        {
+            var currentPlacement = nextMatch.Placements.First(current => current.PlayerId == player.Id);
+            var currentSquare = currentPlacement.Square!;
+            var nextSquare = path[stepIndex];
+
+            if (IsMarkedByOpponent(nextMatch, team.Id, player.Id, currentSquare))
+            {
+                var dodgeRoll = _dice.RollD6();
+                var opposingTackleZones = CountOpposingTackleZones(nextMatch, team.Id, player.Id, nextSquare);
+                var dodgeTarget = DodgeTarget(player, opposingTackleZones);
+                if (!RollSucceeds(dodgeRoll, dodgeTarget, ruleset.Dice))
+                {
+                    return CreatePendingMovementReroll(nextMatch, team, player, PendingRerollKind.Dodge, dodgeRoll, dodgeTarget, action, destination, path, stepIndex, goForItNumber);
+                }
+
+                nextMatch = nextMatch with
+                {
+                    Log = [.. nextMatch.Log, new MatchLogEntry { Message = $"{player.Name} dodges from {currentSquare.X},{currentSquare.Y} to {nextSquare.X},{nextSquare.Y}: rolled {dodgeRoll} vs {dodgeTarget}+, success." }]
+                };
+            }
+
+            if (stepIndex >= player.Stats.Movement)
+            {
+                goForItNumber++;
+                var roll = _dice.RollD6();
+                if (roll == 1)
+                {
+                    return CreatePendingMovementReroll(nextMatch, team, player, PendingRerollKind.GoForIt, roll, 2, action, destination, path, stepIndex, goForItNumber);
+                }
+
+                nextMatch = nextMatch with
+                {
+                    Log = [.. nextMatch.Log, new MatchLogEntry { Message = $"{player.Name} go-for-it {goForItNumber}: rolled {roll}, success." }]
+                };
+            }
+
+            nextMatch = nextMatch with
+            {
+                Placements = nextMatch.Placements
+                    .Select(current => current.PlayerId == player.Id
+                        ? current with { Square = nextSquare }
+                        : current)
+                    .ToArray()
+            };
+
+            if (nextMatch.Ball.CarrierPlayerId is null && nextMatch.Ball.Square == nextSquare)
+            {
+                var pickupMatch = ResolvePickup(nextMatch, ruleset, team, player, nextSquare, action, destination, path, stepIndex);
+                if (pickupMatch.Ball.CarrierPlayerId != player.Id)
+                {
+                    return pickupMatch;
+                }
+
+                nextMatch = pickupMatch;
+            }
+        }
+
+        var completedMoveMatch = nextMatch with
+        {
+            Log = [.. nextMatch.Log, new MatchLogEntry { Message = $"Moved {player.Name} to {destination.X},{destination.Y}." }]
+        };
+
+        return IsTouchdown(completedMoveMatch, ruleset, team, player.Id, destination)
+            ? ScoreTouchdown(completedMoveMatch, ruleset, team)
+            : completedMoveMatch;
+    }
+
+    private MatchState ResolveFailedPickup(MatchState match, Ruleset ruleset, LeagueTeam team, Player player, PitchSquare square, int roll, int target)
+    {
+        var bounceSquare = ScatterFrom(ruleset, square);
+        var bouncedMatch = BounceBall(
+            match with
+            {
+                Ball = new BallState(),
+                Log =
+                [
+                    .. match.Log,
+                    new MatchLogEntry { Message = $"{player.Name} fails to pick up the ball on {roll} vs {target}+." },
+                    new MatchLogEntry { Message = $"Ball bounces to {bounceSquare.X},{bounceSquare.Y}." }
+                ]
+            },
+            ruleset,
+            team,
+            bounceSquare);
+
+        return bouncedMatch.Ball.CarrierPlayerId is Guid carrierId && FindPlacement(bouncedMatch, carrierId)?.TeamId == team.Id
+            ? bouncedMatch
+            : ApplyTurnover(bouncedMatch, ruleset, team.Id);
+    }
+
     private MatchState ApplyTurnover(MatchState match, Ruleset ruleset, Guid turnoverTeamId)
     {
         var nextMatch = match.Phase switch
@@ -1077,6 +1553,66 @@ public sealed class MatchService
         };
     }
 
+    private static int TeamRerollsRemaining(MatchState match, Guid teamId)
+    {
+        return teamId == match.HomeTeamId ? match.HomeRerollsRemaining : match.AwayRerollsRemaining;
+    }
+
+    private static bool CanUseTeamReroll(MatchState match, Guid teamId)
+    {
+        return TeamRerollsRemaining(match, teamId) > 0 &&
+            !match.TeamRerollUses.Any(use =>
+                use.TeamId == teamId &&
+                use.Half == match.Half &&
+                use.Turn == match.Turn);
+    }
+
+    private static MatchState SpendTeamReroll(MatchState match, Guid teamId)
+    {
+        var nextUses = match.TeamRerollUses
+            .Append(new TeamRerollUse { TeamId = teamId, Half = match.Half, Turn = match.Turn })
+            .ToArray();
+
+        if (teamId == match.HomeTeamId)
+        {
+            return match with
+            {
+                HomeRerollsRemaining = Math.Max(0, match.HomeRerollsRemaining - 1),
+                TeamRerollUses = nextUses
+            };
+        }
+
+        return match with
+        {
+            AwayRerollsRemaining = Math.Max(0, match.AwayRerollsRemaining - 1),
+            TeamRerollUses = nextUses
+        };
+    }
+
+    private static IReadOnlyList<string> AvailableSkillRerolls(Player player, PendingRerollKind kind)
+    {
+        var skillIds = kind switch
+        {
+            PendingRerollKind.Dodge => new[] { "dodge" },
+            PendingRerollKind.Pickup => new[] { "sure-hands", "sure hands" },
+            PendingRerollKind.GoForIt => new[] { "sure-feet", "sure feet" },
+            _ => []
+        };
+
+        return player.Skills
+            .Where(skill => skillIds.Contains(skill, StringComparer.OrdinalIgnoreCase))
+            .ToArray();
+    }
+
+    private static string FormatRerollKind(PendingRerollKind kind)
+    {
+        return kind switch
+        {
+            PendingRerollKind.GoForIt => "go-for-it",
+            _ => kind.ToString().ToLowerInvariant()
+        };
+    }
+
     private MatchState EndActivePlayerTurn(MatchState match, Ruleset? ruleset, string? message)
     {
         var consumedTurnMatch = IncrementTeamTurn(match, match.ActiveTeamId);
@@ -1092,6 +1628,7 @@ public sealed class MatchService
             ActiveTeamId = nextActiveTeam,
             Turn = GetTeamTurn(consumedTurnMatch, nextActiveTeam),
             Activations = [],
+            PendingReroll = null,
             Log = message is null
                 ? consumedTurnMatch.Log
                 : [.. consumedTurnMatch.Log, new MatchLogEntry { Message = message }]
@@ -1112,6 +1649,7 @@ public sealed class MatchService
             Activations = [],
             PendingBlock = null,
             PendingInterception = null,
+            PendingReroll = null,
             Log = [.. match.Log, new MatchLogEntry { Message = "Full time. Match complete." }]
         };
     }
@@ -1134,6 +1672,7 @@ public sealed class MatchService
             Activations = [],
             PendingBlock = null,
             PendingInterception = null,
+            PendingReroll = null,
             Log = [.. match.Log, new MatchLogEntry { Message = "Second half begins. First-half receiving team kicks off." }]
         };
     }
@@ -1198,6 +1737,7 @@ public sealed class MatchService
             Ball = new BallState(),
             Placements = resetPlacements,
             Activations = [],
+            PendingReroll = null,
             Log =
             [
                 .. consumedTurnMatch.Log,
@@ -1342,6 +1882,26 @@ public sealed class MatchService
         return Math.Clamp(player.Stats.Agility, 2, 6);
     }
 
+    private static int DodgeTarget(Player player, int opposingTackleZones)
+    {
+        return Math.Clamp(player.Stats.Agility - 1 + opposingTackleZones, 2, 6);
+    }
+
+    private static int PickupTarget(Player player, int opposingTackleZones)
+    {
+        return Math.Clamp(player.Stats.Agility - 1 + opposingTackleZones, 2, 6);
+    }
+
+    private static int CountOpposingTackleZones(MatchState match, Guid teamId, Guid playerId, PitchSquare square)
+    {
+        return match.Placements.Count(placement =>
+            placement.TeamId != teamId &&
+            placement.PlayerId != playerId &&
+            placement.State == PlayerPitchState.Standing &&
+            placement.Square is PitchSquare opponentSquare &&
+            IsAdjacent(opponentSquare, square));
+    }
+
     private static int InterceptionTarget(Player player)
     {
         return Math.Clamp(player.Stats.Agility + 2, 2, 6);
@@ -1428,6 +1988,22 @@ public sealed class MatchService
         }
 
         return roll >= target;
+    }
+
+    private static PitchSquare[] BuildMovementPath(PitchSquare start, PitchSquare destination)
+    {
+        var path = new List<PitchSquare>();
+        var currentX = start.X;
+        var currentY = start.Y;
+
+        while (currentX != destination.X || currentY != destination.Y)
+        {
+            currentX += Math.Sign(destination.X - currentX);
+            currentY += Math.Sign(destination.Y - currentY);
+            path.Add(new PitchSquare(currentX, currentY));
+        }
+
+        return path.ToArray();
     }
 
     private static bool IsReceivingSide(Ruleset ruleset, Guid receivingTeamId, Guid homeTeamId, PitchSquare square)
