@@ -6,6 +6,9 @@ public sealed class LeagueService
 {
     private const int MaximumRosterPlayers = 16;
     private const int FanFactorCost = 10_000;
+    private const int CheerleaderCost = 10_000;
+    private const int AssistantCoachCost = 10_000;
+    private const int ApothecaryCost = 50_000;
 
     public League CreateLeague(string name, Ruleset ruleset, IEnumerable<RosterSet> rosterSets, int targetTeamCount = 2)
     {
@@ -44,7 +47,10 @@ public sealed class LeagueService
         TeamRoster roster,
         IEnumerable<PlayerDraftPick> draft,
         int rerolls = 0,
-        int fanFactor = 1)
+        int fanFactor = 1,
+        int cheerleaders = 0,
+        int assistantCoaches = 0,
+        int apothecaries = 0)
     {
         if (!league.RosterSetIds.Any())
         {
@@ -74,7 +80,9 @@ public sealed class LeagueService
             throw new InvalidOperationException("Fan factor must be at least 1.");
         }
 
-        var team = BuildTeam(Guid.NewGuid(), ruleset, teamName, coachName, roster, players, rerolls, fanFactor);
+        ValidateStaff(cheerleaders, assistantCoaches, apothecaries);
+
+        var team = BuildTeam(Guid.NewGuid(), ruleset, teamName, coachName, roster, players, rerolls, fanFactor, cheerleaders, assistantCoaches, apothecaries);
 
         return league with { Teams = [.. league.Teams, team] };
     }
@@ -116,7 +124,10 @@ public sealed class LeagueService
         TeamRoster roster,
         IEnumerable<PlayerDraftPick> draft,
         int rerolls = 0,
-        int fanFactor = 1)
+        int fanFactor = 1,
+        int cheerleaders = 0,
+        int assistantCoaches = 0,
+        int apothecaries = 0)
     {
         if (!league.Teams.Any(team => team.Id == teamId))
         {
@@ -146,7 +157,9 @@ public sealed class LeagueService
             throw new InvalidOperationException("Fan factor must be at least 1.");
         }
 
-        var updatedTeam = BuildTeam(teamId, ruleset, teamName, coachName, roster, players, rerolls, fanFactor);
+        ValidateStaff(cheerleaders, assistantCoaches, apothecaries);
+
+        var updatedTeam = BuildTeam(teamId, ruleset, teamName, coachName, roster, players, rerolls, fanFactor, cheerleaders, assistantCoaches, apothecaries);
 
         return league with
         {
@@ -164,12 +177,16 @@ public sealed class LeagueService
         TeamRoster roster,
         IReadOnlyList<Player> players,
         int rerolls,
-        int fanFactor)
+        int fanFactor,
+        int cheerleaders,
+        int assistantCoaches,
+        int apothecaries)
     {
         var playerCost = players.Sum(player => FindPosition(roster, player.PositionId).Cost);
         var rerollCost = rerolls * roster.RerollCost;
         var fanFactorCost = Math.Max(0, fanFactor - 1) * FanFactorCost;
-        var totalCost = playerCost + rerollCost + fanFactorCost;
+        var staffCost = (cheerleaders * CheerleaderCost) + (assistantCoaches * AssistantCoachCost) + (apothecaries * ApothecaryCost);
+        var totalCost = playerCost + rerollCost + fanFactorCost + staffCost;
 
         if (totalCost > ruleset.StartingTreasury)
         {
@@ -186,8 +203,29 @@ public sealed class LeagueService
             TeamValue = totalCost,
             Rerolls = rerolls,
             FanFactor = fanFactor,
+            Cheerleaders = cheerleaders,
+            AssistantCoaches = assistantCoaches,
+            Apothecaries = apothecaries,
             Players = players
         };
+    }
+
+    private static void ValidateStaff(int cheerleaders, int assistantCoaches, int apothecaries)
+    {
+        if (cheerleaders < 0)
+        {
+            throw new InvalidOperationException("Cheerleaders cannot be negative.");
+        }
+
+        if (assistantCoaches < 0)
+        {
+            throw new InvalidOperationException("Assistant coaches cannot be negative.");
+        }
+
+        if (apothecaries is < 0 or > 1)
+        {
+            throw new InvalidOperationException("Apothecaries must be between 0 and 1.");
+        }
     }
 
     private static ScheduledMatch[] CreateDoubleRoundRobinSchedule(IReadOnlyList<LeagueTeam> teams)

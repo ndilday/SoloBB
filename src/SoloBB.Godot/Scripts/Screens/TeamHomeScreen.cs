@@ -22,6 +22,9 @@ public partial class TeamHomeScreen : VBoxContainer
         AddChild(new Label { Text = $"Team Value: {FormatGold(team.TeamValue)}" });
         AddChild(new Label { Text = $"Treasury: {FormatGold(team.Treasury)}" });
         AddChild(new Label { Text = $"Players: {team.Players.Count}" });
+        AddChild(new Label { Text = $"Cheerleaders: {team.Cheerleaders}" });
+        AddChild(new Label { Text = $"Assistant Coaches: {team.AssistantCoaches}" });
+        AddChild(new Label { Text = $"Apothecaries: {team.Apothecaries}" });
 
         var backButton = new Button { Text = "Back" };
         backButton.Pressed += back;

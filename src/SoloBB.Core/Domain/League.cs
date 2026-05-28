@@ -31,6 +31,9 @@ public sealed record LeagueTeam
     public int TeamValue { get; init; }
     public int Rerolls { get; init; }
     public int FanFactor { get; init; }
+    public int Cheerleaders { get; init; }
+    public int AssistantCoaches { get; init; }
+    public int Apothecaries { get; init; }
     public IReadOnlyList<Player> Players { get; init; } = [];
 }
 

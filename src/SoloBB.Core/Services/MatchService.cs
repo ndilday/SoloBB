@@ -38,6 +38,12 @@ public sealed class MatchService
             AwayRerollsRemaining = awayTeam.Rerolls,
             HomeTeamRerolls = homeTeam.Rerolls,
             AwayTeamRerolls = awayTeam.Rerolls,
+            HomeCheerleaders = homeTeam.Cheerleaders,
+            AwayCheerleaders = awayTeam.Cheerleaders,
+            HomeAssistantCoaches = homeTeam.AssistantCoaches,
+            AwayAssistantCoaches = awayTeam.AssistantCoaches,
+            HomeApothecariesRemaining = homeTeam.Apothecaries,
+            AwayApothecariesRemaining = awayTeam.Apothecaries,
             Placements = CreateInitialPlacements(homeTeam, awayTeam),
             Log =
             [
@@ -91,6 +97,8 @@ public sealed class MatchService
             Activations = [],
             PendingPush = null,
             PendingReroll = null,
+            PendingApothecary = null,
+            PendingKickoffEvent = null,
             Log = [.. match.Log, new MatchLogEntry { Message = message }]
         };
     }
@@ -130,6 +138,8 @@ public sealed class MatchService
             Activations = [],
             PendingPush = null,
             PendingReroll = null,
+            PendingApothecary = null,
+            PendingKickoffEvent = null,
             Log =
             [
                 .. consumedTurnMatch.Log,
@@ -147,6 +157,11 @@ public sealed class MatchService
             throw new InvalidOperationException("Resolve the pending reroll before advancing the turn.");
         }
 
+        if (match.PendingApothecary is not null)
+        {
+            throw new InvalidOperationException("Resolve the pending apothecary choice before advancing the turn.");
+        }
+
         if (match.PendingBlock is not null)
         {
             throw new InvalidOperationException("Resolve the pending block choice before advancing the turn.");
@@ -160,6 +175,11 @@ public sealed class MatchService
         if (match.PendingInterception is not null)
         {
             throw new InvalidOperationException("Resolve the pending interception before advancing the turn.");
+        }
+
+        if (match.PendingKickoffEvent is not null)
+        {
+            throw new InvalidOperationException("Resolve the pending kickoff event before advancing the turn.");
         }
     }
 
@@ -654,7 +674,8 @@ public sealed class MatchService
         }
 
         var eventRoll = Roll2D6Detailed();
-        var eventResult = ResolveKickoffEvent(match, eventRoll.Total);
+        var kickingTeamId = GetOpponentTeamId(match, receivingTeam.Id);
+        var eventResult = ResolveKickoffEvent(match, ruleset, receivingTeam.Id, kickingTeamId, eventRoll.Total);
         var kickoffMatch = eventResult.Match;
         var scatterDistance = _dice.RollD6();
         var scatterSquare = ScatterFrom(ruleset, targetSquare, scatterDistance);
@@ -671,6 +692,26 @@ public sealed class MatchService
             scatterSquare = gustSquare;
         }
 
+        if (eventResult.PendingKind is KickoffEventKind pendingKind &&
+            IsReceivingSide(ruleset, receivingTeam.Id, match.HomeTeamId, scatterSquare))
+        {
+            var pending = CreatePendingKickoffEvent(kickoffMatch, ruleset, pendingKind, receivingTeam.Id, kickingTeamId, scatterSquare);
+            if (pending is not null)
+            {
+                return kickoffMatch with
+                {
+                    Ball = new BallState { Square = scatterSquare },
+                    PendingKickoffEvent = pending,
+                    Log =
+                    [
+                        .. kickoffMatch.Log,
+                        .. log,
+                        new MatchLogEntry { Message = $"{FormatKickoffEventKind(pendingKind)} requires a choice before the ball lands." }
+                    ]
+                };
+            }
+        }
+
         if (!IsReceivingSide(ruleset, receivingTeam.Id, match.HomeTeamId, scatterSquare))
         {
             var touchbackReceiver = FindTouchbackReceiver(kickoffMatch, receivingTeam)
@@ -681,6 +722,7 @@ public sealed class MatchService
                 Phase = MatchPhase.OffensivePlayerTurn,
                 Ball = new BallState { CarrierPlayerId = touchbackReceiver.Id },
                 Activations = [],
+                PendingKickoffEvent = null,
                 Log =
                 [
                     .. kickoffMatch.Log,
@@ -695,6 +737,7 @@ public sealed class MatchService
         {
             Phase = MatchPhase.OffensivePlayerTurn,
             Activations = [],
+            PendingKickoffEvent = null,
             Log =
             [
                 .. bouncedMatch.Log,
@@ -704,23 +747,374 @@ public sealed class MatchService
         };
     }
 
-    private KickoffEventResult ResolveKickoffEvent(MatchState match, int roll)
+    private KickoffEventResult ResolveKickoffEvent(MatchState match, Ruleset ruleset, Guid receivingTeamId, Guid kickingTeamId, int roll)
     {
         return roll switch
         {
-            2 => new KickoffEventResult(match, "Get the Ref", "Bribe/prayer effects are not implemented yet."),
-            3 => new KickoffEventResult(match, "Time-out", "Turn-marker adjustment is not implemented yet."),
-            4 => new KickoffEventResult(match, "Solid Defence", "Defensive setup repositioning is not implemented yet."),
-            5 => new KickoffEventResult(match, "High Kick", "Free receiver movement under the ball is not implemented yet."),
-            6 => new KickoffEventResult(match, "Cheering Fans", "Fan/prayer effects are not implemented yet."),
-            7 => new KickoffEventResult(match, "Brilliant Coaching", "Assistant coach/prayer effects are not implemented yet."),
+            2 => ResolveGetTheRef(match),
+            3 => ResolveTimeOut(match, ruleset),
+            4 => new KickoffEventResult(match, "Solid Defence", "The kicking team may reposition open players before the ball lands.", PendingKind: KickoffEventKind.SolidDefence),
+            5 => new KickoffEventResult(match, "High Kick", "The receiving team may move one open player under the ball.", PendingKind: KickoffEventKind.HighKick),
+            6 => ResolveCheeringFansOrBrilliantCoaching(match, receivingTeamId, kickingTeamId, "Cheering Fans", useCheerleaders: true),
+            7 => ResolveCheeringFansOrBrilliantCoaching(match, receivingTeamId, kickingTeamId, "Brilliant Coaching", useCheerleaders: false),
             8 => ResolveChangingWeather(match),
-            9 => new KickoffEventResult(match, "Quick Snap", "Offensive free movement is not implemented yet."),
-            10 => new KickoffEventResult(match, "Blitz", "Defensive free activation is not implemented yet."),
-            11 => new KickoffEventResult(match, "Throw a Rock", "Random player injury from the crowd is not implemented yet."),
-            12 => new KickoffEventResult(match, "Pitch Invasion", "Random player knockdown from the crowd is not implemented yet."),
+            9 => new KickoffEventResult(match, "Quick Snap", "The receiving team may move open players one square before the ball lands.", PendingKind: KickoffEventKind.QuickSnap),
+            10 => new KickoffEventResult(match, "Blitz", "The kicking team may move open players one square before the ball lands.", PendingKind: KickoffEventKind.Blitz),
+            11 => ResolveThrowARock(match),
+            12 => ResolvePitchInvasion(match),
             _ => new KickoffEventResult(match, "Kickoff", "No kickoff event.")
         };
+    }
+
+    public MatchState MovePendingKickoffEventPlayer(MatchState match, Ruleset ruleset, Guid playerId, PitchSquare destination)
+    {
+        var pending = match.PendingKickoffEvent
+            ?? throw new InvalidOperationException("There is no pending kickoff event.");
+
+        if (!pending.EligiblePlayerIds.Contains(playerId) || pending.MovedPlayerIds.Contains(playerId))
+        {
+            throw new InvalidOperationException("That player cannot move for this kickoff event.");
+        }
+
+        var placement = FindPlacement(match, playerId)
+            ?? throw new InvalidOperationException("Player is not part of this match.");
+
+        if (placement.TeamId != pending.TeamId || placement.Square is not PitchSquare source || placement.State != PlayerPitchState.Standing)
+        {
+            throw new InvalidOperationException("Only eligible standing players on the pitch can move for this kickoff event.");
+        }
+
+        if (!IsOnPitch(ruleset, destination))
+        {
+            throw new InvalidOperationException("Kickoff event movement must stay on the pitch.");
+        }
+
+        if (match.Placements.Any(current => current.PlayerId != playerId && current.Square == destination && OccupiesPitch(current.State)))
+        {
+            throw new InvalidOperationException("Kickoff event movement requires an empty destination.");
+        }
+
+        if (pending.Kind == KickoffEventKind.SolidDefence)
+        {
+            if (!IsLegalSetupSide(match, ruleset, pending.TeamId, destination))
+            {
+                throw new InvalidOperationException("Solid Defence must keep players on the kicking team's setup side.");
+            }
+
+            if (IsWideZone(ruleset, destination) && CountTeamPlayersInWideZone(match, ruleset, pending.TeamId, destination, playerId) >= 2)
+            {
+                throw new InvalidOperationException("Solid Defence cannot place more than two players in the same wide zone.");
+            }
+        }
+        else if (pending.Kind == KickoffEventKind.HighKick)
+        {
+            if (destination != pending.LandingSquare)
+            {
+                throw new InvalidOperationException("High Kick can only move the chosen player under the ball.");
+            }
+        }
+        else if (!IsAdjacent(source, destination))
+        {
+            throw new InvalidOperationException("This kickoff event allows a one-square move.");
+        }
+
+        var nextPending = pending with
+        {
+            MovedPlayerIds = [.. pending.MovedPlayerIds, playerId],
+            MovesRemaining = Math.Max(0, pending.MovesRemaining - 1)
+        };
+
+        return match with
+        {
+            Placements = match.Placements
+                .Select(current => current.PlayerId == playerId ? current with { Square = destination } : current)
+                .ToArray(),
+            PendingKickoffEvent = nextPending.MovesRemaining == 0 ? nextPending with { RequiresPlayerChoice = false } : nextPending,
+            Log =
+            [
+                .. match.Log,
+            new MatchLogEntry { Message = $"{FormatKickoffEventKind(pending.Kind)}: repositioned {playerId} to {destination.X},{destination.Y}." }
+            ]
+        };
+    }
+
+    public MatchState BlockDuringPendingKickoffBlitz(
+        MatchState match,
+        Ruleset ruleset,
+        LeagueTeam kickingTeam,
+        Guid attackerPlayerId,
+        LeagueTeam receivingTeam,
+        Guid defenderPlayerId)
+    {
+        var pending = match.PendingKickoffEvent
+            ?? throw new InvalidOperationException("There is no pending kickoff event.");
+
+        if (pending.Kind != KickoffEventKind.Blitz)
+        {
+            throw new InvalidOperationException("Only a Blitz kickoff event allows a free block.");
+        }
+
+        if (pending.TeamId != kickingTeam.Id || pending.ReceivingTeamId != receivingTeam.Id)
+        {
+            throw new InvalidOperationException("Kickoff blitz teams do not match the pending event.");
+        }
+
+        if (!pending.EligiblePlayerIds.Contains(attackerPlayerId) || pending.MovedPlayerIds.Contains(attackerPlayerId))
+        {
+            throw new InvalidOperationException("That player cannot act for this kickoff blitz.");
+        }
+
+        if (match.PendingBlock is not null || match.PendingPush is not null)
+        {
+            throw new InvalidOperationException("Resolve the pending block or push before continuing the kickoff blitz.");
+        }
+
+        var attacker = FindTeamPlayer(kickingTeam, attackerPlayerId);
+        var defender = FindTeamPlayer(receivingTeam, defenderPlayerId);
+        var attackerPlacement = match.Placements.FirstOrDefault(placement => placement.PlayerId == attackerPlayerId)
+            ?? throw new InvalidOperationException("Attacker is not part of this match.");
+        var defenderPlacement = match.Placements.FirstOrDefault(placement => placement.PlayerId == defenderPlayerId)
+            ?? throw new InvalidOperationException("Defender is not part of this match.");
+
+        if (attackerPlacement.TeamId != kickingTeam.Id ||
+            defenderPlacement.TeamId != receivingTeam.Id ||
+            attackerPlacement.Square is not PitchSquare attackerSquare ||
+            defenderPlacement.Square is not PitchSquare defenderSquare ||
+            attackerPlacement.State != PlayerPitchState.Standing ||
+            defenderPlacement.State != PlayerPitchState.Standing ||
+            !IsAdjacent(attackerSquare, defenderSquare))
+        {
+            throw new InvalidOperationException("Kickoff blitz blocks require adjacent standing opponents.");
+        }
+
+        var nextPending = pending with
+        {
+            MovedPlayerIds = [.. pending.MovedPlayerIds, attackerPlayerId],
+            MovesRemaining = Math.Max(0, pending.MovesRemaining - 1)
+        };
+        var markedMatch = match with
+        {
+            PendingKickoffEvent = nextPending.MovesRemaining == 0 ? nextPending with { RequiresPlayerChoice = false } : nextPending
+        };
+
+        return ResolveBlock(markedMatch, ruleset, kickingTeam, attacker, attackerPlacement, receivingTeam, defender);
+    }
+
+    public MatchState CompletePendingKickoffEvent(MatchState match, Ruleset ruleset, LeagueTeam receivingTeam)
+    {
+        var pending = match.PendingKickoffEvent
+            ?? throw new InvalidOperationException("There is no pending kickoff event.");
+
+        if (pending.ReceivingTeamId != receivingTeam.Id)
+        {
+            throw new InvalidOperationException("The receiving team must resolve the pending kickoff landing.");
+        }
+
+        var landingSquare = pending.LandingSquare;
+        var baseMatch = match with { PendingKickoffEvent = null };
+        if (pending.Kind == KickoffEventKind.SolidDefence)
+        {
+            ValidateSetupComplete(baseMatch, ruleset, pending.TeamId);
+        }
+
+        if (!IsReceivingSide(ruleset, receivingTeam.Id, match.HomeTeamId, landingSquare))
+        {
+            var touchbackReceiver = FindTouchbackReceiver(baseMatch, receivingTeam)
+                ?? throw new InvalidOperationException("Receiving team has no standing player for touchback.");
+
+            return baseMatch with
+            {
+                Phase = MatchPhase.OffensivePlayerTurn,
+                Ball = new BallState { CarrierPlayerId = touchbackReceiver.Id },
+                Activations = [],
+                Log =
+                [
+                    .. baseMatch.Log,
+                    new MatchLogEntry { Message = $"Touchback after {FormatKickoffEventKind(pending.Kind)}. {touchbackReceiver.Name} receives the ball." }
+                ]
+            };
+        }
+
+        var landedMatch = ResolveBallLanding(baseMatch, ruleset, receivingTeam, landingSquare);
+        return landedMatch with
+        {
+            Phase = MatchPhase.OffensivePlayerTurn,
+            Activations = [],
+            Log =
+            [
+                .. landedMatch.Log,
+                new MatchLogEntry { Message = $"{FormatKickoffEventKind(pending.Kind)} complete. Kickoff resolved. Offensive player turn begins." }
+            ]
+        };
+    }
+
+    private PendingKickoffEventChoice? CreatePendingKickoffEvent(
+        MatchState match,
+        Ruleset ruleset,
+        KickoffEventKind kind,
+        Guid receivingTeamId,
+        Guid kickingTeamId,
+        PitchSquare landingSquare)
+    {
+        var teamId = kind is KickoffEventKind.SolidDefence or KickoffEventKind.Blitz
+            ? kickingTeamId
+            : receivingTeamId;
+        var eligible = match.Placements
+            .Where(placement =>
+                placement.TeamId == teamId &&
+                placement.State == PlayerPitchState.Standing &&
+                placement.Square is PitchSquare square &&
+                !IsMarkedByOpponent(match, teamId, placement.PlayerId, square))
+            .ToArray();
+
+        if (kind == KickoffEventKind.HighKick)
+        {
+            if (match.Placements.Any(placement => placement.Square == landingSquare && OccupiesPitch(placement.State)))
+            {
+                eligible = eligible.Where(placement => placement.Square == landingSquare).ToArray();
+            }
+
+            if (eligible.Length == 0)
+            {
+                return null;
+            }
+
+            return new PendingKickoffEventChoice
+            {
+                Kind = kind,
+                TeamId = teamId,
+                ReceivingTeamId = receivingTeamId,
+                LandingSquare = landingSquare,
+                EligiblePlayerIds = eligible.Select(placement => placement.PlayerId).ToArray(),
+                MovedPlayerIds = [],
+                MovesRemaining = 1
+            };
+        }
+
+        if (kind != KickoffEventKind.SolidDefence)
+        {
+            eligible = eligible
+                .Where(placement => placement.Square is PitchSquare square &&
+                    AdjacentSquares(square).Any(candidate =>
+                        IsOnPitch(ruleset, candidate) &&
+                        !match.Placements.Any(current => current.PlayerId != placement.PlayerId && current.Square == candidate && OccupiesPitch(current.State))))
+                .ToArray();
+        }
+
+        if (eligible.Length == 0)
+        {
+            return null;
+        }
+
+        var moves = Math.Min(eligible.Length, RollD3() + 3);
+        return new PendingKickoffEventChoice
+        {
+            Kind = kind,
+            TeamId = teamId,
+            ReceivingTeamId = receivingTeamId,
+            LandingSquare = landingSquare,
+            EligiblePlayerIds = eligible.Select(placement => placement.PlayerId).ToArray(),
+            MovedPlayerIds = [],
+            MovesRemaining = moves
+        };
+    }
+
+    private KickoffEventResult ResolveTimeOut(MatchState match, Ruleset ruleset)
+    {
+        var roll = _dice.RollD6();
+        var adjustment = roll <= 3 ? -1 : 1;
+        var homeTurn = Math.Clamp(match.HomeTurn + adjustment, 1, ruleset.TurnsPerHalf + 1);
+        var awayTurn = Math.Clamp(match.AwayTurn + adjustment, 1, ruleset.TurnsPerHalf + 1);
+        var direction = adjustment < 0 ? "back" : "forward";
+        return new KickoffEventResult(
+            match with { HomeTurn = homeTurn, AwayTurn = awayTurn, Turn = GetTeamTurn(match with { HomeTurn = homeTurn, AwayTurn = awayTurn }, match.ActiveTeamId) },
+            "Time-out",
+            $"Time-out roll {roll}: both turn markers move {direction} one space.");
+    }
+
+    private static KickoffEventResult ResolveGetTheRef(MatchState match)
+    {
+        return new KickoffEventResult(
+            match with
+            {
+                HomeBribesRemaining = match.HomeBribesRemaining + 1,
+                AwayBribesRemaining = match.AwayBribesRemaining + 1
+            },
+            "Get the Ref",
+            "Both teams gain one bribe.");
+    }
+
+    private KickoffEventResult ResolveCheeringFansOrBrilliantCoaching(MatchState match, Guid receivingTeamId, Guid kickingTeamId, string name, bool useCheerleaders)
+    {
+        var receivingStaff = TeamKickoffStaff(match, receivingTeamId, useCheerleaders);
+        var kickingStaff = TeamKickoffStaff(match, kickingTeamId, useCheerleaders);
+        var receivingRoll = RollD3() + receivingStaff;
+        var kickingRoll = RollD3() + kickingStaff;
+        if (receivingRoll == kickingRoll)
+        {
+            return new KickoffEventResult(match, name, $"Receiving coach total {receivingRoll}, kicking coach total {kickingRoll}; no bonus reroll.");
+        }
+
+        var winnerTeamId = receivingRoll > kickingRoll ? receivingTeamId : kickingTeamId;
+        var nextMatch = winnerTeamId == match.HomeTeamId
+            ? match with { HomeRerollsRemaining = match.HomeRerollsRemaining + 1 }
+            : match with { AwayRerollsRemaining = match.AwayRerollsRemaining + 1 };
+        return new KickoffEventResult(nextMatch, name, $"Receiving coach total {receivingRoll}, kicking coach total {kickingRoll}; winner gains a bonus reroll for the drive.");
+    }
+
+    private KickoffEventResult ResolveThrowARock(MatchState match)
+    {
+        var candidates = match.Placements
+            .Where(placement => placement.State == PlayerPitchState.Standing && placement.Square is not null)
+            .ToArray();
+        if (candidates.Length == 0)
+        {
+            return new KickoffEventResult(match, "Throw a Rock", "No standing players are on the pitch.");
+        }
+
+        var victim = candidates[RollIndex(candidates.Length)];
+        var injury = ResolveInjury(Roll2D6());
+        var apothecary = CreatePendingApothecaryIfAvailable(match, victim, victim.PlayerId.ToString(), injury);
+        injury = apothecary.Injury;
+        var nextMatch = apothecary.Match with
+        {
+            Placements = apothecary.Match.Placements
+                .Select(placement => placement.PlayerId == victim.PlayerId
+                    ? ApplyPitchState(apothecary.Match, placement, injury.State, OccupiesPitch(injury.State) ? placement.Square : null, injury.Casualty)
+                    : placement)
+                .ToArray()
+        };
+        var casualtyText = injury.Casualty is null ? "" : $" Casualty roll {injury.Casualty.Roll}: {FormatCasualtyResult(injury.Casualty.Result)}.";
+        var apothecaryText = apothecary.Log.Count == 0 ? "" : $" {apothecary.Log[0].Message}";
+        return new KickoffEventResult(nextMatch, "Throw a Rock", $"{victim.PlayerId} is hit by a rock and is {FormatPitchState(injury.State)}.{casualtyText}{apothecaryText}");
+    }
+
+    private KickoffEventResult ResolvePitchInvasion(MatchState match)
+    {
+        var stunned = new List<Guid>();
+        var nextPlacements = match.Placements
+            .Select(placement =>
+            {
+                if (placement.State != PlayerPitchState.Standing || placement.Square is null)
+                {
+                    return placement;
+                }
+
+                var roll = _dice.RollD6();
+                if (roll < 6)
+                {
+                    return placement;
+                }
+
+                stunned.Add(placement.PlayerId);
+                return ApplyPitchState(match, placement, PlayerPitchState.Stunned, placement.Square);
+            })
+            .ToArray();
+
+        return new KickoffEventResult(
+            match with { Placements = nextPlacements },
+            "Pitch Invasion",
+            stunned.Count == 0 ? "The crowd surges, but no players are stunned." : $"The crowd stuns {stunned.Count} player{(stunned.Count == 1 ? "" : "s")}.");
     }
 
     private KickoffEventResult ResolveChangingWeather(MatchState match)
@@ -732,7 +1126,7 @@ public sealed class MatchService
         var message = extraScatter
             ? $"Weather roll {weatherRoll}: {FormatWeather(weather)}. A gentle gust will scatter the ball one extra square."
             : $"Weather roll {weatherRoll}: {FormatWeather(weather)}.";
-        return new KickoffEventResult(nextMatch, "Changing Weather", message, extraScatter);
+        return new KickoffEventResult(nextMatch, "Changing Weather", message, ExtraScatter: extraScatter);
     }
 
     public MatchState BlockPlayer(
@@ -964,6 +1358,9 @@ public sealed class MatchService
             var injuryRoll = Roll2D6Detailed();
             sentOff = sentOff || injuryRoll.IsDoubles;
             var injury = ResolveInjury(injuryRoll.Total);
+            var apothecary = CreatePendingApothecaryIfAvailable(nextMatch, victimPlacement, victim.Name, injury);
+            nextMatch = apothecary.Match;
+            injury = apothecary.Injury;
             nextMatch = nextMatch with
             {
                 Placements = nextMatch.Placements
@@ -977,6 +1374,7 @@ public sealed class MatchService
             {
                 log.Add(new MatchLogEntry { Message = $"{victim.Name} casualty roll {injury.Casualty.Roll}: {FormatCasualtyResult(injury.Casualty.Result)}." });
             }
+            log.AddRange(apothecary.Log);
         }
         else
         {
@@ -988,6 +1386,24 @@ public sealed class MatchService
         if (!sentOff)
         {
             return nextMatch;
+        }
+
+        if (TeamBribesRemaining(nextMatch, foulingTeam.Id) > 0)
+        {
+            var bribeRoll = _dice.RollD6();
+            var bribedMatch = SpendBribe(nextMatch, foulingTeam.Id);
+            if (bribeRoll >= 2)
+            {
+                return bribedMatch with
+                {
+                    Log = [.. bribedMatch.Log, new MatchLogEntry { Message = $"{foulingTeam.Name} uses a bribe: rolled {bribeRoll}, {fouler.Name} is not sent off." }]
+                };
+            }
+
+            nextMatch = bribedMatch with
+            {
+                Log = [.. bribedMatch.Log, new MatchLogEntry { Message = $"{foulingTeam.Name} uses a bribe: rolled {bribeRoll}, bribe failed." }]
+            };
         }
 
         var sentOffMatch = nextMatch with
@@ -1541,11 +1957,16 @@ public sealed class MatchService
     {
         var log = new List<MatchLogEntry>();
         var nextMatch = match;
+        var apothecary = CreatePendingApothecaryIfAvailable(nextMatch, placement, player.Name, injury);
+        nextMatch = apothecary.Match;
+        injury = apothecary.Injury;
+        log.AddRange(apothecary.Log);
+
         if (match.Ball.CarrierPlayerId == player.Id)
         {
             var scatterSquare = ScatterFrom(ruleset, square);
             var landing = ResolveLooseBallLanding(ruleset, scatterSquare);
-            nextMatch = match with { Ball = new BallState { Square = landing.Square } };
+            nextMatch = nextMatch with { Ball = new BallState { Square = landing.Square } };
             log.AddRange(landing.Log.Prepend(new MatchLogEntry { Message = $"Ball scatters to {scatterSquare.X},{scatterSquare.Y}." }));
         }
 
@@ -1701,6 +2122,9 @@ public sealed class MatchService
     private MatchState PushPlayerIntoCrowd(MatchState match, Ruleset ruleset, PlayerPlacement placement)
     {
         var injuryState = ResolveInjury(Roll2D6());
+        var apothecary = CreatePendingApothecaryIfAvailable(match, placement, placement.PlayerId.ToString(), injuryState);
+        match = apothecary.Match;
+        injuryState = apothecary.Injury;
         var crowdState = injuryState.State is PlayerPitchState.KnockedOut or PlayerPitchState.Casualty or PlayerPitchState.Dead
             ? injuryState.State
             : PlayerPitchState.Reserve;
@@ -1723,6 +2147,7 @@ public sealed class MatchService
         {
             crowdLog.Add(new MatchLogEntry { Message = $"{placement.PlayerId} casualty roll {injuryState.Casualty.Roll}: {FormatCasualtyResult(injuryState.Casualty.Result)}." });
         }
+        crowdLog.AddRange(apothecary.Log);
         crowdLog.AddRange(log);
 
         return match with
@@ -1902,6 +2327,9 @@ public sealed class MatchService
         int roll)
     {
         var injury = ResolveFallInjury(player);
+        var apothecary = CreatePendingApothecaryIfAvailable(match, placement, player.Name, injury);
+        var injuryMatch = apothecary.Match;
+        injury = apothecary.Injury;
         var ball = match.Ball;
         var log = new List<MatchLogEntry>
         {
@@ -1912,6 +2340,7 @@ public sealed class MatchService
         {
             log.Add(new MatchLogEntry { Message = $"{player.Name} casualty roll {injury.Casualty.Roll}: {FormatCasualtyResult(injury.Casualty.Result)}." });
         }
+        log.AddRange(apothecary.Log);
 
         if (ball.CarrierPlayerId == player.Id)
         {
@@ -1922,15 +2351,15 @@ public sealed class MatchService
             log.AddRange(landing.Log);
         }
 
-        var fallenMatch = match with
+        var fallenMatch = injuryMatch with
         {
             Ball = ball,
-            Placements = match.Placements
+            Placements = injuryMatch.Placements
                 .Select(current => current.PlayerId == player.Id
-                    ? ApplyPitchState(match, current, injury.State, OccupiesPitch(injury.State) ? destination : null, injury.Casualty)
+                    ? ApplyPitchState(injuryMatch, current, injury.State, OccupiesPitch(injury.State) ? destination : null, injury.Casualty)
                     : current)
                 .ToArray(),
-            Log = [.. match.Log, .. log]
+            Log = [.. injuryMatch.Log, .. log]
         };
 
         return ApplyTurnover(fallenMatch, ruleset, team.Id);
@@ -1946,6 +2375,11 @@ public sealed class MatchService
         int target)
     {
         var injury = ResolveFallInjury(player);
+        var placement = FindPlacement(match, player.Id)
+            ?? throw new InvalidOperationException("Player is not part of this match.");
+        var apothecary = CreatePendingApothecaryIfAvailable(match, placement, player.Name, injury);
+        var injuryMatch = apothecary.Match;
+        injury = apothecary.Injury;
         var ball = match.Ball;
         var log = new List<MatchLogEntry>
         {
@@ -1956,6 +2390,7 @@ public sealed class MatchService
         {
             log.Add(new MatchLogEntry { Message = $"{player.Name} casualty roll {injury.Casualty.Roll}: {FormatCasualtyResult(injury.Casualty.Result)}." });
         }
+        log.AddRange(apothecary.Log);
 
         if (ball.CarrierPlayerId == player.Id)
         {
@@ -1966,15 +2401,15 @@ public sealed class MatchService
             log.AddRange(landing.Log);
         }
 
-        var fallenMatch = match with
+        var fallenMatch = injuryMatch with
         {
             Ball = ball,
-            Placements = match.Placements
+            Placements = injuryMatch.Placements
                 .Select(current => current.PlayerId == player.Id
-                    ? ApplyPitchState(match, current, injury.State, OccupiesPitch(injury.State) ? destination : null, injury.Casualty)
+                    ? ApplyPitchState(injuryMatch, current, injury.State, OccupiesPitch(injury.State) ? destination : null, injury.Casualty)
                     : current)
                 .ToArray(),
-            Log = [.. match.Log, .. log]
+            Log = [.. injuryMatch.Log, .. log]
         };
 
         return ApplyTurnover(fallenMatch, ruleset, team.Id);
@@ -2083,6 +2518,70 @@ public sealed class MatchService
         }
 
         return ContinueMovementAfterRerollSuccess(rerolledMatch, ruleset, team, opposingTeam, player, pending, reroll);
+    }
+
+    public MatchState ResolvePendingApothecary(MatchState match, LeagueTeam team, bool useApothecary)
+    {
+        var pending = match.PendingApothecary
+            ?? throw new InvalidOperationException("There is no pending apothecary choice.");
+
+        if (pending.TeamId != team.Id)
+        {
+            throw new InvalidOperationException("Pending apothecary choice belongs to another team.");
+        }
+
+        if (!useApothecary)
+        {
+            return match with
+            {
+                PendingApothecary = null,
+                Log =
+                [
+                    .. match.Log,
+                    new MatchLogEntry { Message = $"{team.Name} declines to use an apothecary." }
+                ]
+            };
+        }
+
+        if (TeamApothecariesRemaining(match, team.Id) <= 0)
+        {
+            throw new InvalidOperationException($"{team.Name} has no apothecary available.");
+        }
+
+        var player = FindTeamPlayer(team, pending.PlayerId);
+        var rerolledCasualtyRoll = RollD16();
+        var rerolledCasualty = new CasualtyRoll
+        {
+            Roll = rerolledCasualtyRoll,
+            Result = ResolveCasualty(rerolledCasualtyRoll)
+        };
+        var chosen = CasualtySeverity(rerolledCasualty.Result) < CasualtySeverity(pending.OriginalCasualty.Result)
+            ? rerolledCasualty
+            : pending.OriginalCasualty;
+        var finalState = chosen.Result == CasualtyResult.Dead ? PlayerPitchState.Dead : PlayerPitchState.Casualty;
+        var spentMatch = SpendApothecary(match, team.Id);
+
+        return spentMatch with
+        {
+            PendingApothecary = null,
+            Placements = spentMatch.Placements
+                .Select(placement => placement.PlayerId == pending.PlayerId
+                    ? placement with
+                    {
+                        State = finalState,
+                        Square = null,
+                        Casualty = chosen,
+                        StunnedRecoveryHalf = null,
+                        StunnedRecoveryTurn = null
+                    }
+                    : placement)
+                .ToArray(),
+            Log =
+            [
+                .. spentMatch.Log,
+                new MatchLogEntry { Message = $"{team.Name} uses an apothecary for {player.Name}: rolled {rerolledCasualty.Roll}, {FormatCasualtyResult(rerolledCasualty.Result)}; final result {FormatCasualtyResult(chosen.Result)}." }
+            ]
+        };
     }
 
     private MatchState CreatePendingMovementReroll(
@@ -2399,6 +2898,7 @@ public sealed class MatchService
             PendingPush = null,
             PendingInterception = null,
             PendingReroll = null,
+            PendingKickoffEvent = null,
             Log =
             [
                 .. nextMatch.Log,
@@ -2441,6 +2941,76 @@ public sealed class MatchService
             AwayRerollsRemaining = Math.Max(0, match.AwayRerollsRemaining - 1),
             TeamRerollUses = nextUses
         };
+    }
+
+    private static int TeamBribesRemaining(MatchState match, Guid teamId)
+    {
+        return teamId == match.HomeTeamId ? match.HomeBribesRemaining : match.AwayBribesRemaining;
+    }
+
+    private static MatchState SpendBribe(MatchState match, Guid teamId)
+    {
+        return teamId == match.HomeTeamId
+            ? match with { HomeBribesRemaining = Math.Max(0, match.HomeBribesRemaining - 1) }
+            : match with { AwayBribesRemaining = Math.Max(0, match.AwayBribesRemaining - 1) };
+    }
+
+    private static int TeamApothecariesRemaining(MatchState match, Guid teamId)
+    {
+        return teamId == match.HomeTeamId ? match.HomeApothecariesRemaining : match.AwayApothecariesRemaining;
+    }
+
+    private static MatchState SpendApothecary(MatchState match, Guid teamId)
+    {
+        return teamId == match.HomeTeamId
+            ? match with { HomeApothecariesRemaining = Math.Max(0, match.HomeApothecariesRemaining - 1) }
+            : match with { AwayApothecariesRemaining = Math.Max(0, match.AwayApothecariesRemaining - 1) };
+    }
+
+    private static ApothecaryResolution CreatePendingApothecaryIfAvailable(MatchState match, PlayerPlacement placement, string playerName, InjuryResolution injury)
+    {
+        if (injury.Casualty is null || TeamApothecariesRemaining(match, placement.TeamId) <= 0)
+        {
+            return new ApothecaryResolution(match, injury, []);
+        }
+
+        return new ApothecaryResolution(
+            match with
+            {
+                PendingApothecary = new PendingApothecaryChoice
+                {
+                    TeamId = placement.TeamId,
+                    PlayerId = placement.PlayerId,
+                    OriginalCasualty = injury.Casualty
+                }
+            },
+            injury,
+            [
+                new MatchLogEntry { Message = $"{playerName} may use an apothecary on {FormatCasualtyResult(injury.Casualty.Result)}." }
+            ]);
+    }
+
+    private static int CasualtySeverity(CasualtyResult result)
+    {
+        return result switch
+        {
+            CasualtyResult.BadlyHurt => 1,
+            CasualtyResult.SeriouslyHurt => 2,
+            CasualtyResult.SeriousInjury => 3,
+            CasualtyResult.LastingInjury => 4,
+            CasualtyResult.Dead => 5,
+            _ => 5
+        };
+    }
+
+    private static int TeamKickoffStaff(MatchState match, Guid teamId, bool cheerleaders)
+    {
+        if (teamId == match.HomeTeamId)
+        {
+            return cheerleaders ? match.HomeCheerleaders : match.HomeAssistantCoaches;
+        }
+
+        return cheerleaders ? match.AwayCheerleaders : match.AwayAssistantCoaches;
     }
 
     private static IReadOnlyList<string> AvailableSkillRerolls(Player player, PendingRerollKind kind)
@@ -2507,6 +3077,7 @@ public sealed class MatchService
             PendingPush = null,
             PendingInterception = null,
             PendingReroll = null,
+            PendingKickoffEvent = null,
             Log = [.. match.Log, new MatchLogEntry { Message = "Full time. Match complete." }]
         };
     }
@@ -2537,6 +3108,7 @@ public sealed class MatchService
             PendingPush = null,
             PendingInterception = null,
             PendingReroll = null,
+            PendingKickoffEvent = null,
             Log = [.. recoveredMatch.Log, new MatchLogEntry { Message = "Second half begins. First-half receiving team kicks off." }]
         };
     }
@@ -2605,6 +3177,7 @@ public sealed class MatchService
             Activations = [],
             PendingPush = null,
             PendingReroll = null,
+            PendingKickoffEvent = null,
             Log =
             [
                     .. knockoutRecoveredMatch.Log,
@@ -2806,6 +3379,21 @@ public sealed class MatchService
     private int Roll2D6()
     {
         return _dice.RollD6() + _dice.RollD6();
+    }
+
+    private int RollD3()
+    {
+        return ((_dice.RollD6() - 1) / 2) + 1;
+    }
+
+    private int RollIndex(int count)
+    {
+        if (count <= 0)
+        {
+            throw new InvalidOperationException("Cannot roll an index for an empty set.");
+        }
+
+        return (_dice.RollD6() - 1) % count;
     }
 
     private DiceRoll2D6 Roll2D6Detailed()
@@ -3166,6 +3754,34 @@ public sealed class MatchService
         return Math.Max(Math.Abs(first.X - second.X), Math.Abs(first.Y - second.Y)) == 1;
     }
 
+    private static IEnumerable<PitchSquare> AdjacentSquares(PitchSquare square)
+    {
+        for (var y = square.Y - 1; y <= square.Y + 1; y++)
+        {
+            for (var x = square.X - 1; x <= square.X + 1; x++)
+            {
+                if (x == square.X && y == square.Y)
+                {
+                    continue;
+                }
+
+                yield return new PitchSquare(x, y);
+            }
+        }
+    }
+
+    private static string FormatKickoffEventKind(KickoffEventKind kind)
+    {
+        return kind switch
+        {
+            KickoffEventKind.SolidDefence => "Solid Defence",
+            KickoffEventKind.HighKick => "High Kick",
+            KickoffEventKind.QuickSnap => "Quick Snap",
+            KickoffEventKind.Blitz => "Blitz",
+            _ => kind.ToString()
+        };
+    }
+
     private static IReadOnlyList<PlayerPlacement> CreateInitialPlacements(LeagueTeam homeTeam, LeagueTeam awayTeam)
     {
         return
@@ -3200,7 +3816,9 @@ public sealed record BallLanding(PitchSquare Square, IReadOnlyList<MatchLogEntry
 
 sealed record InjuryResolution(PlayerPitchState State, CasualtyRoll? Casualty = null);
 
-sealed record KickoffEventResult(MatchState Match, string Name, string Message, bool ExtraScatter = false);
+sealed record ApothecaryResolution(MatchState Match, InjuryResolution Injury, IReadOnlyList<MatchLogEntry> Log);
+
+sealed record KickoffEventResult(MatchState Match, string Name, string Message, KickoffEventKind? PendingKind = null, bool ExtraScatter = false);
 
 public interface IDiceRoller
 {

@@ -15,12 +15,18 @@ public sealed record TeamDraftRequest(
     TeamRoster Roster,
     IReadOnlyList<PlayerDraftPick> Draft,
     int Rerolls,
-    int FanFactor);
+    int FanFactor,
+    int Cheerleaders,
+    int AssistantCoaches,
+    int Apothecaries);
 
 public partial class TeamCreationScreen : VBoxContainer
 {
     private const int MaximumRosterPlayers = 16;
     private const int FanFactorCost = 10_000;
+    private const int CheerleaderCost = 10_000;
+    private const int AssistantCoachCost = 10_000;
+    private const int ApothecaryCost = 50_000;
     private readonly Dictionary<string, SpinBox> _positionCounts = new(StringComparer.OrdinalIgnoreCase);
 
     private Ruleset _ruleset = null!;
@@ -32,6 +38,9 @@ public partial class TeamCreationScreen : VBoxContainer
     private Label _rerollCostLabel = null!;
     private SpinBox _rerollsSpin = null!;
     private SpinBox _fanFactorSpin = null!;
+    private SpinBox _cheerleadersSpin = null!;
+    private SpinBox _assistantCoachesSpin = null!;
+    private SpinBox _apothecariesSpin = null!;
     private GridContainer _positionGrid = null!;
     private Label _summaryLabel = null!;
     private Button _saveButton = null!;
@@ -86,6 +95,21 @@ public partial class TeamCreationScreen : VBoxContainer
         economyGrid.AddChild(new Label { Text = FormatGold(FanFactorCost) });
         _fanFactorSpin = CreateSpinBox(1, 9, editingTeam?.FanFactor ?? 1);
         economyGrid.AddChild(_fanFactorSpin);
+
+        economyGrid.AddChild(new Label { Text = "Cheerleaders" });
+        economyGrid.AddChild(new Label { Text = FormatGold(CheerleaderCost) });
+        _cheerleadersSpin = CreateSpinBox(0, 12, editingTeam?.Cheerleaders ?? 0);
+        economyGrid.AddChild(_cheerleadersSpin);
+
+        economyGrid.AddChild(new Label { Text = "Assistant Coaches" });
+        economyGrid.AddChild(new Label { Text = FormatGold(AssistantCoachCost) });
+        _assistantCoachesSpin = CreateSpinBox(0, 12, editingTeam?.AssistantCoaches ?? 0);
+        economyGrid.AddChild(_assistantCoachesSpin);
+
+        economyGrid.AddChild(new Label { Text = "Apothecary" });
+        economyGrid.AddChild(new Label { Text = FormatGold(ApothecaryCost) });
+        _apothecariesSpin = CreateSpinBox(0, 1, editingTeam?.Apothecaries ?? 0);
+        economyGrid.AddChild(_apothecariesSpin);
 
         _positionGrid = new GridContainer { Columns = 10 };
         AddChild(_positionGrid);
@@ -203,7 +227,10 @@ public partial class TeamCreationScreen : VBoxContainer
             _selectedRoster,
             CreateDraft(_selectedRoster),
             (int)_rerollsSpin.Value,
-            (int)_fanFactorSpin.Value);
+            (int)_fanFactorSpin.Value,
+            (int)_cheerleadersSpin.Value,
+            (int)_assistantCoachesSpin.Value,
+            (int)_apothecariesSpin.Value);
 
         await _saveTeam(request);
     }
@@ -251,7 +278,10 @@ public partial class TeamCreationScreen : VBoxContainer
 
         var rerollCost = (int)_rerollsSpin.Value * _selectedRoster.RerollCost;
         var fanFactorCost = Math.Max(0, (int)_fanFactorSpin.Value - 1) * FanFactorCost;
-        var totalCost = playerCost + rerollCost + fanFactorCost;
+        var staffCost = ((int)_cheerleadersSpin.Value * CheerleaderCost) +
+            ((int)_assistantCoachesSpin.Value * AssistantCoachCost) +
+            ((int)_apothecariesSpin.Value * ApothecaryCost);
+        var totalCost = playerCost + rerollCost + fanFactorCost + staffCost;
         var treasury = _ruleset.StartingTreasury - totalCost;
         var isReady = playerCount >= _ruleset.PlayersPerSide && playerCount <= MaximumRosterPlayers && treasury >= 0;
         var status = isReady ? "Ready" : "Needs work";
@@ -277,6 +307,21 @@ public partial class TeamCreationScreen : VBoxContainer
         _fanFactorSpin.MaxValue = treasury >= FanFactorCost
             ? 9
             : fanFactorValue;
+
+        var cheerleaderValue = (int)_cheerleadersSpin.Value;
+        _cheerleadersSpin.MaxValue = treasury >= CheerleaderCost
+            ? 12
+            : cheerleaderValue;
+
+        var assistantCoachValue = (int)_assistantCoachesSpin.Value;
+        _assistantCoachesSpin.MaxValue = treasury >= AssistantCoachCost
+            ? 12
+            : assistantCoachValue;
+
+        var apothecaryValue = (int)_apothecariesSpin.Value;
+        _apothecariesSpin.MaxValue = treasury >= ApothecaryCost
+            ? 1
+            : apothecaryValue;
 
         foreach (var position in _selectedRoster.Positions)
         {

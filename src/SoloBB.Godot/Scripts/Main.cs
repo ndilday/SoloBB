@@ -305,7 +305,10 @@ public partial class Main : Control
                     request.Roster,
                     request.Draft,
                     rerolls: request.Rerolls,
-                    fanFactor: request.FanFactor)
+                    fanFactor: request.FanFactor,
+                    cheerleaders: request.Cheerleaders,
+                    assistantCoaches: request.AssistantCoaches,
+                    apothecaries: request.Apothecaries)
                 : _leagueService.AddTeam(
                     _activeLeague,
                     _ruleset,
@@ -314,7 +317,10 @@ public partial class Main : Control
                     request.Roster,
                     request.Draft,
                     rerolls: request.Rerolls,
-                    fanFactor: request.FanFactor);
+                    fanFactor: request.FanFactor,
+                    cheerleaders: request.Cheerleaders,
+                    assistantCoaches: request.AssistantCoaches,
+                    apothecaries: request.Apothecaries);
 
             await SaveActiveLeagueAsync();
             ShowLeagueTeamsScreen();

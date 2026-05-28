@@ -106,6 +106,23 @@ paidFanFactorLeague = leagueService.AddTeam(
 Assert(paidFanFactorLeague.Teams[0].Treasury == 440_000, "fan factor above one should cost 10,000 gp per point");
 Assert(paidFanFactorLeague.Teams[0].TeamValue == 560_000, "team value should include paid fan factor");
 
+var staffLeague = leagueService.CreateLeague("Staff League", ruleset, [rosterSet]);
+staffLeague = leagueService.AddTeam(
+    staffLeague,
+    ruleset,
+    "Smoke Staff",
+    "Tester",
+    humanRoster,
+    Enumerable.Range(1, 11).Select(index => new PlayerDraftPick($"Staff Lineman {index}", "lineman")),
+    rerolls: 0,
+    fanFactor: 1,
+    cheerleaders: 2,
+    assistantCoaches: 1,
+    apothecaries: 1);
+
+Assert(staffLeague.Teams[0].TeamValue == 630_000, "team value should include cheerleaders, assistant coaches, and apothecaries");
+Assert(staffLeague.Teams[0].Treasury == 370_000, "staff purchases should reduce treasury");
+
 var originalTeamId = fanFactorLeague.Teams[0].Id;
 fanFactorLeague = leagueService.UpdateTeam(
     fanFactorLeague,
@@ -268,26 +285,38 @@ var kickoffMatch = matchService.AdvancePhase(placedMatch, ruleset);
 Assert(kickoffMatch.Phase == MatchPhase.Kickoff, "offense setup should advance to kickoff");
 Assert(matchService.AdvancePhase(kickoffMatch, ruleset).Phase == MatchPhase.Kickoff, "generic phase advance should not skip unresolved kickoff");
 
-var kickoffService = new MatchService(new FixedDiceRoller(d6: [3, 4, 1], d8: [5]));
+var kickoffService = new MatchService(new FixedDiceRoller(d6: [3, 3, 3, 3, 1], d8: [5]));
 var offensiveTurnMatch = kickoffService.ResolveKickoff(kickoffMatch, ruleset, loadedLeague.Teams[0], new(2, 2));
 Assert(offensiveTurnMatch.Phase == MatchPhase.OffensivePlayerTurn, "kickoff should advance to offensive player turn");
 Assert(offensiveTurnMatch.ActiveTeamId == loadedLeague.Teams[0].Id, "home team should have the offensive turn");
 Assert(offensiveTurnMatch.Ball.Square == new PitchSquare(3, 2), "kickoff landing on empty square should leave loose ball");
 
-var longKickoffScatterService = new MatchService(new FixedDiceRoller(d6: [3, 4, 3], d8: [5]));
+var longKickoffScatterService = new MatchService(new FixedDiceRoller(d6: [3, 3, 3, 3, 3], d8: [5]));
 var longKickoffScatterMatch = longKickoffScatterService.ResolveKickoff(kickoffMatch, ruleset, loadedLeague.Teams[0], new(2, 2));
 
 Assert(longKickoffScatterMatch.Ball.Square == new PitchSquare(5, 2), "kickoff scatter should move d6 squares in the d8 direction");
 
-var caughtKickoffService = new MatchService(new FixedDiceRoller(d6: [3, 4, 1, 4], d8: [1]));
+var caughtKickoffService = new MatchService(new FixedDiceRoller(d6: [3, 3, 3, 3, 1, 4], d8: [1]));
 var caughtKickoffMatch = caughtKickoffService.ResolveKickoff(kickoffMatch, ruleset, loadedLeague.Teams[0], new(1, 1));
 
 Assert(caughtKickoffMatch.Ball.CarrierPlayerId == playerToPlace.Id, "kickoff landing on receiver should allow a catch");
 
-var touchbackService = new MatchService(new FixedDiceRoller(d6: [3, 4, 1], d8: [5]));
+var touchbackService = new MatchService(new FixedDiceRoller(d6: [3, 3, 3, 3, 1], d8: [5]));
 var touchbackMatch = touchbackService.ResolveKickoff(kickoffMatch, ruleset, loadedLeague.Teams[0], new(ruleset.PitchWidth / 2, 0));
 
 Assert(touchbackMatch.Ball.CarrierPlayerId == playerToPlace.Id, "kickoff outside receiving half should award touchback to receiving player");
+
+var getRefService = new MatchService(new FixedDiceRoller(d6: [1, 1, 1], d8: [5]));
+var getRefMatch = getRefService.ResolveKickoff(kickoffMatch, ruleset, loadedLeague.Teams[0], new(2, 2));
+Assert(getRefMatch.HomeBribesRemaining == 1 && getRefMatch.AwayBribesRemaining == 1, "get the ref should award both teams a bribe");
+
+var cheeringFansService = new MatchService(new FixedDiceRoller(d6: [3, 3, 1, 6, 1], d8: [5]));
+var cheeringFansMatch = cheeringFansService.ResolveKickoff(
+    kickoffMatch with { HomeCheerleaders = 3 },
+    ruleset,
+    loadedLeague.Teams[0],
+    new(2, 2));
+Assert(cheeringFansMatch.HomeRerollsRemaining == loadedLeague.Teams[0].Rerolls + 1, "cheerleaders should modify Cheering Fans kickoff contests");
 
 var changingWeatherKickoffService = new MatchService(new FixedDiceRoller(d6: [4, 4, 3, 3, 1], d8: [5, 5]));
 var changingWeatherKickoffMatch = changingWeatherKickoffService.ResolveKickoff(kickoffMatch, ruleset, loadedLeague.Teams[0], new(2, 2));
@@ -295,6 +324,35 @@ var changingWeatherKickoffMatch = changingWeatherKickoffService.ResolveKickoff(k
 Assert(changingWeatherKickoffMatch.Weather == WeatherCondition.Nice, "changing weather kickoff event should update match weather");
 Assert(changingWeatherKickoffMatch.Ball.Square == new PitchSquare(4, 2), "nice weather changing-weather event should add an extra gust scatter");
 Assert(changingWeatherKickoffMatch.Log.Any(entry => entry.Message.Contains("Kickoff event roll 8", StringComparison.Ordinal)), "kickoff should log the table result");
+
+var highKickService = new MatchService(new FixedDiceRoller(d6: [2, 3, 1], d8: [5]));
+var highKickMatch = highKickService.ResolveKickoff(kickoffMatch, ruleset, loadedLeague.Teams[0], new(2, 2));
+Assert(highKickMatch.PendingKickoffEvent?.Kind == KickoffEventKind.HighKick, "high kick should create a pending receiver choice");
+var highKickLanding = highKickMatch.PendingKickoffEvent!.LandingSquare;
+var highKickMoved = highKickService.MovePendingKickoffEventPlayer(highKickMatch, ruleset, playerToPlace.Id, highKickLanding);
+var highKickResolved = highKickService.CompletePendingKickoffEvent(highKickMoved, ruleset, loadedLeague.Teams[0]);
+Assert(highKickResolved.Phase == MatchPhase.OffensivePlayerTurn, "high kick should resolve to the receiving player turn after the choice");
+Assert(highKickResolved.Ball.CarrierPlayerId == playerToPlace.Id, "high kick receiver under the ball should get the catch attempt");
+
+var quickSnapService = new MatchService(new FixedDiceRoller(d6: [4, 5, 1, 1], d8: [5]));
+var quickSnapMatch = quickSnapService.ResolveKickoff(kickoffMatch, ruleset, loadedLeague.Teams[0], new(2, 2));
+Assert(quickSnapMatch.PendingKickoffEvent?.Kind == KickoffEventKind.QuickSnap, "quick snap should create a pending free-move choice");
+var quickSnapMoved = quickSnapService.MovePendingKickoffEventPlayer(quickSnapMatch, ruleset, playerToPlace.Id, new(1, 0));
+Assert(quickSnapMoved.Placements.Single(placement => placement.PlayerId == playerToPlace.Id).Square == new PitchSquare(1, 0), "quick snap should move an open receiving player one square");
+
+var solidDefenceService = new MatchService(new FixedDiceRoller(d6: [2, 2, 1, 5], d8: [5]));
+var solidDefenceMatch = solidDefenceService.ResolveKickoff(kickoffMatch, ruleset, loadedLeague.Teams[0], new(2, 2));
+Assert(solidDefenceMatch.PendingKickoffEvent?.Kind == KickoffEventKind.SolidDefence, "solid defence should create a pending defensive reposition choice");
+Assert(solidDefenceMatch.PendingKickoffEvent?.MovesRemaining == 6, "solid defence should allow D3+3 defensive players to be repositioned");
+AssertThrows(
+    () => solidDefenceService.MovePendingKickoffEventPlayer(solidDefenceMatch, ruleset, awayPlayerToPlace.Id, new(1, 1)),
+    "solid defence should reject repositioning into the receiving team's half");
+var solidDefenceMoved = solidDefenceService.MovePendingKickoffEventPlayer(solidDefenceMatch, ruleset, awayPlayerToPlace.Id, new(18, 5));
+Assert(solidDefenceMoved.Placements.Single(placement => placement.PlayerId == awayPlayerToPlace.Id).Square == new PitchSquare(18, 5), "solid defence should allow defensive players to be set up in different legal places");
+
+var rockService = new MatchService(new FixedDiceRoller(d6: [5, 6, 1, 6, 4, 1], d8: [5]));
+var rockMatch = rockService.ResolveKickoff(kickoffMatch, ruleset, loadedLeague.Teams[0], new(2, 2));
+Assert(rockMatch.Log.Any(entry => entry.Message.Contains("Throw a Rock", StringComparison.Ordinal)), "throw a rock should resolve and log a random crowd injury");
 
 var movedMatch = matchService.MovePlayer(offensiveTurnMatch, ruleset, loadedLeague.Teams[0], playerToPlace.Id, new(3, 0));
 var movedPlayer = movedMatch.Placements.Single(placement => placement.PlayerId == playerToPlace.Id);
@@ -735,6 +793,22 @@ var deadAttacker = deathBlockMatch.Placements.Single(placement => placement.Play
 
 Assert(deadAttacker.State == PlayerPitchState.Dead, "dead should come from the casualty table rather than the injury roll");
 Assert(deadAttacker.Casualty?.Result == CasualtyResult.Dead, "casualty roll of 15-16 should be dead");
+
+var apothecaryBlockService = new MatchService(new FixedDiceRoller(d6: [1, 6, 6, 6, 6], d16: [16, 1]));
+var apothecaryBlockMatch = apothecaryBlockService.BlockPlayer(
+    blockReadyMatch with { HomeApothecariesRemaining = 1 },
+    ruleset,
+    loadedLeague.Teams[0],
+    playerToPlace.Id,
+    awayLeague.Teams[0],
+    awayPlayerToPlace.Id);
+Assert(apothecaryBlockMatch.PendingApothecary?.PlayerId == playerToPlace.Id, "casualty with an available apothecary should create a pending choice");
+Assert(apothecaryBlockMatch.HomeApothecariesRemaining == 1, "apothecary should not be spent before the user chooses to use it");
+var apothecaryUsedMatch = apothecaryBlockService.ResolvePendingApothecary(apothecaryBlockMatch, loadedLeague.Teams[0], useApothecary: true);
+var savedAttacker = apothecaryUsedMatch.Placements.Single(placement => placement.PlayerId == playerToPlace.Id);
+
+Assert(apothecaryUsedMatch.HomeApothecariesRemaining == 0, "apothecary should be spent after the user chooses to use it");
+Assert(savedAttacker.State == PlayerPitchState.Casualty && savedAttacker.Casualty?.Result == CasualtyResult.BadlyHurt, "apothecary should keep the better casualty roll");
 
 var blitzReadyMatch = offensiveTurnMatch with
 {

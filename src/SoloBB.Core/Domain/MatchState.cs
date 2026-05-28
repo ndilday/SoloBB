@@ -19,6 +19,14 @@ public sealed record MatchState
     public int AwayRerollsRemaining { get; init; }
     public int HomeTeamRerolls { get; init; }
     public int AwayTeamRerolls { get; init; }
+    public int HomeCheerleaders { get; init; }
+    public int AwayCheerleaders { get; init; }
+    public int HomeAssistantCoaches { get; init; }
+    public int AwayAssistantCoaches { get; init; }
+    public int HomeBribesRemaining { get; init; }
+    public int AwayBribesRemaining { get; init; }
+    public int HomeApothecariesRemaining { get; init; }
+    public int AwayApothecariesRemaining { get; init; }
     public WeatherCondition Weather { get; init; } = WeatherCondition.Nice;
     public BallState Ball { get; init; } = new();
     public IReadOnlyList<PlayerPlacement> Placements { get; init; } = [];
@@ -28,6 +36,8 @@ public sealed record MatchState
     public PendingPushChoice? PendingPush { get; init; }
     public PendingInterceptionChoice? PendingInterception { get; init; }
     public PendingRerollChoice? PendingReroll { get; init; }
+    public PendingApothecaryChoice? PendingApothecary { get; init; }
+    public PendingKickoffEventChoice? PendingKickoffEvent { get; init; }
     public IReadOnlyList<MatchLogEntry> Log { get; init; } = [];
 }
 
@@ -143,6 +153,33 @@ public sealed record PendingRerollChoice
     public bool TeamRerollAvailable { get; init; }
     public IReadOnlyList<string> SkillRerollIds { get; init; } = [];
     public required PendingRerollContext Context { get; init; }
+}
+
+public sealed record PendingKickoffEventChoice
+{
+    public required KickoffEventKind Kind { get; init; }
+    public required Guid TeamId { get; init; }
+    public required Guid ReceivingTeamId { get; init; }
+    public required PitchSquare LandingSquare { get; init; }
+    public required IReadOnlyList<Guid> EligiblePlayerIds { get; init; }
+    public required IReadOnlyList<Guid> MovedPlayerIds { get; init; }
+    public int MovesRemaining { get; init; }
+    public bool RequiresPlayerChoice { get; init; } = true;
+}
+
+public sealed record PendingApothecaryChoice
+{
+    public required Guid TeamId { get; init; }
+    public required Guid PlayerId { get; init; }
+    public required CasualtyRoll OriginalCasualty { get; init; }
+}
+
+public enum KickoffEventKind
+{
+    SolidDefence,
+    HighKick,
+    QuickSnap,
+    Blitz
 }
 
 public enum PendingRerollKind
