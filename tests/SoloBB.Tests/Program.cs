@@ -216,8 +216,8 @@ Assert(offensiveTurnMatch.Phase == MatchPhase.OffensivePlayerTurn, "kickoff shou
 Assert(offensiveTurnMatch.ActiveTeamId == loadedLeague.Teams[0].Id, "home team should have the offensive turn");
 Assert(offensiveTurnMatch.Ball.Square == new PitchSquare(3, 2), "kickoff landing on empty square should leave loose ball");
 
-var caughtKickoffService = new MatchService(new FixedDiceRoller(d6: [4], d8: [4]));
-var caughtKickoffMatch = caughtKickoffService.ResolveKickoff(kickoffMatch, ruleset, loadedLeague.Teams[0], new(0, 0));
+var caughtKickoffService = new MatchService(new FixedDiceRoller(d6: [4], d8: [1]));
+var caughtKickoffMatch = caughtKickoffService.ResolveKickoff(kickoffMatch, ruleset, loadedLeague.Teams[0], new(1, 1));
 
 Assert(caughtKickoffMatch.Ball.CarrierPlayerId == playerToPlace.Id, "kickoff landing on receiver should allow a catch");
 
@@ -257,6 +257,36 @@ Assert(failedPickupMatch.Phase == MatchPhase.DefensiveTurn, "failed pickup shoul
 Assert(failedPickupMatch.Placements.Single(placement => placement.PlayerId == playerToPlace.Id).Square == new PitchSquare(2, 0), "failed pickup should stop movement on the pickup square");
 Assert(failedPickupMatch.Ball.Square == new PitchSquare(3, 0), "failed pickup should bounce the ball from the pickup square");
 
+var outOfBoundsPickupService = new MatchService(new FixedDiceRoller(d6: [1, 3, 3, 3], d8: [1]));
+var outOfBoundsPickupMatch = outOfBoundsPickupService.MovePlayer(
+    offensiveTurnMatch with
+    {
+        Ball = new BallState { Square = new PitchSquare(0, 0) },
+        Placements = offensiveTurnMatch.Placements
+            .Select(placement => placement.PlayerId == playerToPlace.Id
+                ? placement with { Square = new PitchSquare(1, 0), State = PlayerPitchState.Standing }
+                : placement)
+            .ToArray()
+    },
+    ruleset,
+    loadedLeague.Teams[0],
+    playerToPlace.Id,
+    new(0, 0));
+outOfBoundsPickupMatch = outOfBoundsPickupService.ResolvePendingReroll(outOfBoundsPickupMatch, ruleset, loadedLeague.Teams[0], useTeamReroll: false);
+
+Assert(outOfBoundsPickupMatch.Ball.Square == new PitchSquare(6, 0), "out-of-bounds ball scatter should be thrown back in instead of clamped to the edge");
+
+var noRerollPickupService = new MatchService(new FixedDiceRoller(d6: [1], d8: [5]));
+var noRerollPickupMatch = noRerollPickupService.MovePlayer(
+    offensiveTurnMatch with { HomeRerollsRemaining = 0, Ball = new BallState { Square = new PitchSquare(2, 0) } },
+    ruleset,
+    loadedLeague.Teams[0],
+    playerToPlace.Id,
+    new(3, 0));
+
+Assert(noRerollPickupMatch.PendingReroll is null, "failed pickup with no available rerolls should not create a pending reroll");
+Assert(noRerollPickupMatch.Phase == MatchPhase.DefensiveTurn, "failed pickup with no available rerolls should resolve immediately");
+
 var pickupRerollService = new MatchService(new FixedDiceRoller(d6: [1, 2]));
 var pickupRerollPendingMatch = pickupRerollService.MovePlayer(
     offensiveTurnMatch with { Ball = new BallState { Square = new PitchSquare(2, 0) } },
@@ -276,10 +306,15 @@ var touchdownReadyMatch = offensiveTurnMatch with
     Placements = offensiveTurnMatch.Placements
         .Select(placement => placement.PlayerId == playerToPlace.Id
             ? placement with { Square = new PitchSquare(ruleset.PitchWidth - 2, 0), State = PlayerPitchState.Standing }
-            : placement)
+            : placement.PlayerId == loadedLeague.Teams[0].Players[1].Id
+                ? placement with { Square = null, State = PlayerPitchState.KnockedOut }
+                : placement.PlayerId == awayPlayerToPlace.Id
+                    ? placement with { Square = null, State = PlayerPitchState.KnockedOut }
+                    : placement)
         .ToArray()
 };
-var scoredMatch = matchService.MovePlayer(touchdownReadyMatch, ruleset, loadedLeague.Teams[0], playerToPlace.Id, new(ruleset.PitchWidth - 1, 0));
+var touchdownService = new MatchService(new FixedDiceRoller(d6: [4, 3]));
+var scoredMatch = touchdownService.MovePlayer(touchdownReadyMatch, ruleset, loadedLeague.Teams[0], playerToPlace.Id, new(ruleset.PitchWidth - 1, 0));
 
 Assert(scoredMatch.HomeScore == 1, "home ball carrier should score in away end zone");
 Assert(scoredMatch.AwayScore == 0, "away score should not change on home touchdown");
@@ -287,6 +322,8 @@ Assert(scoredMatch.Phase == MatchPhase.DefenseSetup, "touchdown should reset to 
 Assert(scoredMatch.ActiveTeamId == loadedLeague.Teams[0].Id, "scoring team should set up defense for the next drive");
 Assert(scoredMatch.Ball.CarrierPlayerId is null && scoredMatch.Ball.Square is null, "touchdown should clear the ball");
 Assert(scoredMatch.Placements.Any(placement => placement.TeamId == loadedLeague.Teams[0].Id && placement.State == PlayerPitchState.Reserve), "touchdown should reset available players to reserve");
+Assert(scoredMatch.Placements.Single(placement => placement.PlayerId == loadedLeague.Teams[0].Players[1].Id).State == PlayerPitchState.Reserve, "touchdown should recover knocked out players on 4+");
+Assert(scoredMatch.Placements.Single(placement => placement.PlayerId == awayPlayerToPlace.Id).State == PlayerPitchState.KnockedOut, "touchdown should leave failed knockout recoveries knocked out");
 
 var handOffReceiver = loadedLeague.Teams[0].Players[1];
 var handOffReadyMatch = offensiveTurnMatch with
@@ -431,10 +468,110 @@ var blockReadyMatch = offensiveTurnMatch with
 };
 var blockService = new MatchService(new FixedDiceRoller(d6: [6, 1, 1]));
 var blockMatch = blockService.BlockPlayer(blockReadyMatch, ruleset, loadedLeague.Teams[0], playerToPlace.Id, awayLeague.Teams[0], awayPlayerToPlace.Id);
+
+Assert(blockMatch.PendingPush?.KnockDefenderDown == true, "successful block should ask for a push square before knocking the defender down");
+blockMatch = blockService.ChoosePushSquare(blockMatch, ruleset, loadedLeague.Teams[0], awayLeague.Teams[0], new PitchSquare(3, 1));
 var blockedPlayer = blockMatch.Placements.Single(placement => placement.PlayerId == awayPlayerToPlace.Id);
 
-Assert(blockedPlayer.State == PlayerPitchState.Prone, "successful block should knock defender down");
+Assert(blockedPlayer.State == PlayerPitchState.Prone, "successful block should knock defender down after the push");
+Assert(blockedPlayer.Square == new PitchSquare(3, 1), "successful block should push the defender before knockdown");
 Assert(blockMatch.Activations.Single(activation => activation.PlayerId == playerToPlace.Id).Action == PlayerTurnAction.Block, "block should activate the attacker");
+
+var pushBlockService = new MatchService(new FixedDiceRoller(d6: [3]));
+var pendingPushBlock = pushBlockService.BlockPlayer(blockReadyMatch, ruleset, loadedLeague.Teams[0], playerToPlace.Id, awayLeague.Teams[0], awayPlayerToPlace.Id);
+
+Assert(pendingPushBlock.PendingPush?.KnockDefenderDown == false, "push result should ask for a push square without knockdown");
+AssertThrows(
+    () => pushBlockService.AdvanceTurn(pendingPushBlock, ruleset),
+    "pending push should block turn advancement");
+var pushedBlock = pushBlockService.ChoosePushSquare(pendingPushBlock, ruleset, loadedLeague.Teams[0], awayLeague.Teams[0], new PitchSquare(3, 1));
+var pushedDefender = pushedBlock.Placements.Single(placement => placement.PlayerId == awayPlayerToPlace.Id);
+
+Assert(pushedDefender.State == PlayerPitchState.Standing, "push result should leave the defender standing");
+Assert(pushedDefender.Square == new PitchSquare(3, 1), "push result should move the defender to the chosen square");
+
+var chainPushedPlayer = awayLeague.Teams[0].Players[1];
+var secondChainPushedPlayer = awayLeague.Teams[0].Players[2];
+var thirdChainPushedPlayer = awayLeague.Teams[0].Players[3];
+var chainPushMatch = offensiveTurnMatch with
+{
+    Placements = offensiveTurnMatch.Placements
+        .Select(placement => placement.PlayerId == playerToPlace.Id
+            ? placement with { Square = new PitchSquare(1, 1), State = PlayerPitchState.Standing }
+            : placement.PlayerId == awayPlayerToPlace.Id
+                ? placement with { Square = new PitchSquare(2, 1), State = PlayerPitchState.Standing }
+                : placement.PlayerId == chainPushedPlayer.Id
+                    ? placement with { Square = new PitchSquare(3, 1), State = PlayerPitchState.Standing }
+                    : placement.PlayerId == secondChainPushedPlayer.Id
+                        ? placement with { Square = new PitchSquare(3, 0), State = PlayerPitchState.Standing }
+                        : placement.PlayerId == thirdChainPushedPlayer.Id
+                            ? placement with { Square = new PitchSquare(3, 2), State = PlayerPitchState.Standing }
+                    : placement)
+        .ToArray()
+};
+var chainPushService = new MatchService(new FixedDiceRoller(d6: [3]));
+var pendingChainPush = chainPushService.BlockPlayer(chainPushMatch, ruleset, loadedLeague.Teams[0], playerToPlace.Id, awayLeague.Teams[0], awayPlayerToPlace.Id);
+
+Assert(pendingChainPush.PendingPush?.LegalSquares.Contains(new PitchSquare(3, 1)) == true, "occupied push squares should be legal only when no unoccupied on-pitch push square exists");
+var chainPushResult = chainPushService.ChoosePushSquare(pendingChainPush, ruleset, loadedLeague.Teams[0], awayLeague.Teams[0], new PitchSquare(3, 1));
+
+Assert(chainPushResult.Placements.Single(placement => placement.PlayerId == awayPlayerToPlace.Id).Square == new PitchSquare(3, 1), "push into an occupied square should move the original pushed player there");
+Assert(chainPushResult.Placements.Single(placement => placement.PlayerId == chainPushedPlayer.Id).Square == new PitchSquare(4, 0), "push into an occupied square should chain-push the occupying player");
+
+var fourthChainPushedPlayer = awayLeague.Teams[0].Players[4];
+var cascadePushMatch = chainPushMatch with
+{
+    Placements = chainPushMatch.Placements
+        .Select(placement => placement.PlayerId == fourthChainPushedPlayer.Id
+            ? placement with { Square = new PitchSquare(4, 1), State = PlayerPitchState.Standing }
+            : placement)
+        .ToArray()
+};
+var cascadePushService = new MatchService(new FixedDiceRoller(d6: [3]));
+var pendingCascadePush = cascadePushService.BlockPlayer(cascadePushMatch, ruleset, loadedLeague.Teams[0], playerToPlace.Id, awayLeague.Teams[0], awayPlayerToPlace.Id);
+var cascadePushResult = cascadePushService.ChoosePushSquare(pendingCascadePush, ruleset, loadedLeague.Teams[0], awayLeague.Teams[0], new PitchSquare(3, 1));
+
+Assert(cascadePushResult.Placements.Single(placement => placement.PlayerId == chainPushedPlayer.Id).Square == new PitchSquare(4, 0), "cascade chain push should force the second pushed player into an unoccupied square before occupied options");
+Assert(cascadePushResult.Placements.Single(placement => placement.PlayerId == fourthChainPushedPlayer.Id).Square == new PitchSquare(4, 1), "cascade chain push should not push a third player while the second player has an unoccupied destination");
+
+var emptyPreferredPushMatch = chainPushMatch with
+{
+    Placements = chainPushMatch.Placements
+        .Select(placement => placement.PlayerId == secondChainPushedPlayer.Id
+            ? placement with { Square = null, State = PlayerPitchState.Reserve }
+            : placement)
+        .ToArray()
+};
+var emptyPreferredPushService = new MatchService(new FixedDiceRoller(d6: [3]));
+var emptyPreferredPush = emptyPreferredPushService.BlockPlayer(emptyPreferredPushMatch, ruleset, loadedLeague.Teams[0], playerToPlace.Id, awayLeague.Teams[0], awayPlayerToPlace.Id);
+
+Assert(emptyPreferredPush.PendingPush is null, "single unoccupied legal push square should resolve automatically instead of offering occupied chain-push squares");
+Assert(emptyPreferredPush.Placements.Single(placement => placement.PlayerId == awayPlayerToPlace.Id).Square == new PitchSquare(3, 0), "unoccupied push square must be chosen before occupied chain-push squares");
+Assert(emptyPreferredPush.Placements.Single(placement => placement.PlayerId == chainPushedPlayer.Id).Square == new PitchSquare(3, 1), "occupied chain-push square should not be used while an unoccupied push square exists");
+
+var crowdPushMatch = offensiveTurnMatch with
+{
+    Placements = offensiveTurnMatch.Placements
+        .Select(placement => placement.PlayerId == playerToPlace.Id
+            ? placement with { Square = new PitchSquare(1, 1), State = PlayerPitchState.Standing }
+            : placement.PlayerId == awayPlayerToPlace.Id
+                ? placement with { Square = new PitchSquare(0, 1), State = PlayerPitchState.Standing }
+                : placement)
+        .ToArray()
+};
+var crowdPushService = new MatchService(new FixedDiceRoller(d6: [3, 1, 2]));
+var crowdPushResult = crowdPushService.BlockPlayer(crowdPushMatch, ruleset, loadedLeague.Teams[0], playerToPlace.Id, awayLeague.Teams[0], awayPlayerToPlace.Id);
+var crowdedPlayer = crowdPushResult.Placements.Single(placement => placement.PlayerId == awayPlayerToPlace.Id);
+
+Assert(crowdedPlayer.Square is null, "sideline push with no legal on-pitch destination should push the player off the pitch");
+Assert(crowdedPlayer.State == PlayerPitchState.Reserve, "crowd push with no lasting injury should put the player in reserve");
+
+var bothDownService = new MatchService(new FixedDiceRoller(d6: [2, 1, 1, 1, 1], d8: [5]));
+var bothDownMatch = bothDownService.BlockPlayer(blockReadyMatch, ruleset, loadedLeague.Teams[0], playerToPlace.Id, awayLeague.Teams[0], awayPlayerToPlace.Id);
+
+Assert(bothDownMatch.Phase == MatchPhase.DefensiveTurn, "both-down block should cause a turnover");
+Assert(bothDownMatch.Placements.Single(placement => placement.PlayerId == playerToPlace.Id).State == PlayerPitchState.Prone, "both-down block should knock the attacker down");
+Assert(bothDownMatch.Placements.Single(placement => placement.PlayerId == awayPlayerToPlace.Id).State == PlayerPitchState.Prone, "both-down block should knock the defender down");
 
 var badBlockService = new MatchService(new FixedDiceRoller(d6: [1, 6, 6, 6, 6], d8: [5]));
 var badBlockMatch = badBlockService.BlockPlayer(
@@ -465,8 +602,26 @@ var blitzMatch = blitzService.BlitzPlayer(blitzReadyMatch, ruleset, loadedLeague
 var blitzActivation = blitzMatch.Activations.Single(activation => activation.PlayerId == playerToPlace.Id);
 
 Assert(blitzActivation.Action == PlayerTurnAction.Blitz, "blitz should record a blitz activation");
+Assert(blitzMatch.PendingPush?.KnockDefenderDown == true, "blitz should ask for a push square before block knockdown");
+blitzMatch = blitzService.ChoosePushSquare(blitzMatch, ruleset, loadedLeague.Teams[0], awayLeague.Teams[0], new PitchSquare(4, 1));
+
 Assert(blitzMatch.Placements.Single(placement => placement.PlayerId == playerToPlace.Id).Square == new PitchSquare(2, 1), "blitz should move the attacker");
 Assert(blitzMatch.Placements.Single(placement => placement.PlayerId == awayPlayerToPlace.Id).State == PlayerPitchState.Prone, "blitz should resolve the block");
+
+var failedMoveBlitzMatch = blitzReadyMatch with
+{
+    Placements = blitzReadyMatch.Placements
+        .Select(placement => placement.PlayerId == awayPlayerToPlace.Id
+            ? placement with { Square = new PitchSquare(10, 1), State = PlayerPitchState.Standing }
+            : placement)
+        .ToArray()
+};
+var failedMoveBlitzService = new MatchService(new FixedDiceRoller(d6: [1], d8: [5]));
+var failedMoveBlitzResult = failedMoveBlitzService.BlitzPlayer(failedMoveBlitzMatch, ruleset, loadedLeague.Teams[0], playerToPlace.Id, new(9, 1), awayLeague.Teams[0], awayPlayerToPlace.Id);
+
+Assert(failedMoveBlitzResult.PendingReroll?.Kind == PendingRerollKind.GoForIt, "failed blitz movement should pause before resolving the failed movement roll");
+Assert(failedMoveBlitzResult.Activations.Single(activation => activation.PlayerId == playerToPlace.Id).Action == PlayerTurnAction.Blitz, "failed blitz movement should still spend the blitz activation");
+Assert(failedMoveBlitzResult.Placements.Single(placement => placement.PlayerId == awayPlayerToPlace.Id).State == PlayerPitchState.Standing, "failed blitz movement should not resolve the block");
 
 var assistingPlayer = loadedLeague.Teams[0].Players[1];
 var assistedBlockMatch = offensiveTurnMatch with
@@ -489,6 +644,8 @@ Assert(assistedPendingBlock.PendingBlock?.Rolls.SequenceEqual([1, 6]) == true, "
 var assistedBlockResult = assistedBlockService.ChooseBlockDie(assistedPendingBlock, ruleset, loadedLeague.Teams[0], awayLeague.Teams[0], roll: 6);
 
 Assert(assistedBlockResult.PendingBlock is null, "choosing a block die should clear pending block choice");
+Assert(assistedBlockResult.PendingPush is not null, "chosen favorable block die should ask for a push square");
+assistedBlockResult = assistedBlockService.ChoosePushSquare(assistedBlockResult, ruleset, loadedLeague.Teams[0], awayLeague.Teams[0], new PitchSquare(3, 1));
 Assert(assistedBlockResult.Placements.Single(placement => placement.PlayerId == awayPlayerToPlace.Id).State == PlayerPitchState.Prone, "chosen favorable block die should knock defender down");
 
 var weakBlockMatch = offensiveTurnMatch with
@@ -508,7 +665,35 @@ Assert(weakPendingBlock.PendingBlock?.Rolls.SequenceEqual([6, 1]) == true, "unfa
 
 var weakBlockResult = weakBlockService.ChooseBlockDie(weakPendingBlock, ruleset, loadedLeague.Teams[0], awayLeague.Teams[0], roll: 6);
 
+weakBlockResult = weakBlockService.ChoosePushSquare(weakBlockResult, ruleset, loadedLeague.Teams[0], awayLeague.Teams[0], new PitchSquare(3, 1));
 Assert(weakBlockResult.Placements.Single(placement => placement.PlayerId == awayLeague.Teams[0].Players[3].Id).State == PlayerPitchState.Casualty, "chosen high block die should knock defender down even when defender had strength advantage");
+
+var foulReadyMatch = offensiveTurnMatch with
+{
+    Placements = offensiveTurnMatch.Placements
+        .Select(placement => placement.PlayerId == playerToPlace.Id
+            ? placement with { Square = new PitchSquare(1, 1), State = PlayerPitchState.Standing }
+            : placement.PlayerId == awayPlayerToPlace.Id
+                ? placement with { Square = new PitchSquare(2, 1), State = PlayerPitchState.Prone }
+                : placement)
+        .ToArray()
+};
+var foulService = new MatchService(new FixedDiceRoller(d6: [5, 6, 4, 5]));
+var foulMatch = foulService.FoulPlayer(foulReadyMatch, ruleset, loadedLeague.Teams[0], playerToPlace.Id, awayLeague.Teams[0], awayPlayerToPlace.Id);
+
+Assert(foulMatch.Activations.Single(activation => activation.PlayerId == playerToPlace.Id).Action == PlayerTurnAction.Foul, "foul should activate the fouler");
+Assert(foulMatch.Placements.Single(placement => placement.PlayerId == awayPlayerToPlace.Id).State == PlayerPitchState.Stunned, "foul armor break should resolve injury against the victim");
+Assert(foulMatch.Phase == MatchPhase.OffensivePlayerTurn, "foul without doubles should not cause a turnover");
+
+AssertThrows(
+    () => foulService.FoulPlayer(foulMatch, ruleset, loadedLeague.Teams[0], loadedLeague.Teams[0].Players[1].Id, awayLeague.Teams[0], awayPlayerToPlace.Id),
+    "foul should be limited to once per team turn");
+
+var sentOffFoulService = new MatchService(new FixedDiceRoller(d6: [6, 6, 4, 5]));
+var sentOffFoulMatch = sentOffFoulService.FoulPlayer(foulReadyMatch, ruleset, loadedLeague.Teams[0], playerToPlace.Id, awayLeague.Teams[0], awayPlayerToPlace.Id);
+
+Assert(sentOffFoulMatch.Placements.Single(placement => placement.PlayerId == playerToPlace.Id).State == PlayerPitchState.SentOff, "doubles on a foul should send off the fouler");
+Assert(sentOffFoulMatch.Phase == MatchPhase.DefensiveTurn, "send-off on a foul should cause a turnover");
 
 var goForItService = new MatchService(new FixedDiceRoller(d6: [2]));
 var goForItMatch = goForItService.MovePlayer(offensiveTurnMatch, ruleset, loadedLeague.Teams[0], playerToPlace.Id, new(7, 0));
@@ -516,6 +701,44 @@ var goForItActivation = goForItMatch.Activations.Single(activation => activation
 
 Assert(goForItActivation.GoForItsUsed == 1, "movement past MA should spend go-for-its");
 Assert(goForItMatch.Placements.Single(placement => placement.PlayerId == playerToPlace.Id).Square == new PitchSquare(7, 0), "successful go-for-it should move the player");
+
+var proneMoveReadyMatch = offensiveTurnMatch with
+{
+    Placements = offensiveTurnMatch.Placements
+        .Select(placement => placement.PlayerId == playerToPlace.Id
+            ? placement with { Square = new PitchSquare(1, 0), State = PlayerPitchState.Prone }
+            : placement)
+        .ToArray()
+};
+var standOnlyMatch = matchService.MovePlayer(proneMoveReadyMatch, ruleset, loadedLeague.Teams[0], playerToPlace.Id, new(1, 0));
+var stoodPlayer = standOnlyMatch.Placements.Single(placement => placement.PlayerId == playerToPlace.Id);
+
+Assert(stoodPlayer.State == PlayerPitchState.Standing, "move action should allow a prone player to stand up");
+Assert(stoodPlayer.Square == new PitchSquare(1, 0), "standing up without moving should keep the player in place");
+Assert(standOnlyMatch.Activations.Single(activation => activation.PlayerId == playerToPlace.Id).Action == PlayerTurnAction.Move, "standing up should spend a move activation");
+
+var proneMoveService = new MatchService(new FixedDiceRoller(d6: [2]));
+var stoodAndMovedMatch = proneMoveService.MovePlayer(proneMoveReadyMatch, ruleset, loadedLeague.Teams[0], playerToPlace.Id, new(5, 0));
+var stoodAndMovedActivation = stoodAndMovedMatch.Activations.Single(activation => activation.PlayerId == playerToPlace.Id);
+
+Assert(stoodAndMovedMatch.Placements.Single(placement => placement.PlayerId == playerToPlace.Id).Square == new PitchSquare(5, 0), "standing up should still allow movement with reduced allowance");
+Assert(stoodAndMovedActivation.GoForItsUsed == 1, "standing up should reduce movement allowance before go-for-its");
+
+var proneBlitzReadyMatch = offensiveTurnMatch with
+{
+    Placements = offensiveTurnMatch.Placements
+        .Select(placement => placement.PlayerId == playerToPlace.Id
+            ? placement with { Square = new PitchSquare(1, 1), State = PlayerPitchState.Prone }
+            : placement.PlayerId == awayPlayerToPlace.Id
+                ? placement with { Square = new PitchSquare(2, 1), State = PlayerPitchState.Standing }
+                : placement)
+        .ToArray()
+};
+var proneBlitzService = new MatchService(new FixedDiceRoller(d6: [6, 1, 1]));
+var proneBlitzMatch = proneBlitzService.BlitzPlayer(proneBlitzReadyMatch, ruleset, loadedLeague.Teams[0], playerToPlace.Id, new(1, 1), awayLeague.Teams[0], awayPlayerToPlace.Id);
+
+Assert(proneBlitzMatch.PendingPush?.KnockDefenderDown == true, "prone adjacent blitz should stand up and resolve the block");
+Assert(proneBlitzMatch.Placements.Single(placement => placement.PlayerId == playerToPlace.Id).State == PlayerPitchState.Standing, "prone blitz should stand the attacker up");
 
 var failedGoForItService = new MatchService(new FixedDiceRoller(d6: [1, 6, 6, 6, 6], d8: [5]));
 var failedGoForItMatch = failedGoForItService.MovePlayer(
@@ -530,6 +753,7 @@ var failedGoForItPlayer = failedGoForItMatch.Placements.Single(placement => plac
 
 Assert(failedGoForItMatch.Phase == MatchPhase.DefensiveTurn, "failed offensive go-for-it should cause a turnover to defensive turn");
 Assert(failedGoForItMatch.ActiveTeamId == awayLeague.Teams[0].Id, "failed offensive go-for-it should activate defense");
+Assert(failedGoForItMatch.PendingBlock is null && failedGoForItMatch.PendingPush is null && failedGoForItMatch.PendingInterception is null && failedGoForItMatch.PendingReroll is null, "turnover cleanup should clear pending choices");
 Assert(failedGoForItPlayer.State == PlayerPitchState.Casualty, "failed go-for-it should resolve injury");
 Assert(failedGoForItMatch.Ball.CarrierPlayerId is null, "failed ball carrier go-for-it should drop the ball");
 Assert(failedGoForItMatch.Ball.Square == new PitchSquare(8, 0), "failed ball carrier go-for-it should scatter the ball");
@@ -578,8 +802,8 @@ failedDodgeMatch = failedDodgeService.ResolvePendingReroll(failedDodgeMatch, rul
 var failedDodgePlayer = failedDodgeMatch.Placements.Single(placement => placement.PlayerId == playerToPlace.Id);
 
 Assert(failedDodgeMatch.Phase == MatchPhase.DefensiveTurn, "failed dodge should cause a turnover");
-Assert(failedDodgePlayer.Square == new PitchSquare(1, 2), "failed dodge should knock the player down in the destination square");
 Assert(failedDodgePlayer.State == PlayerPitchState.Casualty, "failed dodge should resolve injury");
+Assert(failedDodgePlayer.Square is null, "casualty from failed dodge should be removed from the pitch");
 Assert(failedDodgeMatch.Ball.Square == new PitchSquare(2, 2), "failed dodge by ball carrier should scatter the ball");
 
 var defensiveTurnMatch = matchService.AdvancePhase(movedMatch);
@@ -587,6 +811,37 @@ Assert(defensiveTurnMatch.Phase == MatchPhase.DefensiveTurn, "offensive player t
 Assert(defensiveTurnMatch.ActiveTeamId == awayLeague.Teams[0].Id, "away team should have the defensive turn");
 Assert(defensiveTurnMatch.HomeTurn == 2 && defensiveTurnMatch.AwayTurn == 1, "ending the offensive turn should consume home turn one");
 Assert(defensiveTurnMatch.Turn == 1, "defensive turn should use the active team's turn counter");
+
+var rulesetAwareDefensiveTurnMatch = matchService.AdvanceTurn(movedMatch, ruleset);
+Assert(rulesetAwareDefensiveTurnMatch.Phase == MatchPhase.DefensiveTurn, "ruleset-aware turn control should end the offensive player turn");
+Assert(rulesetAwareDefensiveTurnMatch.HomeTurn == 2 && rulesetAwareDefensiveTurnMatch.AwayTurn == 1, "ruleset-aware offensive turn end should consume the active team's turn");
+
+var stunnedHomeTurnMatch = offensiveTurnMatch with
+{
+    Placements = offensiveTurnMatch.Placements
+        .Select(placement => placement.PlayerId == playerToPlace.Id
+            ? placement with { State = PlayerPitchState.Stunned, StunnedRecoveryHalf = 1, StunnedRecoveryTurn = 2 }
+            : placement.PlayerId == awayPlayerToPlace.Id
+                ? placement with { State = PlayerPitchState.Stunned, StunnedRecoveryHalf = 1, StunnedRecoveryTurn = 1 }
+                : placement)
+        .ToArray()
+};
+var stunnedRecoveryMatch = matchService.AdvanceTurn(stunnedHomeTurnMatch, ruleset);
+
+Assert(stunnedRecoveryMatch.Placements.Single(placement => placement.PlayerId == playerToPlace.Id).State == PlayerPitchState.Stunned, "a player stunned during their own turn should not recover at the end of that same turn");
+Assert(stunnedRecoveryMatch.Placements.Single(placement => placement.PlayerId == awayPlayerToPlace.Id).State == PlayerPitchState.Stunned, "ending a team turn should not recover the opposing team's stunned players");
+
+var nextHomeTurnWithStunnedPlayer = stunnedRecoveryMatch with
+{
+    Phase = MatchPhase.OffensivePlayerTurn,
+    ActiveTeamId = loadedLeague.Teams[0].Id,
+    Turn = 2
+};
+var stunnedRecoveredAfterFullTurn = matchService.AdvanceTurn(nextHomeTurnWithStunnedPlayer, ruleset);
+Assert(stunnedRecoveredAfterFullTurn.Placements.Single(placement => placement.PlayerId == playerToPlace.Id).State == PlayerPitchState.Prone, "a stunned player should recover to prone after spending their next own team turn stunned");
+
+var awayStunnedRecoveryMatch = matchService.AdvanceTurn(stunnedRecoveryMatch, ruleset);
+Assert(awayStunnedRecoveryMatch.Placements.Single(placement => placement.PlayerId == awayPlayerToPlace.Id).State == PlayerPitchState.Prone, "a player stunned during the opponent turn should recover after their upcoming own turn");
 
 var defensiveMoveMatch = matchService.MovePlayer(defensiveTurnMatch, ruleset, awayLeague.Teams[0], awayPlayerToPlace.Id, new(19, 5));
 var defensiveMovedPlayer = defensiveMoveMatch.Placements.Single(placement => placement.PlayerId == awayPlayerToPlace.Id);
@@ -607,13 +862,40 @@ var lastFirstHalfDefensiveTurn = offensiveTurnMatch with
     ActiveTeamId = awayLeague.Teams[0].Id,
     FirstHalfReceivingTeamId = loadedLeague.Teams[0].Id
 };
-var secondHalfSetupMatch = matchService.AdvanceTurn(lastFirstHalfDefensiveTurn, ruleset);
+var knockoutHalftimeMatch = lastFirstHalfDefensiveTurn with
+{
+    Placements = lastFirstHalfDefensiveTurn.Placements
+        .Select(placement => placement.PlayerId == playerToPlace.Id
+            ? placement with { Square = null, State = PlayerPitchState.KnockedOut }
+            : placement.PlayerId == awayPlayerToPlace.Id
+                ? placement with { Square = null, State = PlayerPitchState.KnockedOut }
+                : placement)
+        .ToArray()
+};
+var halftimeService = new MatchService(new FixedDiceRoller(d6: [4, 2]));
+var secondHalfSetupMatch = halftimeService.AdvanceTurn(knockoutHalftimeMatch, ruleset);
 
 Assert(secondHalfSetupMatch.Half == 2, "both teams finishing eight turns should advance to the second half");
 Assert(secondHalfSetupMatch.HomeTurn == 1 && secondHalfSetupMatch.AwayTurn == 1, "second half should reset both team turn counters");
 Assert(secondHalfSetupMatch.Phase == MatchPhase.DefenseSetup, "second half should begin with defense placement");
 Assert(secondHalfSetupMatch.ActiveTeamId == loadedLeague.Teams[0].Id, "first-half receiving team should kick off to start the second half");
 Assert(secondHalfSetupMatch.Ball.CarrierPlayerId is null && secondHalfSetupMatch.Ball.Square is null, "halftime should clear the ball");
+Assert(secondHalfSetupMatch.Placements.Single(placement => placement.PlayerId == playerToPlace.Id).State == PlayerPitchState.Reserve, "halftime should recover knocked out players on 4+");
+Assert(secondHalfSetupMatch.Placements.Single(placement => placement.PlayerId == awayPlayerToPlace.Id).State == PlayerPitchState.KnockedOut, "halftime should leave failed knockout recoveries knocked out");
+
+var lastFirstHalfOffensiveTurn = offensiveTurnMatch with
+{
+    Half = 1,
+    HomeTurn = ruleset.TurnsPerHalf,
+    AwayTurn = ruleset.TurnsPerHalf + 1,
+    Phase = MatchPhase.OffensivePlayerTurn,
+    ActiveTeamId = loadedLeague.Teams[0].Id,
+    FirstHalfReceivingTeamId = loadedLeague.Teams[0].Id
+};
+var secondHalfFromOffensiveEnd = matchService.AdvanceTurn(lastFirstHalfOffensiveTurn, ruleset);
+
+Assert(secondHalfFromOffensiveEnd.Half == 2, "ruleset-aware offensive turn end should advance the half when both teams are done");
+Assert(secondHalfFromOffensiveEnd.Phase == MatchPhase.DefenseSetup, "ruleset-aware offensive turn end should begin second-half setup when the half ends");
 
 var lastSecondHalfDefensiveTurn = offensiveTurnMatch with
 {

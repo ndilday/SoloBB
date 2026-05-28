@@ -22,6 +22,7 @@ public sealed record MatchState
     public IReadOnlyList<PlayerTurnActivation> Activations { get; init; } = [];
     public IReadOnlyList<TeamRerollUse> TeamRerollUses { get; init; } = [];
     public PendingBlockChoice? PendingBlock { get; init; }
+    public PendingPushChoice? PendingPush { get; init; }
     public PendingInterceptionChoice? PendingInterception { get; init; }
     public PendingRerollChoice? PendingReroll { get; init; }
     public IReadOnlyList<MatchLogEntry> Log { get; init; } = [];
@@ -44,6 +45,8 @@ public sealed record PlayerPlacement
     public required Guid TeamId { get; init; }
     public PitchSquare? Square { get; init; }
     public PlayerPitchState State { get; init; } = PlayerPitchState.Reserve;
+    public int? StunnedRecoveryHalf { get; init; }
+    public int? StunnedRecoveryTurn { get; init; }
 }
 
 public sealed record PitchSquare(int X, int Y);
@@ -77,7 +80,8 @@ public enum PlayerTurnAction
     Block,
     Blitz,
     HandOff,
-    Pass
+    Pass,
+    Foul
 }
 
 public sealed record PendingBlockChoice
@@ -89,6 +93,18 @@ public sealed record PendingBlockChoice
     public required IReadOnlyList<int> Rolls { get; init; }
     public required int AttackerStrength { get; init; }
     public required int DefenderStrength { get; init; }
+}
+
+public sealed record PendingPushChoice
+{
+    public required Guid AttackerTeamId { get; init; }
+    public required Guid DefenderTeamId { get; init; }
+    public required Guid AttackerPlayerId { get; init; }
+    public required Guid DefenderPlayerId { get; init; }
+    public required PitchSquare DefenderSquare { get; init; }
+    public required IReadOnlyList<PitchSquare> LegalSquares { get; init; }
+    public bool KnockDefenderDown { get; init; }
+    public required string ResultMessage { get; init; }
 }
 
 public sealed record PendingInterceptionChoice
@@ -129,7 +145,9 @@ public sealed record PendingRerollContext
     public required PitchSquare Destination { get; init; }
     public required IReadOnlyList<PitchSquare> Path { get; init; }
     public required int StepIndex { get; init; }
+    public required int MovementAllowance { get; init; }
     public int GoForItNumber { get; init; }
+    public Guid? BlitzDefenderPlayerId { get; init; }
 }
 
 public enum PlayerPitchState
