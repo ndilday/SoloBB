@@ -17,6 +17,9 @@ public sealed record MatchState
     public int AwayScore { get; init; }
     public int HomeRerollsRemaining { get; init; }
     public int AwayRerollsRemaining { get; init; }
+    public int HomeTeamRerolls { get; init; }
+    public int AwayTeamRerolls { get; init; }
+    public WeatherCondition Weather { get; init; } = WeatherCondition.Nice;
     public BallState Ball { get; init; } = new();
     public IReadOnlyList<PlayerPlacement> Placements { get; init; } = [];
     public IReadOnlyList<PlayerTurnActivation> Activations { get; init; } = [];
@@ -39,6 +42,15 @@ public enum MatchPhase
     Complete
 }
 
+public enum WeatherCondition
+{
+    SwelteringHeat,
+    VerySunny,
+    Nice,
+    PouringRain,
+    Blizzard
+}
+
 public sealed record PlayerPlacement
 {
     public required Guid PlayerId { get; init; }
@@ -47,6 +59,7 @@ public sealed record PlayerPlacement
     public PlayerPitchState State { get; init; } = PlayerPitchState.Reserve;
     public int? StunnedRecoveryHalf { get; init; }
     public int? StunnedRecoveryTurn { get; init; }
+    public CasualtyRoll? Casualty { get; init; }
 }
 
 public sealed record PitchSquare(int X, int Y);
@@ -112,7 +125,8 @@ public sealed record PendingInterceptionChoice
     public required Guid PassingTeamId { get; init; }
     public required Guid DefendingTeamId { get; init; }
     public required Guid PasserPlayerId { get; init; }
-    public required Guid ReceiverPlayerId { get; init; }
+    public Guid? ReceiverPlayerId { get; init; }
+    public required PitchSquare TargetSquare { get; init; }
     public required IReadOnlyList<Guid> EligiblePlayerIds { get; init; }
     public required int PassRoll { get; init; }
     public required int PassTarget { get; init; }
@@ -158,7 +172,23 @@ public enum PlayerPitchState
     Stunned,
     KnockedOut,
     Casualty,
+    Dead,
     SentOff
+}
+
+public sealed record CasualtyRoll
+{
+    public required int Roll { get; init; }
+    public required CasualtyResult Result { get; init; }
+}
+
+public enum CasualtyResult
+{
+    BadlyHurt,
+    SeriouslyHurt,
+    SeriousInjury,
+    LastingInjury,
+    Dead
 }
 
 public sealed record MatchLogEntry

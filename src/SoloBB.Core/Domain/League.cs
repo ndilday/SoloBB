@@ -51,6 +51,7 @@ public enum PlayerStatus
     Available,
     KnockedOut,
     Casualty,
+    Dead,
     MissNextGame,
     Retired
 }
