@@ -29,7 +29,10 @@ public sealed record SkillDefinition
 {
     public required string Id { get; init; }
     public required string Name { get; init; }
+    public string Category { get; init; } = "";
+    public bool Compulsory { get; init; }
     public SkillTiming Timing { get; init; } = SkillTiming.Passive;
+    public IReadOnlyList<SkillEffect> Effects { get; init; } = [];
     public string Description { get; init; } = "";
 }
 
@@ -40,4 +43,20 @@ public enum SkillTiming
     AfterRoll,
     DuringAction,
     PostMatch
+}
+
+public enum SkillEffect
+{
+    DodgeReroll,
+    CatchReroll,
+    PassReroll,
+    PickupReroll,
+    GoForItReroll,
+    BothDownProtection,
+    CancelDodgeReroll,
+    GuardAssist,
+    MightyBlow,
+    StandFirm,
+    DirtyPlayer,
+    ThickSkull
 }

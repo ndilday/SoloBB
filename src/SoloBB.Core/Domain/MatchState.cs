@@ -37,6 +37,7 @@ public sealed record MatchState
     public PendingInterceptionChoice? PendingInterception { get; init; }
     public PendingRerollChoice? PendingReroll { get; init; }
     public PendingApothecaryChoice? PendingApothecary { get; init; }
+    public PendingStandFirmChoice? PendingStandFirm { get; init; }
     public PendingKickoffEventChoice? PendingKickoffEvent { get; init; }
     public IReadOnlyList<MatchLogEntry> Log { get; init; } = [];
 }
@@ -119,6 +120,18 @@ public sealed record PendingBlockChoice
 }
 
 public sealed record PendingPushChoice
+{
+    public required Guid AttackerTeamId { get; init; }
+    public required Guid DefenderTeamId { get; init; }
+    public required Guid AttackerPlayerId { get; init; }
+    public required Guid DefenderPlayerId { get; init; }
+    public required PitchSquare DefenderSquare { get; init; }
+    public required IReadOnlyList<PitchSquare> LegalSquares { get; init; }
+    public bool KnockDefenderDown { get; init; }
+    public required string ResultMessage { get; init; }
+}
+
+public sealed record PendingStandFirmChoice
 {
     public required Guid AttackerTeamId { get; init; }
     public required Guid DefenderTeamId { get; init; }

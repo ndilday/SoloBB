@@ -28,6 +28,13 @@ public sealed class RulesetValidator
         {
             throw new InvalidDataException($"Duplicate skill id '{duplicateSkill.Key}'.");
         }
+
+        foreach (var skill in ruleset.Skills)
+        {
+            RequireText(skill.Id, "Skill id is required.");
+            RequireText(skill.Name, $"Skill '{skill.Id}' name is required.");
+            RequireText(skill.Category, $"Skill '{skill.Id}' category is required.");
+        }
     }
 
     private static void RequireText(string value, string message)

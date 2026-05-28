@@ -98,6 +98,7 @@ public sealed class MatchService
             PendingPush = null,
             PendingReroll = null,
             PendingApothecary = null,
+            PendingStandFirm = null,
             PendingKickoffEvent = null,
             Log = [.. match.Log, new MatchLogEntry { Message = message }]
         };
@@ -139,6 +140,7 @@ public sealed class MatchService
             PendingPush = null,
             PendingReroll = null,
             PendingApothecary = null,
+            PendingStandFirm = null,
             PendingKickoffEvent = null,
             Log =
             [
@@ -160,6 +162,11 @@ public sealed class MatchService
         if (match.PendingApothecary is not null)
         {
             throw new InvalidOperationException("Resolve the pending apothecary choice before advancing the turn.");
+        }
+
+        if (match.PendingStandFirm is not null)
+        {
+            throw new InvalidOperationException("Resolve the pending Stand Firm choice before advancing the turn.");
         }
 
         if (match.PendingBlock is not null)
@@ -243,9 +250,9 @@ public sealed class MatchService
         };
     }
 
-    public MatchState MovePlayer(MatchState match, Ruleset ruleset, LeagueTeam team, Guid playerId, PitchSquare destination)
+    public MatchState MovePlayer(MatchState match, Ruleset ruleset, LeagueTeam team, Guid playerId, PitchSquare destination, LeagueTeam? opposingTeam = null)
     {
-        return MovePlayerCore(match, ruleset, team, playerId, destination, PlayerTurnAction.Move);
+        return MovePlayerCore(match, ruleset, team, playerId, destination, PlayerTurnAction.Move, opposingTeam);
     }
 
     public MatchState HandOffBall(
@@ -1215,7 +1222,8 @@ public sealed class MatchService
         }
 
         var defender = FindTeamPlayer(defenderTeam, pending.DefenderPlayerId);
-        var pushedMatch = PushPlayer(match with { PendingPush = null }, ruleset, defender, pending.DefenderSquare, square, pending.KnockDefenderDown);
+        var attacker = FindTeamPlayer(attackerTeam, pending.AttackerPlayerId);
+        var pushedMatch = PushPlayer(match with { PendingPush = null }, ruleset, defender, pending.DefenderSquare, square, pending.KnockDefenderDown, () => ResolveBlockInjury(ruleset, attacker, defender));
 
         return pushedMatch with
         {
@@ -1223,6 +1231,89 @@ public sealed class MatchService
             [
                 .. pushedMatch.Log,
                 new MatchLogEntry { Message = $"{pending.ResultMessage} {defender.Name} is pushed to {square.X},{square.Y}." }
+            ]
+        };
+    }
+
+    public MatchState ResolvePendingStandFirm(
+        MatchState match,
+        Ruleset ruleset,
+        LeagueTeam attackerTeam,
+        LeagueTeam defenderTeam,
+        bool useStandFirm)
+    {
+        var pending = match.PendingStandFirm
+            ?? throw new InvalidOperationException("There is no pending Stand Firm choice.");
+
+        if (pending.AttackerTeamId != attackerTeam.Id || pending.DefenderTeamId != defenderTeam.Id)
+        {
+            throw new InvalidOperationException("Pending Stand Firm teams do not match the selected teams.");
+        }
+
+        var defender = FindTeamPlayer(defenderTeam, pending.DefenderPlayerId);
+        var attacker = FindTeamPlayer(attackerTeam, pending.AttackerPlayerId);
+        var defenderPlacement = match.Placements.First(placement => placement.PlayerId == pending.DefenderPlayerId);
+        var baseMatch = match with { PendingStandFirm = null };
+
+        if (useStandFirm)
+        {
+            var stoodFirmMatch = pending.KnockDefenderDown
+                ? KnockPlayerDown(baseMatch, ruleset, defender, defenderPlacement, ResolveBlockInjury(ruleset, attacker, defender), pending.DefenderSquare)
+                : baseMatch;
+
+            return stoodFirmMatch with
+            {
+                Log =
+                [
+                    .. stoodFirmMatch.Log,
+                    new MatchLogEntry { Message = $"{pending.ResultMessage} {defender.Name} uses Stand Firm and is not pushed." }
+                ]
+            };
+        }
+
+        if (pending.LegalSquares.Count == 0)
+        {
+            var crowdMatch = PushPlayerIntoCrowd(baseMatch, ruleset, defenderPlacement);
+            return crowdMatch with
+            {
+                Log =
+                [
+                    .. crowdMatch.Log,
+                    new MatchLogEntry { Message = $"{pending.ResultMessage} {defender.Name} declines Stand Firm. No legal push square is available; {defender.Name} is pushed into the crowd." }
+                ]
+            };
+        }
+
+        if (pending.LegalSquares.Count == 1)
+        {
+            var pushedMatch = PushPlayer(baseMatch, ruleset, defender, pending.DefenderSquare, pending.LegalSquares[0], pending.KnockDefenderDown, () => ResolveBlockInjury(ruleset, attacker, defender));
+            return pushedMatch with
+            {
+                Log =
+                [
+                    .. pushedMatch.Log,
+                    new MatchLogEntry { Message = $"{pending.ResultMessage} {defender.Name} declines Stand Firm and is pushed to {pending.LegalSquares[0].X},{pending.LegalSquares[0].Y}." }
+                ]
+            };
+        }
+
+        return baseMatch with
+        {
+            PendingPush = new PendingPushChoice
+            {
+                AttackerTeamId = pending.AttackerTeamId,
+                DefenderTeamId = pending.DefenderTeamId,
+                AttackerPlayerId = pending.AttackerPlayerId,
+                DefenderPlayerId = pending.DefenderPlayerId,
+                DefenderSquare = pending.DefenderSquare,
+                LegalSquares = pending.LegalSquares,
+                KnockDefenderDown = pending.KnockDefenderDown,
+                ResultMessage = $"{pending.ResultMessage} {defender.Name} declines Stand Firm."
+            },
+            Log =
+            [
+                .. baseMatch.Log,
+                new MatchLogEntry { Message = $"{pending.ResultMessage} {defender.Name} declines Stand Firm. Choose a push square." }
             ]
         };
     }
@@ -1252,7 +1343,7 @@ public sealed class MatchService
             throw new InvalidOperationException($"{attackerTeam.Name} has already used its blitz this turn.");
         }
 
-        var movedMatch = MovePlayerCore(match, ruleset, attackerTeam, attackerPlayerId, destination, PlayerTurnAction.Blitz, defenderPlayerId);
+        var movedMatch = MovePlayerCore(match, ruleset, attackerTeam, attackerPlayerId, destination, PlayerTurnAction.Blitz, defenderTeam, defenderPlayerId);
         if (movedMatch.Phase != match.Phase || movedMatch.ActiveTeamId != match.ActiveTeamId || movedMatch.PendingReroll is not null)
         {
             return movedMatch;
@@ -1342,12 +1433,17 @@ public sealed class MatchService
         var defenseAssists = CountFoulAssists(match, victimTeam.Id, victimPlayerId, victimSquare, foulerPlayerId);
         var activatedMatch = AddActivation(match, foulerPlayerId, foulingTeam.Id, PlayerTurnAction.Foul, goForItsUsed: 0);
         var armorRoll = Roll2D6Detailed();
-        var armorTotal = armorRoll.Total + attackAssists - defenseAssists;
+        var hasDirtyPlayer = PlayerHasSkillEffect(ruleset, fouler, SkillEffect.DirtyPlayer);
+        var armorTotalWithoutSkill = armorRoll.Total + attackAssists - defenseAssists;
+        var dirtyPlayerArmorBonus = hasDirtyPlayer && armorTotalWithoutSkill <= victim.Stats.Armor && armorTotalWithoutSkill + 1 > victim.Stats.Armor ? 1 : 0;
+        var armorTotal = armorTotalWithoutSkill + dirtyPlayerArmorBonus;
         var log = new List<MatchLogEntry>
         {
             new()
             {
-                Message = $"{fouler.Name} fouls {victim.Name}: armor {armorRoll.Total} +{attackAssists} -{defenseAssists} = {armorTotal} vs AV {victim.Stats.Armor}+."
+                Message = dirtyPlayerArmorBonus > 0
+                    ? $"{fouler.Name} fouls {victim.Name}: armor {armorRoll.Total} +{attackAssists} -{defenseAssists} +1 Dirty Player = {armorTotal} vs AV {victim.Stats.Armor}+."
+                    : $"{fouler.Name} fouls {victim.Name}: armor {armorRoll.Total} +{attackAssists} -{defenseAssists} = {armorTotal} vs AV {victim.Stats.Armor}+."
             }
         };
 
@@ -1357,7 +1453,9 @@ public sealed class MatchService
         {
             var injuryRoll = Roll2D6Detailed();
             sentOff = sentOff || injuryRoll.IsDoubles;
-            var injury = ResolveInjury(injuryRoll.Total);
+            var dirtyPlayerInjuryBonus = hasDirtyPlayer && dirtyPlayerArmorBonus == 0 ? 1 : 0;
+            var injuryTotal = injuryRoll.Total + dirtyPlayerInjuryBonus;
+            var injury = ResolveInjury(ruleset, victim, injuryTotal);
             var apothecary = CreatePendingApothecaryIfAvailable(nextMatch, victimPlacement, victim.Name, injury);
             nextMatch = apothecary.Match;
             injury = apothecary.Injury;
@@ -1369,7 +1467,12 @@ public sealed class MatchService
                         : placement)
                     .ToArray()
             };
-            log.Add(new MatchLogEntry { Message = $"{victim.Name} injury roll {injuryRoll.Total}: {FormatPitchState(injury.State)}." });
+            log.Add(new MatchLogEntry
+            {
+                Message = dirtyPlayerInjuryBonus > 0
+                    ? $"{victim.Name} injury roll {injuryRoll.Total} +1 Dirty Player = {injuryTotal}: {FormatPitchState(injury.State)}."
+                    : $"{victim.Name} injury roll {injuryRoll.Total}: {FormatPitchState(injury.State)}."
+            });
             if (injury.Casualty is not null)
             {
                 log.Add(new MatchLogEntry { Message = $"{victim.Name} casualty roll {injury.Casualty.Roll}: {FormatCasualtyResult(injury.Casualty.Result)}." });
@@ -1426,6 +1529,7 @@ public sealed class MatchService
         Guid playerId,
         PitchSquare destination,
         PlayerTurnAction action,
+        LeagueTeam? opposingTeam = null,
         Guid? blitzDefenderPlayerId = null)
     {
         if (match.Phase is MatchPhase.Complete)
@@ -1545,6 +1649,7 @@ public sealed class MatchService
                         path,
                         stepIndex,
                         movementAllowance,
+                        opposingTeam,
                         blitzDefenderPlayerId: blitzDefenderPlayerId);
                 }
 
@@ -1578,6 +1683,7 @@ public sealed class MatchService
                         path,
                         stepIndex,
                         movementAllowance,
+                        opposingTeam,
                         goForItNumber,
                         blitzDefenderPlayerId);
                 }
@@ -1635,7 +1741,7 @@ public sealed class MatchService
         Player defender)
     {
         var defenderPlacement = match.Placements.First(placement => placement.PlayerId == defender.Id);
-        var strength = ResolveBlockStrength(match, attackerTeam, attackerPlacement, defenderTeam, defenderPlacement, attacker, defender);
+        var strength = ResolveBlockStrength(match, ruleset, attackerTeam, attackerPlacement, defenderTeam, defenderPlacement, attacker, defender);
         var rolls = Enumerable.Range(0, strength.Dice).Select(_ => _dice.RollD6()).ToArray();
         if (rolls.Length > 1)
         {
@@ -1693,18 +1799,31 @@ public sealed class MatchService
 
         if (roll == 2)
         {
-            var attackerInjuryState = ResolveFallInjury(attacker);
-            var defenderInjuryState = ResolveFallInjury(defender);
-            var defenderDown = KnockPlayerDown(match, ruleset, defender, defenderPlacement, defenderInjuryState, defenderPlacement.Square!);
-            var bothDown = KnockPlayerDown(defenderDown, ruleset, attacker, attackerPlacement, attackerInjuryState, attackerPlacement.Square!);
-            return ApplyTurnover(bothDown with
+            var attackerHasBlock = PlayerHasSkillEffect(ruleset, attacker, SkillEffect.BothDownProtection);
+            var defenderHasBlock = PlayerHasSkillEffect(ruleset, defender, SkillEffect.BothDownProtection);
+            var nextMatch = match;
+            if (!defenderHasBlock)
+            {
+                nextMatch = KnockPlayerDown(nextMatch, ruleset, defender, defenderPlacement, ResolveBlockInjury(ruleset, attacker, defender), defenderPlacement.Square!);
+            }
+
+            if (!attackerHasBlock)
+            {
+                nextMatch = KnockPlayerDown(nextMatch, ruleset, attacker, attackerPlacement, ResolveFallInjury(attacker), attackerPlacement.Square!);
+            }
+
+            var resolvedMatch = nextMatch with
             {
                 Log =
                 [
-                    .. bothDown.Log,
-                    new MatchLogEntry { Message = $"{attacker.Name} blocks {defender.Name}: {strengthText}, rolled {rollText}, chose {roll}, both players down." }
+                    .. nextMatch.Log,
+                    new MatchLogEntry { Message = $"{attacker.Name} blocks {defender.Name}: {strengthText}, rolled {rollText}, chose {roll}, both down. Block protects {(attackerHasBlock ? attacker.Name : "nobody")}{(defenderHasBlock ? (attackerHasBlock ? $" and {defender.Name}" : defender.Name) : "")}." }
                 ]
-            }, ruleset, attackerTeam.Id);
+            };
+
+            return attackerHasBlock
+                ? resolvedMatch
+                : ApplyTurnover(resolvedMatch, ruleset, attackerTeam.Id);
         }
 
         if (roll <= 4)
@@ -1742,6 +1861,29 @@ public sealed class MatchService
         string resultMessage)
     {
         var legalSquares = LegalPushSquares(match, ruleset, attackerPlacement.Square!, defenderPlacement.Square!, defender.Id);
+        if (PlayerHasSkillEffect(ruleset, defender, SkillEffect.StandFirm))
+        {
+            return match with
+            {
+                PendingStandFirm = new PendingStandFirmChoice
+                {
+                    AttackerTeamId = attackerPlacement.TeamId,
+                    DefenderTeamId = defenderPlacement.TeamId,
+                    AttackerPlayerId = attacker.Id,
+                    DefenderPlayerId = defender.Id,
+                    DefenderSquare = defenderPlacement.Square!,
+                    LegalSquares = legalSquares,
+                    KnockDefenderDown = knockDefenderDown,
+                    ResultMessage = resultMessage
+                },
+                Log =
+                [
+                    .. match.Log,
+                    new MatchLogEntry { Message = $"{resultMessage} {defender.Name} can use Stand Firm." }
+                ]
+            };
+        }
+
         if (legalSquares.Length == 0)
         {
             var resolvedMatch = PushPlayerIntoCrowd(match, ruleset, defenderPlacement);
@@ -1758,7 +1900,7 @@ public sealed class MatchService
 
         if (legalSquares.Length == 1)
         {
-            var pushedMatch = PushPlayer(match, ruleset, defender, defenderPlacement.Square!, legalSquares[0], knockDefenderDown);
+            var pushedMatch = PushPlayer(match, ruleset, defender, defenderPlacement.Square!, legalSquares[0], knockDefenderDown, () => ResolveBlockInjury(ruleset, attacker, defender));
             return pushedMatch with
             {
                 Log =
@@ -1792,6 +1934,7 @@ public sealed class MatchService
 
     private BlockStrength ResolveBlockStrength(
         MatchState match,
+        Ruleset ruleset,
         LeagueTeam attackerTeam,
         PlayerPlacement attackerPlacement,
         LeagueTeam defenderTeam,
@@ -1799,8 +1942,8 @@ public sealed class MatchService
         Player attacker,
         Player defender)
     {
-        var attackerAssists = CountAssists(match, attackerTeam.Id, defenderPlacement.PlayerId, defenderPlacement.Square!, attackerPlacement.PlayerId);
-        var defenderAssists = CountAssists(match, defenderTeam.Id, attackerPlacement.PlayerId, attackerPlacement.Square!, defenderPlacement.PlayerId);
+        var attackerAssists = CountAssists(match, ruleset, attackerTeam, defenderPlacement.PlayerId, defenderPlacement.Square!, attackerPlacement.PlayerId);
+        var defenderAssists = CountAssists(match, ruleset, defenderTeam, attackerPlacement.PlayerId, attackerPlacement.Square!, defenderPlacement.PlayerId);
         var attackerStrength = attacker.Stats.Strength + attackerAssists;
         var defenderStrength = defender.Stats.Strength + defenderAssists;
         var dice = ResolveBlockDice(attackerStrength, defenderStrength);
@@ -1808,16 +1951,17 @@ public sealed class MatchService
         return new BlockStrength(attackerStrength, defenderStrength, dice);
     }
 
-    private int CountAssists(MatchState match, Guid assistingTeamId, Guid opposedPlayerId, PitchSquare targetSquare, Guid primaryPlayerId)
+    private int CountAssists(MatchState match, Ruleset ruleset, LeagueTeam assistingTeam, Guid opposedPlayerId, PitchSquare targetSquare, Guid primaryPlayerId)
     {
         return match.Placements.Count(placement =>
-            placement.TeamId == assistingTeamId &&
+            placement.TeamId == assistingTeam.Id &&
             placement.PlayerId != primaryPlayerId &&
             placement.PlayerId != opposedPlayerId &&
             placement.State == PlayerPitchState.Standing &&
             placement.Square is PitchSquare square &&
             IsAdjacent(square, targetSquare) &&
-            !IsMarkedByOpponent(match, assistingTeamId, placement.PlayerId, square, opposedPlayerId));
+            (!IsMarkedByOpponent(match, assistingTeam.Id, placement.PlayerId, square, opposedPlayerId) ||
+                PlayerHasSkillEffect(ruleset, FindTeamPlayer(assistingTeam, placement.PlayerId), SkillEffect.GuardAssist)));
     }
 
     private int CountFoulAssists(
@@ -1981,7 +2125,7 @@ public sealed class MatchService
         };
     }
 
-    private MatchState PushPlayer(MatchState match, Ruleset ruleset, Player player, PitchSquare source, PitchSquare destination, bool knockDown)
+    private MatchState PushPlayer(MatchState match, Ruleset ruleset, Player player, PitchSquare source, PitchSquare destination, bool knockDown, Func<InjuryResolution>? resolveKnockdownState = null)
     {
         return PushPlacement(
             match,
@@ -1991,7 +2135,7 @@ public sealed class MatchService
             source,
             destination,
             knockDown,
-            () => ResolveFallInjury(player));
+            resolveKnockdownState ?? (() => ResolveFallInjury(player)));
     }
 
     private MatchState PushPlacement(
@@ -2597,10 +2741,24 @@ public sealed class MatchService
         IReadOnlyList<PitchSquare> path,
         int stepIndex,
         int movementAllowance,
+        LeagueTeam? opposingTeam = null,
         int goForItNumber = 0,
         Guid? blitzDefenderPlayerId = null)
     {
-        var skillRerolls = AvailableSkillRerolls(player, kind);
+        var skillRerolls = AvailableSkillRerolls(ruleset, player, kind);
+        if (kind == PendingRerollKind.Dodge && path.Count > 0)
+        {
+            var dodgeStart = stepIndex == 0
+                ? match.Placements.First(placement => placement.PlayerId == player.Id).Square!
+                : path[stepIndex - 1];
+            if (opposingTeam is not null && IsAdjacentToOpponentWithSkillEffect(match, ruleset, opposingTeam, player.Id, dodgeStart, SkillEffect.CancelDodgeReroll))
+            {
+                skillRerolls = skillRerolls
+                    .Where(skillId => !SkillHasEffect(ruleset, skillId, SkillEffect.DodgeReroll))
+                    .ToArray();
+            }
+        }
+
         if (!CanUseTeamReroll(match, team.Id) && skillRerolls.Count == 0)
         {
             var pendingWithoutOptions = new PendingRerollChoice
@@ -2728,6 +2886,7 @@ public sealed class MatchService
                         path,
                         stepIndex,
                         context.MovementAllowance,
+                        opposingTeam,
                         goForItNumber,
                         context.BlitzDefenderPlayerId);
             }
@@ -2795,7 +2954,7 @@ public sealed class MatchService
                 var dodgeTarget = DodgeTarget(player, opposingTackleZones);
                 if (!RollSucceeds(dodgeRoll, dodgeTarget, ruleset.Dice))
                 {
-                    return CreatePendingMovementReroll(nextMatch, ruleset, team, player, PendingRerollKind.Dodge, dodgeRoll, dodgeTarget, action, destination, path, stepIndex, movementAllowance, goForItNumber, blitzDefenderPlayerId);
+                    return CreatePendingMovementReroll(nextMatch, ruleset, team, player, PendingRerollKind.Dodge, dodgeRoll, dodgeTarget, action, destination, path, stepIndex, movementAllowance, opposingTeam, goForItNumber, blitzDefenderPlayerId);
                 }
 
                 nextMatch = nextMatch with
@@ -2811,7 +2970,7 @@ public sealed class MatchService
                 var goForItTarget = GoForItTarget(match.Weather);
                 if (!RollSucceeds(roll, goForItTarget, ruleset.Dice))
                 {
-                    return CreatePendingMovementReroll(nextMatch, ruleset, team, player, PendingRerollKind.GoForIt, roll, goForItTarget, action, destination, path, stepIndex, movementAllowance, goForItNumber, blitzDefenderPlayerId);
+                    return CreatePendingMovementReroll(nextMatch, ruleset, team, player, PendingRerollKind.GoForIt, roll, goForItTarget, action, destination, path, stepIndex, movementAllowance, opposingTeam, goForItNumber, blitzDefenderPlayerId);
                 }
 
                 nextMatch = nextMatch with
@@ -2898,6 +3057,7 @@ public sealed class MatchService
             PendingPush = null,
             PendingInterception = null,
             PendingReroll = null,
+            PendingStandFirm = null,
             PendingKickoffEvent = null,
             Log =
             [
@@ -3013,19 +3173,48 @@ public sealed class MatchService
         return cheerleaders ? match.AwayCheerleaders : match.AwayAssistantCoaches;
     }
 
-    private static IReadOnlyList<string> AvailableSkillRerolls(Player player, PendingRerollKind kind)
+    private static IReadOnlyList<string> AvailableSkillRerolls(Ruleset ruleset, Player player, PendingRerollKind kind)
     {
-        var skillIds = kind switch
+        var effect = kind switch
         {
-            PendingRerollKind.Dodge => new[] { "dodge" },
-            PendingRerollKind.Pickup => new[] { "sure-hands", "sure hands" },
-            PendingRerollKind.GoForIt => new[] { "sure-feet", "sure feet" },
-            _ => []
+            PendingRerollKind.Dodge => SkillEffect.DodgeReroll,
+            PendingRerollKind.Pickup => SkillEffect.PickupReroll,
+            PendingRerollKind.GoForIt => SkillEffect.GoForItReroll,
+            _ => throw new InvalidOperationException("Unknown reroll kind.")
         };
 
         return player.Skills
-            .Where(skill => skillIds.Contains(skill, StringComparer.OrdinalIgnoreCase))
+            .Where(skill => SkillHasEffect(ruleset, skill, effect))
             .ToArray();
+    }
+
+    private static bool PlayerHasSkillEffect(Ruleset ruleset, Player player, SkillEffect effect)
+    {
+        return player.Skills.Any(skill => SkillHasEffect(ruleset, skill, effect));
+    }
+
+    private static bool IsAdjacentToOpponentWithSkillEffect(
+        MatchState match,
+        Ruleset ruleset,
+        LeagueTeam opposingTeam,
+        Guid playerId,
+        PitchSquare square,
+        SkillEffect effect)
+    {
+        return match.Placements.Any(placement =>
+            placement.TeamId == opposingTeam.Id &&
+            placement.PlayerId != playerId &&
+            placement.State == PlayerPitchState.Standing &&
+            placement.Square is PitchSquare opponentSquare &&
+            IsAdjacent(opponentSquare, square) &&
+            PlayerHasSkillEffect(ruleset, FindTeamPlayer(opposingTeam, placement.PlayerId), effect));
+    }
+
+    private static bool SkillHasEffect(Ruleset ruleset, string skillId, SkillEffect effect)
+    {
+        return ruleset.Skills.Any(skill =>
+            string.Equals(skill.Id, skillId, StringComparison.OrdinalIgnoreCase) &&
+            skill.Effects.Contains(effect));
     }
 
     private static string FormatRerollKind(PendingRerollKind kind)
@@ -3055,6 +3244,7 @@ public sealed class MatchService
             Activations = [],
             PendingReroll = null,
             PendingPush = null,
+            PendingStandFirm = null,
             Log = message is null
                 ? consumedTurnMatch.Log
                 : [.. consumedTurnMatch.Log, new MatchLogEntry { Message = message }]
@@ -3077,6 +3267,7 @@ public sealed class MatchService
             PendingPush = null,
             PendingInterception = null,
             PendingReroll = null,
+            PendingStandFirm = null,
             PendingKickoffEvent = null,
             Log = [.. match.Log, new MatchLogEntry { Message = "Full time. Match complete." }]
         };
@@ -3108,6 +3299,7 @@ public sealed class MatchService
             PendingPush = null,
             PendingInterception = null,
             PendingReroll = null,
+            PendingStandFirm = null,
             PendingKickoffEvent = null,
             Log = [.. recoveredMatch.Log, new MatchLogEntry { Message = "Second half begins. First-half receiving team kicks off." }]
         };
@@ -3177,6 +3369,7 @@ public sealed class MatchService
             Activations = [],
             PendingPush = null,
             PendingReroll = null,
+            PendingStandFirm = null,
             PendingKickoffEvent = null,
             Log =
             [
@@ -3337,6 +3530,24 @@ public sealed class MatchService
         return ResolveInjury(Roll2D6());
     }
 
+    private InjuryResolution ResolveBlockInjury(Ruleset ruleset, Player attacker, Player defender)
+    {
+        var armorRoll = Roll2D6();
+        var hasMightyBlow = PlayerHasSkillEffect(ruleset, attacker, SkillEffect.MightyBlow);
+        if (armorRoll <= defender.Stats.Armor)
+        {
+            if (!hasMightyBlow || armorRoll + 1 <= defender.Stats.Armor)
+            {
+                return new InjuryResolution(PlayerPitchState.Prone);
+            }
+
+            return ResolveInjury(ruleset, defender, Roll2D6());
+        }
+
+        var injuryRoll = Roll2D6();
+        return ResolveInjury(ruleset, defender, hasMightyBlow ? injuryRoll + 1 : injuryRoll);
+    }
+
     private InjuryResolution ResolveInjury(int injuryRoll)
     {
         if (injuryRoll >= 10)
@@ -3349,6 +3560,16 @@ public sealed class MatchService
         }
 
         return new InjuryResolution(injuryRoll >= 8 ? PlayerPitchState.KnockedOut : PlayerPitchState.Stunned);
+    }
+
+    private InjuryResolution ResolveInjury(Ruleset ruleset, Player player, int injuryRoll)
+    {
+        if (injuryRoll == 8 && PlayerHasSkillEffect(ruleset, player, SkillEffect.ThickSkull))
+        {
+            return new InjuryResolution(PlayerPitchState.Stunned);
+        }
+
+        return ResolveInjury(injuryRoll);
     }
 
     private static CasualtyResult ResolveCasualty(int casualtyRoll)

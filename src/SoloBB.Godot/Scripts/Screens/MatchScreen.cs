@@ -26,6 +26,7 @@ public partial class MatchScreen : VBoxContainer
     private HBoxContainer _interceptionChoiceBox = null!;
     private HBoxContainer _rerollChoiceBox = null!;
     private HBoxContainer _apothecaryChoiceBox = null!;
+    private HBoxContainer _standFirmChoiceBox = null!;
     private Button _passModeButton = null!;
     private Button _doneButton = null!;
     private Ruleset _ruleset = null!;
@@ -138,6 +139,10 @@ public partial class MatchScreen : VBoxContainer
         _apothecaryChoiceBox = new HBoxContainer();
         _apothecaryChoiceBox.AddThemeConstantOverride("separation", 4);
         footer.AddChild(_apothecaryChoiceBox);
+
+        _standFirmChoiceBox = new HBoxContainer();
+        _standFirmChoiceBox.AddThemeConstantOverride("separation", 4);
+        footer.AddChild(_standFirmChoiceBox);
 
         _passModeButton = new Button { Text = "Pass" };
         _passModeButton.Pressed += () =>
@@ -511,7 +516,7 @@ public partial class MatchScreen : VBoxContainer
         var path = _previewPath.ToArray();
         var movingTeam = ActiveTeam();
         var service = new MatchService();
-        _match = service.MovePlayer(_match, _ruleset, movingTeam, playerId, destination);
+        _match = service.MovePlayer(_match, _ruleset, movingTeam, playerId, destination, OpponentTeam());
         if (_match.ActiveTeamId == activeTeamBeforeMove && IsPlayerTurnPhase())
         {
             _selectedPlayerId = playerId;
@@ -870,6 +875,25 @@ public partial class MatchScreen : VBoxContainer
         RefreshPitch();
     }
 
+    private async Task ResolveStandFirmAsync(bool useStandFirm)
+    {
+        if (_match.PendingStandFirm is not PendingStandFirmChoice pending)
+        {
+            return;
+        }
+
+        var beforeMatch = _match;
+        var logStart = _match.Log.Count;
+        var service = new MatchService();
+        _match = service.ResolvePendingStandFirm(_match, _ruleset, TeamById(pending.AttackerTeamId), TeamById(pending.DefenderTeamId), useStandFirm);
+        _selectedPlayerId = null;
+        _currentActivationPlayerId = null;
+        await AnimateBallAsync(beforeMatch, _match, logStart);
+        await _saveMatch(_match);
+        RefreshRoster();
+        RefreshPitch();
+    }
+
     private async Task AnimateMovementAsync(MatchState beforeMatch, MatchState afterMatch, Guid playerId, IReadOnlyList<PitchSquare> path)
     {
         if (path.Count == 0)
@@ -1094,6 +1118,7 @@ public partial class MatchScreen : VBoxContainer
         RefreshInterceptionChoice();
         RefreshRerollChoice();
         RefreshApothecaryChoice();
+        RefreshStandFirmChoice();
         foreach (var (square, button) in _pitchButtons)
         {
             var canPlace = IsLegalPlacementTarget(square);
@@ -1177,6 +1202,7 @@ public partial class MatchScreen : VBoxContainer
         {
             _ when _match.PendingReroll is PendingRerollChoice pending => RerollSummary(pending),
             _ when _match.PendingApothecary is PendingApothecaryChoice pending => ApothecarySummary(pending),
+            _ when _match.PendingStandFirm is PendingStandFirmChoice pending => StandFirmSummary(pending),
             _ when _match.PendingBlock is PendingBlockChoice pending => $"Choose a block die for {FindPlayer(pending.AttackerPlayerId)?.Name ?? "attacker"}'s block.",
             _ when _match.PendingPush is PendingPushChoice pending => $"Choose a push square for {FindPlayer(pending.DefenderPlayerId)?.Name ?? "defender"}.",
             _ when _match.PendingInterception is PendingInterceptionChoice pending => $"Choose an interceptor for the {pending.PassRangeName} pass.",
@@ -1251,6 +1277,7 @@ public partial class MatchScreen : VBoxContainer
     {
         if (_match.PendingReroll is not null ||
             _match.PendingApothecary is not null ||
+            _match.PendingStandFirm is not null ||
             _match.PendingBlock is not null ||
             _match.PendingPush is not null ||
             _match.PendingInterception is not null)
@@ -1298,6 +1325,11 @@ public partial class MatchScreen : VBoxContainer
         if (_match.PendingApothecary is not null)
         {
             return "Resolve the pending apothecary choice first.";
+        }
+
+        if (_match.PendingStandFirm is not null)
+        {
+            return "Resolve the pending Stand Firm choice first.";
         }
 
         if (_match.PendingBlock is not null)
@@ -1532,6 +1564,11 @@ public partial class MatchScreen : VBoxContainer
             return false;
         }
 
+        if (_match.PendingStandFirm is not null)
+        {
+            return false;
+        }
+
         if (_match.PendingInterception is PendingInterceptionChoice pendingInterception &&
             pendingInterception.PasserPlayerId != playerId &&
             pendingInterception.ReceiverPlayerId != playerId &&
@@ -1676,6 +1713,7 @@ public partial class MatchScreen : VBoxContainer
         if (!IsPlayerTurnPhase() ||
             _match.PendingBlock is not null ||
             _match.PendingPush is not null ||
+            _match.PendingStandFirm is not null ||
             HasCurrentTurnActivation(attackerId))
         {
             return false;
@@ -1698,6 +1736,7 @@ public partial class MatchScreen : VBoxContainer
         if (!IsPlayerTurnPhase() ||
             _match.PendingBlock is not null ||
             _match.PendingPush is not null ||
+            _match.PendingStandFirm is not null ||
             _match.PendingInterception is not null ||
             _match.PendingReroll is not null ||
             HasCurrentTurnActivation(attackerId) ||
@@ -2004,6 +2043,7 @@ public partial class MatchScreen : VBoxContainer
         if (!IsPlayerTurnPhase() ||
             _match.PendingBlock is not null ||
             _match.PendingPush is not null ||
+            _match.PendingStandFirm is not null ||
             _match.PendingInterception is not null ||
             HasCurrentTurnActivation(passerId) ||
             HasUsedPass(_match.ActiveTeamId) ||
@@ -2225,6 +2265,37 @@ public partial class MatchScreen : VBoxContainer
         _apothecaryChoiceBox.AddChild(declineButton);
     }
 
+    private void RefreshStandFirmChoice()
+    {
+        foreach (var child in _standFirmChoiceBox.GetChildren())
+        {
+            child.QueueFree();
+        }
+
+        if (_match.PendingStandFirm is not PendingStandFirmChoice)
+        {
+            _standFirmChoiceBox.Visible = false;
+            return;
+        }
+
+        _blockDiceBox.Visible = false;
+        _interceptionChoiceBox.Visible = false;
+        _rerollChoiceBox.Visible = false;
+        _apothecaryChoiceBox.Visible = false;
+        _standFirmChoiceBox.Visible = true;
+        _standFirmChoiceBox.AddChild(new Label { Text = "Stand Firm:" });
+
+        var useButton = new Button { Text = "Use" };
+        useButton.TooltipText = "Refuse the push and stay in this square.";
+        useButton.Pressed += async () => await ResolveStandFirmAsync(useStandFirm: true);
+        _standFirmChoiceBox.AddChild(useButton);
+
+        var declineButton = new Button { Text = "Decline" };
+        declineButton.TooltipText = "Allow the push to continue.";
+        declineButton.Pressed += async () => await ResolveStandFirmAsync(useStandFirm: false);
+        _standFirmChoiceBox.AddChild(declineButton);
+    }
+
     private string RerollSummary(PendingRerollChoice pending)
     {
         var playerName = FindPlayer(pending.PlayerId)?.Name ?? "player";
@@ -2243,6 +2314,12 @@ public partial class MatchScreen : VBoxContainer
     {
         var playerName = FindPlayer(pending.PlayerId)?.Name ?? "player";
         return $"{playerName} suffered {FormatCasualtyResult(pending.OriginalCasualty.Result)}. Use an apothecary?";
+    }
+
+    private string StandFirmSummary(PendingStandFirmChoice pending)
+    {
+        var playerName = FindPlayer(pending.DefenderPlayerId)?.Name ?? "defender";
+        return $"{playerName} can use Stand Firm. Use it to refuse the push?";
     }
 
     private string KickoffEventSummary(PendingKickoffEventChoice pending)
