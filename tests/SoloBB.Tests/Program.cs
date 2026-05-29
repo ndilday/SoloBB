@@ -16,6 +16,15 @@ Assert(ruleset.Skills.Single(skill => skill.Id == "mighty-blow").Effects.Contain
 Assert(ruleset.Skills.Single(skill => skill.Id == "stand-firm").Effects.Contains(SkillEffect.StandFirm), "stand firm should declare its push-prevention mechanic");
 Assert(ruleset.Skills.Single(skill => skill.Id == "dirty-player").Effects.Contains(SkillEffect.DirtyPlayer), "dirty player should declare its foul-pressure mechanic");
 Assert(ruleset.Skills.Single(skill => skill.Id == "thick-skull").Effects.Contains(SkillEffect.ThickSkull), "thick skull should declare its knockout-resistance mechanic");
+Assert(ruleset.Skills.Single(skill => skill.Id == "diving-catch").Effects.Contains(SkillEffect.DivingCatch), "diving catch should declare its catch-zone mechanic");
+Assert(ruleset.Skills.Single(skill => skill.Id == "diving-tackle").Effects.Contains(SkillEffect.DivingTackle), "diving tackle should declare its dodge-pressure mechanic");
+Assert(ruleset.Skills.Single(skill => skill.Id == "defensive").Effects.Contains(SkillEffect.Defensive), "defensive should declare its guard-cancel mechanic");
+Assert(ruleset.Skills.Single(skill => skill.Id == "jump-up").Effects.Contains(SkillEffect.JumpUp), "jump up should declare its stand-up movement mechanic");
+Assert(ruleset.Skills.Single(skill => skill.Id == "leap").Effects.Contains(SkillEffect.Leap), "leap should declare its special movement mechanic");
+Assert(ruleset.Skills.Single(skill => skill.Id == "safe-pair-of-hands").Effects.Contains(SkillEffect.SafePairOfHands), "safe pair of hands should declare its ball-placement mechanic");
+Assert(ruleset.Skills.Single(skill => skill.Id == "sidestep").Effects.Contains(SkillEffect.SideStep), "sidestep should declare its push-choice mechanic");
+Assert(ruleset.Skills.Single(skill => skill.Id == "sneaky-git").Effects.Contains(SkillEffect.SneakyGit), "sneaky git should declare its foul-sendoff mechanic");
+Assert(ruleset.Skills.Single(skill => skill.Id == "sprint").Effects.Contains(SkillEffect.Sprint), "sprint should declare its extra go-for-it mechanic");
 Assert(ruleset.Skills.Count >= 75, "ruleset should include the full 2020 skill and trait catalog");
 Assert(ruleset.Skills.Single(skill => skill.Id == "frenzy").Compulsory, "compulsory skills should be represented in ruleset data");
 Assert(ruleset.Skills.Single(skill => skill.Id == "disturbing-presence").Category == "mutation", "skill categories should be represented in ruleset data");
@@ -583,7 +592,7 @@ var markedPasserResult = markedPasserService.PassBall(markedPasserMatch, ruleset
 Assert(markedPasserResult.Phase == MatchPhase.DefensiveTurn, "opposing tackle zones on the passer should make passing harder");
 Assert(markedPasserResult.Ball.Square == new PitchSquare(5, 1), "marked passer inaccurate pass should scatter from the target square");
 
-var droppedPassService = new MatchService(new FixedDiceRoller(d6: [2, 1], d8: [5]));
+var droppedPassService = new MatchService(new FixedDiceRoller(d6: [2, 1, 1], d8: [5]));
 var droppedPassMatch = droppedPassService.PassBall(passReadyMatch, ruleset, loadedLeague.Teams[0], passerPlayer.Id, passReceiver.Id);
 
 Assert(droppedPassMatch.Phase == MatchPhase.DefensiveTurn, "dropped completed pass should cause a turnover if not recovered");
@@ -597,7 +606,7 @@ var markedReceiverMatch = passReadyMatch with
             : placement)
         .ToArray()
 };
-var markedReceiverService = new MatchService(new FixedDiceRoller(d6: [2, 3], d8: [5]));
+var markedReceiverService = new MatchService(new FixedDiceRoller(d6: [2, 3, 3], d8: [5]));
 var markedReceiverResult = markedReceiverService.PassBall(markedReceiverMatch, ruleset, loadedLeague.Teams[0], passerPlayer.Id, passReceiver.Id);
 
 Assert(markedReceiverResult.Phase == MatchPhase.DefensiveTurn, "opposing tackle zones on the receiver should make catching harder");

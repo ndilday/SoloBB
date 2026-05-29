@@ -335,6 +335,12 @@ public partial class MatchScreen : VBoxContainer
                 return;
             }
 
+            if (_match.PendingBallPlacement is not null)
+            {
+                await ChooseBallPlacementAsync(square);
+                return;
+            }
+
             if (_match.PendingKickoffEvent is not null)
             {
                 await HandlePendingKickoffEventSquareAsync(square);
@@ -824,6 +830,31 @@ public partial class MatchScreen : VBoxContainer
         RefreshPitch();
     }
 
+    private async Task ChooseBallPlacementAsync(PitchSquare square)
+    {
+        if (_match.PendingBallPlacement is not PendingBallPlacementChoice pending)
+        {
+            return;
+        }
+
+        if (!pending.LegalSquares.Contains(square))
+        {
+            _summaryLabel.Text = "Choose one of the highlighted ball placement squares.";
+            return;
+        }
+
+        var beforeMatch = _match;
+        var logStart = _match.Log.Count;
+        var service = new MatchService();
+        _match = service.ChooseBallPlacement(_match, TeamById(pending.TeamId), square);
+        _selectedPlayerId = null;
+        _currentActivationPlayerId = null;
+        await AnimateBallAsync(beforeMatch, _match, logStart);
+        await _saveMatch(_match);
+        RefreshRoster();
+        RefreshPitch();
+    }
+
     private async Task ResolveRerollAsync(bool useTeamReroll, string? skillId = null)
     {
         if (_match.PendingReroll is not PendingRerollChoice pending)
@@ -1126,11 +1157,14 @@ public partial class MatchScreen : VBoxContainer
             var canMove = _selectedPlayerId is Guid movingPlayerId && IsLegalMovementTarget(movingPlayerId, square);
             var canPassSquare = _selectedPlayerId is Guid passingPlayerId && IsLegalPassTargetSquare(passingPlayerId, square);
             var canPush = IsLegalPushSquare(square);
+            var canPlaceBall = IsLegalBallPlacementSquare(square);
             var isPreview = _previewPath.Contains(square);
-            var pathMarker = canPush ? ">" : _previewPassTargetSquare == square ? "P" : MovementPathMarker(square);
+            var pathMarker = canPlaceBall ? "o" : canPush ? ">" : _previewPassTargetSquare == square ? "P" : MovementPathMarker(square);
             button.Text = "";
-            button.Disabled = !canPlace && !canTargetKickoff && !canMove && !canPassSquare && !canPush;
-            button.TooltipText = canPush
+            button.Disabled = !canPlace && !canTargetKickoff && !canMove && !canPassSquare && !canPush && !canPlaceBall;
+            button.TooltipText = canPlaceBall
+                ? "Place ball here"
+                : canPush
                 ? "Push here"
                 : canPassSquare
                 ? PassSquareTooltip(square)
@@ -1203,8 +1237,9 @@ public partial class MatchScreen : VBoxContainer
             _ when _match.PendingReroll is PendingRerollChoice pending => RerollSummary(pending),
             _ when _match.PendingApothecary is PendingApothecaryChoice pending => ApothecarySummary(pending),
             _ when _match.PendingStandFirm is PendingStandFirmChoice pending => StandFirmSummary(pending),
+            _ when _match.PendingBallPlacement is PendingBallPlacementChoice pending => $"Choose where {FindPlayer(pending.PlayerId)?.Name ?? "player"} places the ball with {pending.Reason}.",
             _ when _match.PendingBlock is PendingBlockChoice pending => $"Choose a block die for {FindPlayer(pending.AttackerPlayerId)?.Name ?? "attacker"}'s block.",
-            _ when _match.PendingPush is PendingPushChoice pending => $"Choose a push square for {FindPlayer(pending.DefenderPlayerId)?.Name ?? "defender"}.",
+            _ when _match.PendingPush is PendingPushChoice pending => $"Choose where {FindPlayer(pending.DefenderPlayerId)?.Name ?? "defender"} is pushed.",
             _ when _match.PendingInterception is PendingInterceptionChoice pending => $"Choose an interceptor for the {pending.PassRangeName} pass.",
             _ when _match.PendingKickoffEvent is PendingKickoffEventChoice pending => KickoffEventSummary(pending),
             MatchPhase.DefenseSetup => $"{activeTeam.Name} is kicking off and places players first. Selected: {selected}.",
@@ -1278,6 +1313,7 @@ public partial class MatchScreen : VBoxContainer
         if (_match.PendingReroll is not null ||
             _match.PendingApothecary is not null ||
             _match.PendingStandFirm is not null ||
+            _match.PendingBallPlacement is not null ||
             _match.PendingBlock is not null ||
             _match.PendingPush is not null ||
             _match.PendingInterception is not null)
@@ -1330,6 +1366,11 @@ public partial class MatchScreen : VBoxContainer
         if (_match.PendingStandFirm is not null)
         {
             return "Resolve the pending Stand Firm choice first.";
+        }
+
+        if (_match.PendingBallPlacement is not null)
+        {
+            return "Resolve the pending ball placement first.";
         }
 
         if (_match.PendingBlock is not null)
@@ -1565,6 +1606,11 @@ public partial class MatchScreen : VBoxContainer
         }
 
         if (_match.PendingStandFirm is not null)
+        {
+            return false;
+        }
+
+        if (_match.PendingBallPlacement is not null)
         {
             return false;
         }
@@ -2447,6 +2493,11 @@ public partial class MatchScreen : VBoxContainer
     private bool IsLegalPushSquare(PitchSquare square)
     {
         return _match.PendingPush?.LegalSquares.Contains(square) == true;
+    }
+
+    private bool IsLegalBallPlacementSquare(PitchSquare square)
+    {
+        return _match.PendingBallPlacement?.LegalSquares.Contains(square) == true;
     }
 
     private string? MovementPathMarker(PitchSquare square)

@@ -58,5 +58,14 @@ public enum SkillEffect
     MightyBlow,
     StandFirm,
     DirtyPlayer,
-    ThickSkull
+    ThickSkull,
+    DivingCatch,
+    DivingTackle,
+    Defensive,
+    JumpUp,
+    Leap,
+    SafePairOfHands,
+    SideStep,
+    SneakyGit,
+    Sprint
 }
