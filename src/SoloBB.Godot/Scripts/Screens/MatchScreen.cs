@@ -1047,7 +1047,7 @@ public partial class MatchScreen : VBoxContainer
         var logStart = _match.Log.Count;
         var receivingTeam = ActiveTeam();
         var service = new MatchService();
-        _match = service.ResolveKickoff(_match, _ruleset, receivingTeam, square);
+        _match = service.ResolveKickoff(_match, _ruleset, receivingTeam, square, KickingTeam());
         _selectedPlayerId = null;
         _currentActivationPlayerId = null;
         ClearPreview();

@@ -39,6 +39,8 @@ public sealed class MatchService
             AwayRerollsRemaining = awayTeam.Rerolls,
             HomeTeamRerolls = homeTeam.Rerolls,
             AwayTeamRerolls = awayTeam.Rerolls,
+            HomeLeaderRerollAvailable = HasLeaderPlayer(ruleset, homeTeam),
+            AwayLeaderRerollAvailable = HasLeaderPlayer(ruleset, awayTeam),
             HomeCheerleaders = homeTeam.Cheerleaders,
             AwayCheerleaders = awayTeam.Cheerleaders,
             HomeAssistantCoaches = homeTeam.AssistantCoaches,
@@ -300,12 +302,21 @@ public sealed class MatchService
         }
 
         var tackleZones = CountOpposingTackleZones(match, team.Id, playerId, destination);
-        var target = Math.Clamp(player.Stats.Agility + 1 + tackleZones, 2, 6);
+        var veryLongLegsModifier = PlayerHasSkillEffect(ruleset, player, SkillEffect.VeryLongLegs) ? -1 : 0;
+        var target = Math.Clamp(player.Stats.Agility + 1 + Math.Max(0, tackleZones + veryLongLegsModifier), 2, 6);
         var roll = _dice.RollD6();
         var leapedMatch = AddActivation(match, playerId, team.Id, PlayerTurnAction.Move, goForItsUsed: 0);
         if (!RollSucceeds(roll, target, ruleset.Dice))
         {
-            return ResolveFailedDodge(leapedMatch, ruleset, team, player, destination, roll, target);
+            return ResolveFailedDodge(
+                leapedMatch,
+                ruleset,
+                team,
+                player,
+                destination,
+                roll,
+                target,
+                ArmBarApplies(match, ruleset, opposingTeam, playerId, startSquare, destination));
         }
 
         var movedMatch = leapedMatch with
@@ -335,7 +346,8 @@ public sealed class MatchService
         Ruleset ruleset,
         LeagueTeam team,
         Guid carrierPlayerId,
-        Guid receiverPlayerId)
+        Guid receiverPlayerId,
+        LeagueTeam? opposingTeam = null)
     {
         if (match.Phase is not (MatchPhase.OffensivePlayerTurn or MatchPhase.DefensiveTurn))
         {
@@ -378,7 +390,11 @@ public sealed class MatchService
         }
 
         var activatedMatch = AddActivation(match, carrierPlayerId, team.Id, PlayerTurnAction.HandOff, goForItsUsed: 0);
-        var target = CatchTarget(receiver, match.Weather);
+        var handOffTackleZones = PlayerHasSkillEffect(ruleset, receiver, SkillEffect.NervesOfSteel)
+            ? 0
+            : CountOpposingTackleZones(match, team.Id, receiver.Id, receiverPlacement.Square!);
+        var disturbingPresence = DisturbingPresenceModifier(match, ruleset, opposingTeam, receiverPlacement.Square!);
+        var target = CatchTarget(ruleset, receiver, match.Weather, handOffTackleZones, disturbingPresence);
         var catchAttempt = RollCatch(ruleset, receiver, target);
 
         if (catchAttempt.Success)
@@ -395,7 +411,7 @@ public sealed class MatchService
         }
 
         var scatterSquare = ScatterFrom(ruleset, receiverPlacement.Square!);
-        var bouncedMatch = ResolveBallLanding(activatedMatch, ruleset, team, scatterSquare);
+        var bouncedMatch = ResolveBallLanding(activatedMatch, ruleset, team, scatterSquare, opposingTeam: opposingTeam);
         var failedMatch = bouncedMatch with
         {
             Log =
@@ -411,13 +427,184 @@ public sealed class MatchService
             : ApplyTurnover(failedMatch, ruleset, team.Id);
     }
 
+    public MatchState UseFumblerooskie(
+        MatchState match,
+        Ruleset ruleset,
+        LeagueTeam team,
+        Guid playerId,
+        PitchSquare vacatedSquare)
+    {
+        if (team.Id != match.ActiveTeamId)
+        {
+            throw new InvalidOperationException("Only the active team can use Fumblerooskie during its turn.");
+        }
+
+        if (match.Ball.CarrierPlayerId != playerId)
+        {
+            throw new InvalidOperationException("Only the ball carrier can use Fumblerooskie.");
+        }
+
+        var player = FindTeamPlayer(team, playerId);
+        if (!PlayerHasSkillEffect(ruleset, player, SkillEffect.Fumblerooskie))
+        {
+            throw new InvalidOperationException($"{player.Name} does not have Fumblerooskie.");
+        }
+
+        var placement = FindStandingPlacement(match, playerId, team.Id, "player");
+        if (!IsOnPitch(ruleset, vacatedSquare) || vacatedSquare == placement.Square)
+        {
+            throw new InvalidOperationException("Fumblerooskie must place the ball in a square the player vacated during movement.");
+        }
+
+        var activation = GetActivation(match, playerId, team.Id)
+            ?? throw new InvalidOperationException("Fumblerooskie can only be used during this player's Move or Blitz action.");
+        if (activation.Action is not (PlayerTurnAction.Move or PlayerTurnAction.Blitz))
+        {
+            throw new InvalidOperationException("Fumblerooskie can only be used during a Move or Blitz action.");
+        }
+
+        return match with
+        {
+            Ball = new BallState { Square = vacatedSquare },
+            Log =
+            [
+                .. match.Log,
+                new MatchLogEntry { Message = $"{player.Name} uses Fumblerooskie and drops the ball at {vacatedSquare.X},{vacatedSquare.Y}." }
+            ]
+        };
+    }
+
+    public MatchState MoveOnTheBallPlayer(
+        MatchState match,
+        Ruleset ruleset,
+        LeagueTeam team,
+        Guid playerId,
+        PitchSquare destination,
+        bool kickoffMove = false,
+        LeagueTeam? opposingTeam = null)
+    {
+        var player = FindTeamPlayer(team, playerId);
+        if (!PlayerHasSkillEffect(ruleset, player, SkillEffect.OnTheBall))
+        {
+            throw new InvalidOperationException($"{player.Name} does not have On the Ball.");
+        }
+
+        var placement = FindStandingPlacement(match, playerId, team.Id, "On the Ball player");
+        var path = BuildMovementPath(placement.Square!, destination);
+        if (path.Length is < 1 or > 3)
+        {
+            throw new InvalidOperationException("On the Ball can move up to three squares.");
+        }
+
+        if (path.Any(square => match.Placements.Any(current => current.PlayerId != playerId && current.Square == square && OccupiesPitch(current.State))))
+        {
+            throw new InvalidOperationException("On the Ball movement cannot pass through occupied squares.");
+        }
+
+        if (kickoffMove && CrossesMidline(ruleset, placement.Square!, destination))
+        {
+            throw new InvalidOperationException("On the Ball kickoff movement cannot cross into the opponent's half.");
+        }
+
+        var nextMatch = match;
+        for (var stepIndex = 0; stepIndex < path.Length; stepIndex++)
+        {
+            var currentPlacement = nextMatch.Placements.First(current => current.PlayerId == playerId);
+            var currentSquare = currentPlacement.Square!;
+            var nextSquare = path[stepIndex];
+
+            if (IsMarkedByOpponent(nextMatch, team.Id, playerId, currentSquare))
+            {
+                var dodgeRoll = _dice.RollD6();
+                var opposingTackleZones = CountOpposingTackleZones(nextMatch, team.Id, playerId, nextSquare);
+                var dodgeTarget = DodgeTarget(ruleset, player, opposingTackleZones);
+                if (!RollSucceeds(dodgeRoll, dodgeTarget, ruleset.Dice))
+                {
+                    var failedMatch = ResolveFailedDodge(nextMatch, ruleset, team, player, nextSquare, dodgeRoll, dodgeTarget);
+                    return failedMatch with
+                    {
+                        Log =
+                        [
+                            .. failedMatch.Log,
+                            new MatchLogEntry { Message = $"{player.Name} fell while using On the Ball." }
+                        ]
+                    };
+                }
+
+                nextMatch = nextMatch with
+                {
+                    Log =
+                    [
+                        .. nextMatch.Log,
+                        new MatchLogEntry { Message = $"{player.Name} dodges during On the Ball: rolled {dodgeRoll} vs {dodgeTarget}+ ({opposingTackleZones} opposing tackle zones), success." }
+                    ]
+                };
+            }
+
+            var tentacles = ApplyTentacles(nextMatch, ruleset, opposingTeam, player, currentSquare);
+            nextMatch = tentacles.Match;
+            if (tentacles.Held)
+            {
+                return nextMatch;
+            }
+
+            nextMatch = nextMatch with
+            {
+                Placements = nextMatch.Placements
+                    .Select(current => current.PlayerId == playerId ? current with { Square = nextSquare } : current)
+                    .ToArray()
+            };
+            nextMatch = ApplyShadowing(nextMatch, ruleset, opposingTeam, player, currentSquare, nextSquare);
+        }
+
+        return nextMatch with
+        {
+            Log =
+            [
+                .. nextMatch.Log,
+                new MatchLogEntry { Message = $"{player.Name} uses On the Ball to move to {destination.X},{destination.Y}." }
+            ]
+        };
+    }
+
+    public MatchState ContinueRunningPassMove(
+        MatchState match,
+        Ruleset ruleset,
+        LeagueTeam team,
+        Guid playerId,
+        PitchSquare destination,
+        LeagueTeam? opposingTeam = null)
+    {
+        var player = FindTeamPlayer(team, playerId);
+        if (!PlayerHasSkillEffect(ruleset, player, SkillEffect.RunningPass))
+        {
+            throw new InvalidOperationException($"{player.Name} does not have Running Pass.");
+        }
+
+        var activation = GetActivation(match, playerId, team.Id)
+            ?? throw new InvalidOperationException("Running Pass can only continue after a pass activation.");
+        if (activation.Action != PlayerTurnAction.Pass)
+        {
+            throw new InvalidOperationException("Running Pass can only continue after a Pass action.");
+        }
+
+        return MovePlayerCore(match with
+        {
+            Activations = match.Activations
+                .Where(current => current.PlayerId != playerId || current.TeamId != team.Id || current.Half != match.Half || current.Turn != match.Turn)
+                .ToArray()
+        }, ruleset, team, playerId, destination, PlayerTurnAction.Pass, opposingTeam);
+    }
+
     public MatchState PassBall(
         MatchState match,
         Ruleset ruleset,
         LeagueTeam team,
         Guid passerPlayerId,
         Guid receiverPlayerId,
-        LeagueTeam? defendingTeam = null)
+        LeagueTeam? defendingTeam = null,
+        bool usePassSkillReroll = false,
+        bool useCloudBurster = false)
     {
         var receiverPlacement = FindStandingPlacement(match, receiverPlayerId, team.Id, "receiver");
         if (passerPlayerId == receiverPlayerId)
@@ -425,7 +612,7 @@ public sealed class MatchService
             throw new InvalidOperationException("A player cannot pass to themselves.");
         }
 
-        return PassBall(match, ruleset, team, passerPlayerId, receiverPlacement.Square!, defendingTeam);
+        return PassBall(match, ruleset, team, passerPlayerId, receiverPlacement.Square!, defendingTeam, usePassSkillReroll, useCloudBurster);
     }
 
     public MatchState PassBall(
@@ -434,14 +621,55 @@ public sealed class MatchService
         LeagueTeam team,
         Guid passerPlayerId,
         PitchSquare targetSquare,
-        LeagueTeam? defendingTeam = null)
+        LeagueTeam? defendingTeam = null,
+        bool usePassSkillReroll = false,
+        bool useCloudBurster = false)
+    {
+        return PassBallCore(match, ruleset, team, passerPlayerId, targetSquare, defendingTeam, usePassSkillReroll, useCloudBurster, isDumpOff: false, isHailMary: false);
+    }
+
+    public MatchState HailMaryPassBall(
+        MatchState match,
+        Ruleset ruleset,
+        LeagueTeam team,
+        Guid passerPlayerId,
+        PitchSquare targetSquare,
+        bool usePassSkillReroll = false)
+    {
+        return PassBallCore(match, ruleset, team, passerPlayerId, targetSquare, defendingTeam: null, usePassSkillReroll, useCloudBurster: false, isDumpOff: false, isHailMary: true);
+    }
+
+    public MatchState DumpOffPassBall(
+        MatchState match,
+        Ruleset ruleset,
+        LeagueTeam team,
+        Guid passerPlayerId,
+        PitchSquare targetSquare,
+        LeagueTeam? defendingTeam = null,
+        bool usePassSkillReroll = false,
+        bool useCloudBurster = false)
+    {
+        return PassBallCore(match, ruleset, team, passerPlayerId, targetSquare, defendingTeam, usePassSkillReroll, useCloudBurster, isDumpOff: true, isHailMary: false);
+    }
+
+    private MatchState PassBallCore(
+        MatchState match,
+        Ruleset ruleset,
+        LeagueTeam team,
+        Guid passerPlayerId,
+        PitchSquare targetSquare,
+        LeagueTeam? defendingTeam,
+        bool usePassSkillReroll,
+        bool useCloudBurster,
+        bool isDumpOff,
+        bool isHailMary)
     {
         if (match.Phase is not (MatchPhase.OffensivePlayerTurn or MatchPhase.DefensiveTurn))
         {
             throw new InvalidOperationException("Players can only pass during a player turn.");
         }
 
-        if (team.Id != match.ActiveTeamId)
+        if (!isDumpOff && team.Id != match.ActiveTeamId)
         {
             throw new InvalidOperationException("Only the active team can pass during its turn.");
         }
@@ -456,13 +684,13 @@ public sealed class MatchService
             throw new InvalidOperationException("The selected player is not carrying the ball.");
         }
 
-        if (GetActivation(match, passerPlayerId, team.Id) is not null)
+        if (!isDumpOff && GetActivation(match, passerPlayerId, team.Id) is not null)
         {
             var passer = FindTeamPlayer(team, passerPlayerId);
             throw new InvalidOperationException($"{passer.Name} has already been activated this turn.");
         }
 
-        if (HasUsedPass(match, team.Id))
+        if (!isDumpOff && HasUsedPass(match, team.Id))
         {
             throw new InvalidOperationException($"{team.Name} has already used its pass this turn.");
         }
@@ -474,6 +702,24 @@ public sealed class MatchService
 
         var passerPlayer = FindTeamPlayer(team, passerPlayerId);
         var passerPlacement = FindStandingPlacement(match, passerPlayerId, team.Id, "passer");
+        if (isDumpOff && !PlayerHasSkillEffect(ruleset, passerPlayer, SkillEffect.DumpOff))
+        {
+            throw new InvalidOperationException($"{passerPlayer.Name} does not have Dump-Off.");
+        }
+
+        if (isHailMary)
+        {
+            if (!PlayerHasSkillEffect(ruleset, passerPlayer, SkillEffect.HailMaryPass))
+            {
+                throw new InvalidOperationException($"{passerPlayer.Name} does not have Hail Mary Pass.");
+            }
+
+            if (match.Weather == WeatherCondition.Blizzard)
+            {
+                throw new InvalidOperationException("Hail Mary Pass cannot be used in a blizzard.");
+            }
+        }
+
         if (!IsOnPitch(ruleset, targetSquare))
         {
             throw new InvalidOperationException("Pass target must be on the pitch.");
@@ -490,35 +736,65 @@ public sealed class MatchService
         var receiverPlayer = targetPlacement?.TeamId == team.Id
             ? FindTeamPlayer(team, targetPlacement.PlayerId)
             : null;
-        var passRange = ResolvePassRange(passerPlacement.Square!, targetSquare);
-        var passerTackleZones = CountOpposingTackleZones(match, team.Id, passerPlayerId, passerPlacement.Square!);
-        var target = PassingTarget(passerPlayer, passRange, match.Weather, passerTackleZones);
-        var passRoll = _dice.RollD6();
-        var activatedMatch = AddActivation(match, passerPlayerId, team.Id, PlayerTurnAction.Pass, goForItsUsed: 0) with
+        var passRange = isHailMary
+            ? new PassRange("hail mary", 0)
+            : isDumpOff
+                ? new PassRange("quick", 0)
+                : ResolvePassRange(passerPlacement.Square!, targetSquare);
+        if (isDumpOff && ResolvePassRange(passerPlacement.Square!, targetSquare).Name != "quick")
+        {
+            throw new InvalidOperationException("Dump-Off can only make a Quick Pass.");
+        }
+
+        var passerTackleZones = PlayerHasSkillEffect(ruleset, passerPlayer, SkillEffect.NervesOfSteel)
+            ? 0
+            : CountOpposingTackleZones(match, team.Id, passerPlayerId, passerPlacement.Square!);
+        var passerDisturbingPresence = DisturbingPresenceModifier(match, ruleset, defendingTeam, passerPlacement.Square!);
+        var target = PassingTarget(ruleset, passerPlayer, passRange, match.Weather, passerTackleZones, passerDisturbingPresence);
+        var passAttempt = RollPass(ruleset, passerPlayer, target, usePassSkillReroll);
+        var passRoll = passAttempt.FinalRoll;
+        var activatedMatch = (isDumpOff
+            ? match
+            : AddActivation(match, passerPlayerId, team.Id, PlayerTurnAction.Pass, goForItsUsed: 0)) with
         {
             Ball = new BallState()
         };
 
-        if (passRoll == 1)
+        if (passAttempt.Fumbled)
         {
+            if (passAttempt.SafePassPreventedFumble)
+            {
+                return activatedMatch with
+                {
+                    Ball = new BallState { CarrierPlayerId = passerPlayerId },
+                    Log =
+                    [
+                        .. activatedMatch.Log,
+                        new MatchLogEntry { Message = $"{passerPlayer.Name} passes to {targetSquare.X},{targetSquare.Y}: {passRange.Name} {FormatPassAttempt(passAttempt, target)}, Safe Pass prevents the fumble." }
+                    ]
+                };
+            }
+
             var bounceSquare = ScatterFrom(ruleset, passerPlacement.Square!);
-            var bouncedMatch = ResolveBallLanding(activatedMatch, ruleset, team, bounceSquare);
+            var bouncedMatch = ResolveBallLanding(activatedMatch, ruleset, team, bounceSquare, opposingTeam: defendingTeam);
             var fumbledMatch = bouncedMatch with
             {
                 Log =
                 [
                     .. bouncedMatch.Log,
-                    new MatchLogEntry { Message = $"{passerPlayer.Name} passes to {targetSquare.X},{targetSquare.Y}: {passRange.Name} pass roll {passRoll} vs {target}+, fumbled." },
+                    new MatchLogEntry { Message = $"{passerPlayer.Name} passes to {targetSquare.X},{targetSquare.Y}: {passRange.Name} {FormatPassAttempt(passAttempt, target)}, fumbled." },
                     new MatchLogEntry { Message = $"Ball bounces to {bounceSquare.X},{bounceSquare.Y}." }
                 ]
             };
 
             return fumbledMatch.Ball.CarrierPlayerId is Guid fumbleCarrierId && FindPlacement(fumbledMatch, fumbleCarrierId)?.TeamId == team.Id
                 ? fumbledMatch
-                : ApplyTurnover(fumbledMatch, ruleset, team.Id);
+                : isDumpOff
+                    ? fumbledMatch
+                    : ApplyTurnover(fumbledMatch, ruleset, team.Id);
         }
 
-        if (RollSucceeds(passRoll, target, ruleset.Dice))
+        if (passAttempt.Success && !isHailMary)
         {
             var eligibleInterceptors = defendingTeam is null
                 ? Array.Empty<PlayerPlacement>()
@@ -528,7 +804,7 @@ public sealed class MatchService
                 Log =
                 [
                     .. activatedMatch.Log,
-                    new MatchLogEntry { Message = $"{passerPlayer.Name} passes to {PassTargetName(receiverPlayer, targetSquare)}: {passRange.Name} pass roll {passRoll} vs {target}+ ({passerTackleZones} opposing tackle zones), accurate." }
+                    new MatchLogEntry { Message = $"{passerPlayer.Name} passes to {PassTargetName(receiverPlayer, targetSquare)}: {passRange.Name} {FormatPassAttempt(passAttempt, target)} ({passerTackleZones} opposing tackle zones), accurate." }
                 ]
             };
 
@@ -546,7 +822,8 @@ public sealed class MatchService
                         EligiblePlayerIds = eligibleInterceptors.Select(placement => placement.PlayerId).ToArray(),
                         PassRoll = passRoll,
                         PassTarget = target,
-                        PassRangeName = passRange.Name
+                        PassRangeName = passRange.Name,
+                        UseCloudBurster = useCloudBurster
                     },
                     Log =
                     [
@@ -569,25 +846,26 @@ public sealed class MatchService
                     eligibleInterceptors[0],
                     passRange.Name,
                     passRoll,
-                    target);
+                    target,
+                    useCloudBurster);
             }
 
-            return ResolvePassLanding(accuratePassMatch, ruleset, team, passerPlayer, receiverPlayer, targetSquare, passRange.Name, passRoll, target);
+            return ResolvePassLanding(accuratePassMatch, ruleset, team, defendingTeam, passerPlayer, receiverPlayer, targetSquare, passRange.Name, passRoll, target);
         }
 
         var inaccurateSquare = ScatterFrom(ruleset, targetSquare);
-        var inaccurateMatch = ResolveBallLanding(activatedMatch, ruleset, team, inaccurateSquare);
+        var inaccurateMatch = ResolveBallLanding(activatedMatch, ruleset, team, inaccurateSquare, opposingTeam: defendingTeam);
         var failedMatch = inaccurateMatch with
         {
             Log =
             [
                 .. inaccurateMatch.Log,
-                new MatchLogEntry { Message = $"{passerPlayer.Name} passes to {PassTargetName(receiverPlayer, targetSquare)}: {passRange.Name} pass roll {passRoll} vs {target}+ ({passerTackleZones} opposing tackle zones), inaccurate." },
+                new MatchLogEntry { Message = $"{passerPlayer.Name} passes to {PassTargetName(receiverPlayer, targetSquare)}: {passRange.Name} {FormatPassAttempt(passAttempt, target)} ({passerTackleZones} opposing tackle zones), inaccurate." },
                 new MatchLogEntry { Message = $"Ball scatters to {inaccurateSquare.X},{inaccurateSquare.Y}." }
             ]
         };
 
-        return failedMatch.Ball.CarrierPlayerId is Guid recoveredCarrierId && FindPlacement(failedMatch, recoveredCarrierId)?.TeamId == team.Id
+        return isDumpOff || failedMatch.Ball.CarrierPlayerId is Guid recoveredCarrierId && FindPlacement(failedMatch, recoveredCarrierId)?.TeamId == team.Id
             ? failedMatch
             : ApplyTurnover(failedMatch, ruleset, team.Id);
     }
@@ -629,7 +907,8 @@ public sealed class MatchService
             interceptorPlacement,
             pending.PassRangeName,
             pending.PassRoll,
-            pending.PassTarget);
+            pending.PassTarget,
+            pending.UseCloudBurster);
     }
 
     private MatchState ResolveInterceptionAttempt(
@@ -643,16 +922,51 @@ public sealed class MatchService
         PlayerPlacement interceptorPlacement,
         string passRangeName,
         int passRoll,
-        int passTarget)
+        int passTarget,
+        bool useCloudBurster)
     {
         var interceptor = FindTeamPlayer(defendingTeam, interceptorPlacement.PlayerId);
         var interceptionRoll = _dice.RollD6();
         var interceptorSquare = interceptorPlacement.Square!;
-        var interceptionTackleZones = CountOpposingTackleZones(match, defendingTeam.Id, interceptor.Id, interceptorSquare);
-        var interceptionTarget = InterceptionTarget(interceptor, match.Weather, interceptionTackleZones);
+        var interceptionTackleZones = PlayerHasSkillEffect(ruleset, interceptor, SkillEffect.NervesOfSteel)
+            ? 0
+            : CountOpposingTackleZones(match, defendingTeam.Id, interceptor.Id, interceptorSquare);
+        var cloudBursterApplies = useCloudBurster &&
+            PlayerHasSkillEffect(ruleset, passer, SkillEffect.CloudBurster) &&
+            !PlayerHasSkillEffect(ruleset, interceptor, SkillEffect.VeryLongLegs) &&
+            IsLongPass(passRangeName);
+        var interceptionDisturbingPresence = DisturbingPresenceModifier(match, ruleset, passingTeam, interceptorSquare);
+        var interceptionTarget = InterceptionTarget(ruleset, interceptor, match.Weather, interceptionTackleZones, interceptionDisturbingPresence);
 
         if (RollSucceeds(interceptionRoll, interceptionTarget, ruleset.Dice))
         {
+            if (cloudBursterApplies)
+            {
+                var cloudBursterReroll = _dice.RollD6();
+                if (!RollSucceeds(cloudBursterReroll, interceptionTarget, ruleset.Dice))
+                {
+                    var cloudFailedMatch = match with
+                    {
+                        Log =
+                        [
+                            .. match.Log,
+                            new MatchLogEntry { Message = $"{passer.Name} uses Cloud Burster: {interceptor.Name}'s successful interference is rerolled to {cloudBursterReroll} vs {interceptionTarget}+, failed." }
+                        ]
+                    };
+
+                    return ResolvePassLanding(cloudFailedMatch, ruleset, passingTeam, defendingTeam, passer, receiver, targetSquare, passRangeName, passRoll, passTarget);
+                }
+
+                match = match with
+                {
+                    Log =
+                    [
+                        .. match.Log,
+                        new MatchLogEntry { Message = $"{passer.Name} uses Cloud Burster: {interceptor.Name}'s successful interference is rerolled to {cloudBursterReroll} vs {interceptionTarget}+, still successful." }
+                    ]
+                };
+            }
+
             var interceptedMatch = match with
             {
                 Ball = new BallState { CarrierPlayerId = interceptor.Id },
@@ -675,13 +989,14 @@ public sealed class MatchService
             ]
         };
 
-        return ResolvePassLanding(failedInterceptionMatch, ruleset, passingTeam, passer, receiver, targetSquare, passRangeName, passRoll, passTarget);
+        return ResolvePassLanding(failedInterceptionMatch, ruleset, passingTeam, defendingTeam, passer, receiver, targetSquare, passRangeName, passRoll, passTarget);
     }
 
     private MatchState ResolvePassLanding(
         MatchState match,
         Ruleset ruleset,
         LeagueTeam team,
+        LeagueTeam? opposingTeam,
         Player passer,
         Player? intendedReceiver,
         PitchSquare targetSquare,
@@ -695,7 +1010,7 @@ public sealed class MatchService
             placement.State == PlayerPitchState.Standing);
         if (receiverPlacement is null)
         {
-            var landedMatch = ResolveBallLanding(match, ruleset, team, targetSquare, allowDivingCatch: false);
+            var landedMatch = ResolveBallLanding(match, ruleset, team, targetSquare, allowDivingCatch: false, opposingTeam: opposingTeam);
             return landedMatch.Ball.CarrierPlayerId is Guid recoveredCarrierId && FindPlacement(landedMatch, recoveredCarrierId)?.TeamId == team.Id
                 ? landedMatch
                 : ApplyTurnover(landedMatch with
@@ -709,8 +1024,11 @@ public sealed class MatchService
         }
 
         var receiver = FindTeamPlayer(team, receiverPlacement.PlayerId);
-        var catchTackleZones = CountOpposingTackleZones(match, team.Id, receiver.Id, receiverPlacement.Square!);
-        var catchTarget = CatchTarget(receiver, match.Weather, catchTackleZones);
+        var catchTackleZones = PlayerHasSkillEffect(ruleset, receiver, SkillEffect.NervesOfSteel)
+            ? 0
+            : CountOpposingTackleZones(match, team.Id, receiver.Id, receiverPlacement.Square!);
+        var catchDisturbingPresence = DisturbingPresenceModifier(match, ruleset, opposingTeam, receiverPlacement.Square!);
+        var catchTarget = CatchTarget(ruleset, receiver, match.Weather, catchTackleZones, catchDisturbingPresence);
         var catchAttempt = RollCatch(ruleset, receiver, catchTarget);
 
         if (catchAttempt.Success)
@@ -727,7 +1045,7 @@ public sealed class MatchService
         }
 
         var scatterSquare = ScatterFrom(ruleset, receiverPlacement.Square!);
-        var bouncedMatch = ResolveBallLanding(match, ruleset, team, scatterSquare);
+        var bouncedMatch = ResolveBallLanding(match, ruleset, team, scatterSquare, opposingTeam: opposingTeam);
         var droppedMatch = bouncedMatch with
         {
             Log =
@@ -743,7 +1061,7 @@ public sealed class MatchService
             : ApplyTurnover(droppedMatch, ruleset, team.Id);
     }
 
-    public MatchState ResolveKickoff(MatchState match, Ruleset ruleset, LeagueTeam receivingTeam, PitchSquare targetSquare)
+    public MatchState ResolveKickoff(MatchState match, Ruleset ruleset, LeagueTeam receivingTeam, PitchSquare targetSquare, LeagueTeam? kickingTeam = null)
     {
         if (match.Phase is not MatchPhase.Kickoff)
         {
@@ -759,12 +1077,17 @@ public sealed class MatchService
         var kickingTeamId = GetOpponentTeamId(match, receivingTeam.Id);
         var eventResult = ResolveKickoffEvent(match, ruleset, receivingTeam.Id, kickingTeamId, eventRoll.Total);
         var kickoffMatch = eventResult.Match;
-        var scatterDistance = _dice.RollD6();
+        var rawScatterDistance = _dice.RollD6();
+        var scatterDistance = kickingTeam is not null && HasKickPlayer(kickoffMatch, ruleset, kickingTeam)
+            ? rawScatterDistance / 2
+            : rawScatterDistance;
         var scatterSquare = ScatterFrom(ruleset, targetSquare, scatterDistance);
         var log = new List<MatchLogEntry>
         {
             new() { Message = $"Kickoff event roll {eventRoll.Total}: {eventResult.Name}. {eventResult.Message}" },
-            new() { Message = $"Kickoff targeted {targetSquare.X},{targetSquare.Y} and scattered {scatterDistance} square{(scatterDistance == 1 ? "" : "s")} to {scatterSquare.X},{scatterSquare.Y}." }
+            new() { Message = kickingTeam is not null && HasKickPlayer(kickoffMatch, ruleset, kickingTeam)
+                ? $"Kickoff targeted {targetSquare.X},{targetSquare.Y}; Kick halves scatter from {rawScatterDistance} to {scatterDistance}, landing at {scatterSquare.X},{scatterSquare.Y}."
+                : $"Kickoff targeted {targetSquare.X},{targetSquare.Y} and scattered {scatterDistance} square{(scatterDistance == 1 ? "" : "s")} to {scatterSquare.X},{scatterSquare.Y}." }
         };
 
         if (eventResult.ExtraScatter)
@@ -1271,11 +1594,23 @@ public sealed class MatchService
                 ]
             };
             attackerPlacement = match.Placements.First(placement => placement.PlayerId == attackerPlayerId);
+            var jumpUpFoulAppearance = ResolveFoulAppearance(match, ruleset, attacker, defender);
+            if (jumpUpFoulAppearance.BlockPrevented)
+            {
+                return jumpUpFoulAppearance.Match;
+            }
+
             return ResolveBlock(match, ruleset, attackerTeam, attacker, attackerPlacement, defenderTeam, defender);
         }
 
         attackerPlacement = ValidateBlock(match, attackerTeam, attackerPlayerId, defenderTeam, defenderPlayerId);
         var activatedMatch = AddActivation(match, attackerPlayerId, attackerTeam.Id, PlayerTurnAction.Block, goForItsUsed: 0);
+        var foulAppearance = ResolveFoulAppearance(activatedMatch, ruleset, attacker, defender);
+        if (foulAppearance.BlockPrevented)
+        {
+            return foulAppearance.Match;
+        }
+
         return ResolveBlock(activatedMatch, ruleset, attackerTeam, attacker, attackerPlacement, defenderTeam, defender);
     }
 
@@ -1340,7 +1675,8 @@ public sealed class MatchService
 
         var defender = FindTeamPlayer(defenderTeam, pending.DefenderPlayerId);
         var attacker = FindTeamPlayer(attackerTeam, pending.AttackerPlayerId);
-        var pushedMatch = PushPlayer(match with { PendingPush = null }, ruleset, defender, pending.DefenderSquare, square, pending.KnockDefenderDown, () => ResolveBlockInjury(ruleset, attacker, defender));
+        var stripBall = ShouldStripBall(ruleset, attacker, defender, match.Ball.CarrierPlayerId == defender.Id, pending.KnockDefenderDown);
+        var pushedMatch = PushPlayer(match with { PendingPush = null }, ruleset, defender, pending.DefenderSquare, square, pending.KnockDefenderDown, () => ResolveBlockInjury(ruleset, attacker, defender), stripBall);
 
         return pushedMatch with
         {
@@ -1431,7 +1767,8 @@ public sealed class MatchService
 
         if (pending.LegalSquares.Count == 1)
         {
-            var pushedMatch = PushPlayer(baseMatch, ruleset, defender, pending.DefenderSquare, pending.LegalSquares[0], pending.KnockDefenderDown, () => ResolveBlockInjury(ruleset, attacker, defender));
+            var stripBall = ShouldStripBall(ruleset, attacker, defender, baseMatch.Ball.CarrierPlayerId == defender.Id, pending.KnockDefenderDown);
+            var pushedMatch = PushPlayer(baseMatch, ruleset, defender, pending.DefenderSquare, pending.LegalSquares[0], pending.KnockDefenderDown, () => ResolveBlockInjury(ruleset, attacker, defender), stripBall);
             return pushedMatch with
             {
                 Log =
@@ -1496,6 +1833,12 @@ public sealed class MatchService
 
         var attackerPlacement = ValidateBlock(movedMatch, attackerTeam, attackerPlayerId, defenderTeam, defenderPlayerId);
         var defender = FindTeamPlayer(defenderTeam, defenderPlayerId);
+        var foulAppearance = ResolveFoulAppearance(movedMatch, ruleset, attacker, defender);
+        if (foulAppearance.BlockPrevented)
+        {
+            return foulAppearance.Match;
+        }
+
         return ResolveBlock(movedMatch, ruleset, attackerTeam, attacker, attackerPlacement, defenderTeam, defender);
     }
 
@@ -1581,7 +1924,12 @@ public sealed class MatchService
         var hasDirtyPlayer = PlayerHasSkillEffect(ruleset, fouler, SkillEffect.DirtyPlayer);
         var hasSneakyGit = PlayerHasSkillEffect(ruleset, fouler, SkillEffect.SneakyGit);
         var armorTotalWithoutSkill = armorRoll.Total + attackAssists - defenseAssists;
-        var dirtyPlayerArmorBonus = hasDirtyPlayer && armorTotalWithoutSkill <= victim.Stats.Armor && armorTotalWithoutSkill + 1 > victim.Stats.Armor ? 1 : 0;
+        var dirtyPlayerArmorBonus = hasDirtyPlayer &&
+            !PlayerHasSkillEffect(ruleset, victim, SkillEffect.IronHardSkin) &&
+            armorTotalWithoutSkill <= victim.Stats.Armor &&
+            armorTotalWithoutSkill + 1 > victim.Stats.Armor
+                ? 1
+                : 0;
         var armorTotal = armorTotalWithoutSkill + dirtyPlayerArmorBonus;
         var log = new List<MatchLogEntry>
         {
@@ -1772,6 +2120,7 @@ public sealed class MatchService
         }
 
         var goForItNumber = 0;
+        var breakTackleUsed = false;
 
         for (var stepIndex = 0; stepIndex < path.Length; stepIndex++)
         {
@@ -1783,14 +2132,17 @@ public sealed class MatchService
             {
                 var dodgeRoll = _dice.RollD6();
                 var opposingTackleZones = CountOpposingTackleZones(nextMatch, team.Id, playerId, nextSquare);
+                var breakTackleBonus = BreakTackleBonus(ruleset, player, breakTackleUsed);
                 var divingTackle = FindDivingTackler(nextMatch, ruleset, opposingTeam, currentSquare, nextSquare);
-                var baseDodgeTarget = DodgeTarget(player, opposingTackleZones);
+                var prehensileTailModifier = PrehensileTailModifier(nextMatch, ruleset, opposingTeam, playerId, currentSquare);
+                var baseDodgeTarget = DodgeTarget(ruleset, player, opposingTackleZones + prehensileTailModifier, breakTackleBonus);
                 var divingTackleModifier = divingTackle is not null &&
                     RollSucceeds(dodgeRoll, baseDodgeTarget, ruleset.Dice) &&
-                    !RollSucceeds(dodgeRoll, DodgeTarget(player, opposingTackleZones + 2), ruleset.Dice)
+                    !RollSucceeds(dodgeRoll, DodgeTarget(ruleset, player, opposingTackleZones + prehensileTailModifier + 2, breakTackleBonus), ruleset.Dice)
                         ? 2
                         : 0;
-                var dodgeTarget = DodgeTarget(player, opposingTackleZones + divingTackleModifier);
+                var dodgeTarget = DodgeTarget(ruleset, player, opposingTackleZones + prehensileTailModifier + divingTackleModifier, breakTackleBonus);
+                var usedBreakTackleThisRoll = breakTackleBonus > 0 && dodgeTarget < DodgeTarget(ruleset, player, opposingTackleZones + prehensileTailModifier + divingTackleModifier);
                 if (divingTackle is not null && divingTackleModifier > 0)
                 {
                     nextMatch = ApplyDivingTackle(nextMatch, divingTackle, currentSquare);
@@ -1811,17 +2163,27 @@ public sealed class MatchService
                         stepIndex,
                         movementAllowance,
                         opposingTeam,
+                        breakTackleUsed || usedBreakTackleThisRoll,
+                        ArmBarApplies(nextMatch, ruleset, opposingTeam, playerId, currentSquare, nextSquare),
                         blitzDefenderPlayerId: blitzDefenderPlayerId);
                 }
 
+                breakTackleUsed = breakTackleUsed || usedBreakTackleThisRoll;
                 nextMatch = nextMatch with
                 {
                     Log =
                     [
                         .. nextMatch.Log,
-                        new MatchLogEntry { Message = $"{player.Name} dodges from {currentSquare.X},{currentSquare.Y} to {nextSquare.X},{nextSquare.Y}: rolled {dodgeRoll} vs {dodgeTarget}+ ({opposingTackleZones} opposing tackle zones{(divingTackleModifier > 0 ? ", Diving Tackle" : "")}), success." }
+                        new MatchLogEntry { Message = $"{player.Name} dodges from {currentSquare.X},{currentSquare.Y} to {nextSquare.X},{nextSquare.Y}: rolled {dodgeRoll} vs {dodgeTarget}+ ({opposingTackleZones} opposing tackle zones{(prehensileTailModifier > 0 ? ", Prehensile Tail" : "")}{(usedBreakTackleThisRoll ? ", Break Tackle" : "")}{(divingTackleModifier > 0 ? ", Diving Tackle" : "")}), success." }
                     ]
                 };
+            }
+
+            var tentacles = ApplyTentacles(nextMatch, ruleset, opposingTeam, player, currentSquare);
+            nextMatch = tentacles.Match;
+            if (tentacles.Held)
+            {
+                return nextMatch;
             }
 
             if (stepIndex >= movementAllowance)
@@ -1845,6 +2207,8 @@ public sealed class MatchService
                         stepIndex,
                         movementAllowance,
                         opposingTeam,
+                        breakTackleUsed,
+                        false,
                         goForItNumber,
                         blitzDefenderPlayerId);
                 }
@@ -1863,6 +2227,7 @@ public sealed class MatchService
                         : current)
                     .ToArray()
             };
+            nextMatch = ApplyShadowing(nextMatch, ruleset, opposingTeam, player, currentSquare, nextSquare);
 
             if (nextMatch.Ball.CarrierPlayerId is null && nextMatch.Ball.Square == nextSquare)
             {
@@ -1904,6 +2269,35 @@ public sealed class MatchService
         var defenderPlacement = match.Placements.First(placement => placement.PlayerId == defender.Id);
         var strength = ResolveBlockStrength(match, ruleset, attackerTeam, attackerPlacement, defenderTeam, defenderPlacement, attacker, defender);
         var rolls = Enumerable.Range(0, strength.Dice).Select(_ => _dice.RollD6()).ToArray();
+        var attackerAction = GetActivation(match, attacker.Id, attackerTeam.Id)?.Action ?? PlayerTurnAction.Block;
+        if (attackerAction == PlayerTurnAction.Block &&
+            PlayerHasSkillEffect(ruleset, attacker, SkillEffect.Brawler) &&
+            rolls.Contains(2))
+        {
+            var brawlerRoll = _dice.RollD6();
+            var replaced = false;
+            rolls = rolls
+                .Select(roll =>
+                {
+                    if (roll != 2 || replaced)
+                    {
+                        return roll;
+                    }
+
+                    replaced = true;
+                    return brawlerRoll;
+                })
+                .ToArray();
+            match = match with
+            {
+                Log =
+                [
+                    .. match.Log,
+                    new MatchLogEntry { Message = $"{attacker.Name} uses Brawler: one Both Down die is rerolled to {brawlerRoll}." }
+                ]
+            };
+        }
+
         if (rolls.Length > 1)
         {
             return match with
@@ -1943,6 +2337,21 @@ public sealed class MatchService
     {
         var rollText = string.Join(", ", rolls);
         var strengthText = $"ST {strength.AttackerStrength}-{strength.DefenderStrength}, {strength.Dice} die{(strength.Dice == 1 ? "" : "s")}";
+        var attackerAction = GetActivation(match, attacker.Id, attackerTeam.Id)?.Action ?? PlayerTurnAction.Block;
+
+        if (roll == 2 && attackerAction == PlayerTurnAction.Blitz && PlayerHasSkillEffect(ruleset, attacker, SkillEffect.Juggernaut))
+        {
+            return ResolvePushAfterBlock(
+                match,
+                ruleset,
+                attacker,
+                attackerPlacement,
+                defender,
+                defenderPlacement,
+                knockDefenderDown: false,
+                $"{attacker.Name} uses Juggernaut against {defender.Name}: {strengthText}, rolled {rollText}, Both Down becomes pushed back.",
+                suppressStandFirm: true);
+        }
 
         if (roll <= 1)
         {
@@ -1960,6 +2369,44 @@ public sealed class MatchService
 
         if (roll == 2)
         {
+            var attackerHasWrestle = PlayerHasSkillEffect(ruleset, attacker, SkillEffect.Wrestle);
+            var defenderHasWrestle = PlayerHasSkillEffect(ruleset, defender, SkillEffect.Wrestle);
+            if (attackerHasWrestle || defenderHasWrestle)
+            {
+                var ball = match.Ball;
+                var wrestleLog = new List<MatchLogEntry>();
+                if (ball.CarrierPlayerId == attacker.Id || ball.CarrierPlayerId == defender.Id)
+                {
+                    var dropSquare = ball.CarrierPlayerId == attacker.Id ? attackerPlacement.Square! : defenderPlacement.Square!;
+                    var scatterSquare = ScatterFrom(ruleset, dropSquare);
+                    var landing = ResolveLooseBallLanding(ruleset, scatterSquare);
+                    ball = new BallState { Square = landing.Square };
+                    wrestleLog.Add(new MatchLogEntry { Message = $"Ball scatters to {scatterSquare.X},{scatterSquare.Y}." });
+                    wrestleLog.AddRange(landing.Log);
+                }
+
+                var wrestledMatch = match with
+                {
+                    Ball = ball,
+                    Placements = match.Placements
+                        .Select(placement =>
+                            placement.PlayerId == attacker.Id || placement.PlayerId == defender.Id
+                                ? ApplyPitchState(match, placement, PlayerPitchState.Prone, placement.Square)
+                                : placement)
+                        .ToArray(),
+                    Log =
+                    [
+                        .. match.Log,
+                        new MatchLogEntry { Message = $"{attacker.Name} blocks {defender.Name}: {strengthText}, rolled {rollText}, chose {roll}, Wrestle places both players prone." },
+                        .. wrestleLog
+                    ]
+                };
+
+                return match.Ball.CarrierPlayerId == attacker.Id
+                    ? ApplyTurnover(wrestledMatch, ruleset, attackerTeam.Id)
+                    : wrestledMatch;
+            }
+
             var attackerHasBlock = PlayerHasSkillEffect(ruleset, attacker, SkillEffect.BothDownProtection);
             var defenderHasBlock = PlayerHasSkillEffect(ruleset, defender, SkillEffect.BothDownProtection);
             var nextMatch = match;
@@ -1997,7 +2444,7 @@ public sealed class MatchService
                 defender,
                 defenderPlacement,
                 knockDefenderDown: false,
-                $"{attacker.Name} blocks {defender.Name}: {strengthText}, rolled {rollText}, chose {roll}, pushed back.");
+                resultMessage: $"{attacker.Name} blocks {defender.Name}: {strengthText}, rolled {rollText}, chose {roll}, pushed back.");
         }
 
         return ResolvePushAfterBlock(
@@ -2008,7 +2455,7 @@ public sealed class MatchService
             defender,
             defenderPlacement,
             knockDefenderDown: true,
-            $"{attacker.Name} blocks {defender.Name}: {strengthText}, rolled {rollText}, chose {roll}, defender down.");
+            resultMessage: $"{attacker.Name} blocks {defender.Name}: {strengthText}, rolled {rollText}, chose {roll}, defender down.");
     }
 
     private MatchState ResolvePushAfterBlock(
@@ -2019,10 +2466,12 @@ public sealed class MatchService
         Player defender,
         PlayerPlacement defenderPlacement,
         bool knockDefenderDown,
-        string resultMessage)
+        string resultMessage,
+        bool suppressStandFirm = false)
     {
-        var legalSquares = LegalPushSquares(match, ruleset, attackerPlacement.Square!, defenderPlacement.Square!, defender);
-        if (PlayerHasSkillEffect(ruleset, defender, SkillEffect.StandFirm))
+        var attackerAction = GetActivation(match, attacker.Id, attackerPlacement.TeamId)?.Action ?? PlayerTurnAction.Block;
+        var legalSquares = LegalPushSquares(match, ruleset, attackerPlacement.Square!, defenderPlacement.Square!, attacker, defender, attackerAction);
+        if (!suppressStandFirm && PlayerHasSkillEffect(ruleset, defender, SkillEffect.StandFirm))
         {
             return match with
             {
@@ -2061,7 +2510,8 @@ public sealed class MatchService
 
         if (legalSquares.Length == 1)
         {
-            var pushedMatch = PushPlayer(match, ruleset, defender, defenderPlacement.Square!, legalSquares[0], knockDefenderDown, () => ResolveBlockInjury(ruleset, attacker, defender));
+            var stripBall = ShouldStripBall(ruleset, attacker, defender, match.Ball.CarrierPlayerId == defender.Id, knockDefenderDown);
+            var pushedMatch = PushPlayer(match, ruleset, defender, defenderPlacement.Square!, legalSquares[0], knockDefenderDown, () => ResolveBlockInjury(ruleset, attacker, defender), stripBall);
             return pushedMatch with
             {
                 Log =
@@ -2105,7 +2555,18 @@ public sealed class MatchService
     {
         var attackerAssists = CountAssists(match, ruleset, attackerTeam, defenderTeam, defenderPlacement.PlayerId, defenderPlacement.Square!, attackerPlacement.PlayerId);
         var defenderAssists = CountAssists(match, ruleset, defenderTeam, attackerTeam, attackerPlacement.PlayerId, attackerPlacement.Square!, defenderPlacement.PlayerId);
-        var attackerStrength = attacker.Stats.Strength + attackerAssists;
+        var attackerAction = GetActivation(match, attacker.Id, attackerTeam.Id)?.Action ?? PlayerTurnAction.Block;
+        var attackerBaseStrength = attacker.Stats.Strength + (attackerAction == PlayerTurnAction.Blitz && PlayerHasSkillEffect(ruleset, attacker, SkillEffect.Horns) ? 1 : 0);
+        if (attackerBaseStrength < defender.Stats.Strength && PlayerHasSkillEffect(ruleset, attacker, SkillEffect.Dauntless))
+        {
+            var dauntlessRoll = _dice.RollD6();
+            if (dauntlessRoll + attackerBaseStrength > defender.Stats.Strength)
+            {
+                attackerBaseStrength = defender.Stats.Strength;
+            }
+        }
+
+        var attackerStrength = attackerBaseStrength + attackerAssists;
         var defenderStrength = defender.Stats.Strength + defenderAssists;
         var dice = ResolveBlockDice(attackerStrength, defenderStrength);
 
@@ -2327,7 +2788,7 @@ public sealed class MatchService
         };
     }
 
-    private MatchState PushPlayer(MatchState match, Ruleset ruleset, Player player, PitchSquare source, PitchSquare destination, bool knockDown, Func<InjuryResolution>? resolveKnockdownState = null)
+    private MatchState PushPlayer(MatchState match, Ruleset ruleset, Player player, PitchSquare source, PitchSquare destination, bool knockDown, Func<InjuryResolution>? resolveKnockdownState = null, bool stripBall = false)
     {
         return PushPlacement(
             match,
@@ -2338,7 +2799,8 @@ public sealed class MatchService
             source,
             destination,
             knockDown,
-            resolveKnockdownState ?? (() => ResolveFallInjury(player)));
+            resolveKnockdownState ?? (() => ResolveFallInjury(player)),
+            stripBall);
     }
 
     private MatchState PushPlacement(
@@ -2350,7 +2812,8 @@ public sealed class MatchService
         PitchSquare source,
         PitchSquare destination,
         bool knockDown,
-        Func<InjuryResolution> resolveKnockdownState)
+        Func<InjuryResolution> resolveKnockdownState,
+        bool stripBall)
     {
         var placement = FindPlacement(match, playerId)
             ?? throw new InvalidOperationException("Pushed player is not part of this match.");
@@ -2361,14 +2824,14 @@ public sealed class MatchService
             var chainDestination = LegalPushSquares(match, ruleset, source, destination, occupant.PlayerId).FirstOrDefault();
             match = chainDestination is null
                 ? PushPlayerIntoCrowd(match, ruleset, occupant)
-                : PushPlacement(match, ruleset, null, occupant.PlayerId, occupant.PlayerId.ToString(), destination, chainDestination, knockDown: false, () => new InjuryResolution(occupant.State));
+                : PushPlacement(match, ruleset, null, occupant.PlayerId, occupant.PlayerId.ToString(), destination, chainDestination, knockDown: false, () => new InjuryResolution(occupant.State), stripBall: false);
             placement = FindPlacement(match, playerId)
                 ?? throw new InvalidOperationException("Pushed player is not part of this match.");
         }
 
         var ball = match.Ball;
         var log = new List<MatchLogEntry>();
-        if (ball.CarrierPlayerId == playerId && knockDown)
+        if (ball.CarrierPlayerId == playerId && (knockDown || stripBall))
         {
             var safeSquares = player is null ? [] : SafePairOfHandsSquares(match, ruleset, player, destination);
             if (player is not null && safeSquares.Length > 0)
@@ -2391,7 +2854,7 @@ public sealed class MatchService
                 var scatterSquare = ScatterFrom(ruleset, destination);
                 var landing = ResolveLooseBallLanding(ruleset, scatterSquare);
                 ball = new BallState { Square = landing.Square };
-                log.Add(new MatchLogEntry { Message = $"Ball scatters to {scatterSquare.X},{scatterSquare.Y}." });
+                log.Add(new MatchLogEntry { Message = stripBall && !knockDown ? $"Strip Ball knocks the ball loose to {scatterSquare.X},{scatterSquare.Y}." : $"Ball scatters to {scatterSquare.X},{scatterSquare.Y}." });
                 log.AddRange(landing.Log);
             }
         }
@@ -2540,7 +3003,7 @@ public sealed class MatchService
         };
     }
 
-    private MatchState BounceBall(MatchState match, Ruleset ruleset, LeagueTeam originalTeam, PitchSquare square, bool allowDivingCatch = true)
+    private MatchState BounceBall(MatchState match, Ruleset ruleset, LeagueTeam originalTeam, PitchSquare square, bool allowDivingCatch = true, LeagueTeam? opposingTeam = null)
     {
         if (!IsOnPitch(ruleset, square))
         {
@@ -2552,7 +3015,7 @@ public sealed class MatchService
                     .. match.Log,
                     .. landing.Log
                 ]
-            }, ruleset, originalTeam, landing.Square, allowDivingCatch: true);
+            }, ruleset, originalTeam, landing.Square, allowDivingCatch: true, opposingTeam);
         }
 
         var receiverPlacement = match.Placements.FirstOrDefault(placement =>
@@ -2567,7 +3030,11 @@ public sealed class MatchService
                 if (divingCatchPlacement is not null)
                 {
                     var divingReceiver = FindTeamPlayer(originalTeam, divingCatchPlacement.PlayerId);
-                    var divingTarget = CatchTarget(divingReceiver, match.Weather);
+                    var divingTackleZones = PlayerHasSkillEffect(ruleset, divingReceiver, SkillEffect.NervesOfSteel)
+                        ? 0
+                        : CountOpposingTackleZones(match, originalTeam.Id, divingReceiver.Id, square);
+                    var divingDisturbingPresence = DisturbingPresenceModifier(match, ruleset, opposingTeam, square);
+                    var divingTarget = CatchTarget(ruleset, divingReceiver, match.Weather, divingTackleZones, divingDisturbingPresence);
                     var divingAttempt = RollCatch(ruleset, divingReceiver, divingTarget);
                     var movedMatch = match with
                     {
@@ -2599,7 +3066,7 @@ public sealed class MatchService
                             .. movedMatch.Log,
                             new MatchLogEntry { Message = $"{divingReceiver.Name} uses Diving Catch at {square.X},{square.Y}: {FormatCatchAttempt(divingAttempt, divingTarget)}, failed." }
                         ]
-                    }, ruleset, originalTeam, divingNextSquare);
+                    }, ruleset, originalTeam, divingNextSquare, opposingTeam: opposingTeam);
                 }
             }
 
@@ -2612,7 +3079,11 @@ public sealed class MatchService
         }
 
         var receiver = FindTeamPlayer(originalTeam, receiverPlacement.PlayerId);
-        var target = CatchTarget(receiver, match.Weather);
+        var receiverTackleZones = PlayerHasSkillEffect(ruleset, receiver, SkillEffect.NervesOfSteel)
+            ? 0
+            : CountOpposingTackleZones(match, originalTeam.Id, receiver.Id, receiverPlacement.Square!);
+        var receiverDisturbingPresence = DisturbingPresenceModifier(match, ruleset, opposingTeam, receiverPlacement.Square!);
+        var target = CatchTarget(ruleset, receiver, match.Weather, receiverTackleZones, receiverDisturbingPresence);
         var catchAttempt = RollCatch(ruleset, receiver, target);
 
         if (catchAttempt.Success)
@@ -2638,12 +3109,12 @@ public sealed class MatchService
             ]
         };
 
-        return BounceBall(nextMatch, ruleset, originalTeam, nextSquare);
+        return BounceBall(nextMatch, ruleset, originalTeam, nextSquare, opposingTeam: opposingTeam);
     }
 
-    private MatchState ResolveBallLanding(MatchState match, Ruleset ruleset, LeagueTeam originalTeam, PitchSquare square, bool allowDivingCatch = true)
+    private MatchState ResolveBallLanding(MatchState match, Ruleset ruleset, LeagueTeam originalTeam, PitchSquare square, bool allowDivingCatch = true, LeagueTeam? opposingTeam = null)
     {
-        return BounceBall(match, ruleset, originalTeam, square, allowDivingCatch);
+        return BounceBall(match, ruleset, originalTeam, square, allowDivingCatch, opposingTeam);
     }
 
     private BallLanding ResolveLooseBallLanding(Ruleset ruleset, PitchSquare square)
@@ -2781,9 +3252,10 @@ public sealed class MatchService
         Player player,
         PitchSquare destination,
         int roll,
-        int target)
+        int target,
+        bool armBarApplies = false)
     {
-        var injury = ResolveFallInjury(player);
+        var injury = ResolveFallInjury(player, armBarApplies);
         var placement = FindPlacement(match, player.Id)
             ?? throw new InvalidOperationException("Player is not part of this match.");
         var apothecary = CreatePendingApothecaryIfAvailable(match, placement, player.Name, injury);
@@ -2793,7 +3265,7 @@ public sealed class MatchService
         var log = new List<MatchLogEntry>
         {
             new() { Message = $"{player.Name} dodges to {destination.X},{destination.Y}: rolled {roll} vs {target}+, failed." },
-            new() { Message = $"{player.Name} falls at {destination.X},{destination.Y} and is {FormatPitchState(injury.State)}." }
+            new() { Message = $"{player.Name} falls at {destination.X},{destination.Y} and is {FormatPitchState(injury.State)}{(armBarApplies ? " after Arm Bar" : "")}." }
         };
         if (injury.Casualty is not null)
         {
@@ -2838,7 +3310,7 @@ public sealed class MatchService
         Guid? blitzDefenderPlayerId = null)
     {
         var opposingTackleZones = CountOpposingTackleZones(match, team.Id, player.Id, square);
-        var target = PickupTarget(player, opposingTackleZones, match.Weather);
+        var target = PickupTarget(ruleset, player, opposingTackleZones, match.Weather);
         var roll = _dice.RollD6();
 
         if (RollSucceeds(roll, target, ruleset.Dice))
@@ -2903,10 +3375,38 @@ public sealed class MatchService
             return ResolveDeclinedMovementReroll(baseMatch, ruleset, team, player, pending);
         }
 
-        var reroll = _dice.RollD6();
         var rerolledMatch = useTeamReroll
-            ? SpendTeamReroll(baseMatch, team.Id)
+            ? SpendTeamReroll(baseMatch, ruleset, team)
             : baseMatch;
+
+        if (string.Equals(skillId, "pro", StringComparison.OrdinalIgnoreCase))
+        {
+            var proRoll = _dice.RollD6();
+            if (proRoll < 3)
+            {
+                var failedProMatch = rerolledMatch with
+                {
+                    Log =
+                    [
+                        .. rerolledMatch.Log,
+                        new MatchLogEntry { Message = $"{player.Name} attempts Pro: rolled {proRoll}, no reroll." }
+                    ]
+                };
+
+                return ResolveDeclinedMovementReroll(failedProMatch, ruleset, team, player, pending);
+            }
+
+            rerolledMatch = rerolledMatch with
+            {
+                Log =
+                [
+                    .. rerolledMatch.Log,
+                    new MatchLogEntry { Message = $"{player.Name} attempts Pro: rolled {proRoll}, reroll available." }
+                ]
+            };
+        }
+
+        var reroll = _dice.RollD6();
         rerolledMatch = rerolledMatch with
         {
             Log =
@@ -3007,6 +3507,8 @@ public sealed class MatchService
         int stepIndex,
         int movementAllowance,
         LeagueTeam? opposingTeam = null,
+        bool breakTackleUsed = false,
+        bool armBarApplies = false,
         int goForItNumber = 0,
         Guid? blitzDefenderPlayerId = null)
     {
@@ -3024,7 +3526,7 @@ public sealed class MatchService
             }
         }
 
-        if (!CanUseTeamReroll(match, team.Id) && skillRerolls.Count == 0)
+        if (!CanUseTeamReroll(match, ruleset, team) && skillRerolls.Count == 0)
         {
             var pendingWithoutOptions = new PendingRerollChoice
             {
@@ -3044,7 +3546,9 @@ public sealed class MatchService
                     StepIndex = stepIndex,
                     MovementAllowance = movementAllowance,
                     GoForItNumber = goForItNumber,
-                    BlitzDefenderPlayerId = blitzDefenderPlayerId
+                    BlitzDefenderPlayerId = blitzDefenderPlayerId,
+                    BreakTackleUsed = breakTackleUsed,
+                    ArmBarApplies = armBarApplies
                 }
             };
             return ResolveDeclinedMovementReroll(match, ruleset, team, player, pendingWithoutOptions);
@@ -3059,7 +3563,7 @@ public sealed class MatchService
                 Kind = kind,
                 Roll = roll,
                 Target = target,
-                TeamRerollAvailable = CanUseTeamReroll(match, team.Id),
+                TeamRerollAvailable = CanUseTeamReroll(match, ruleset, team),
                 SkillRerollIds = skillRerolls,
                 Context = new PendingRerollContext
                 {
@@ -3070,7 +3574,9 @@ public sealed class MatchService
                     StepIndex = stepIndex,
                     MovementAllowance = movementAllowance,
                     GoForItNumber = goForItNumber,
-                    BlitzDefenderPlayerId = blitzDefenderPlayerId
+                    BlitzDefenderPlayerId = blitzDefenderPlayerId,
+                    BreakTackleUsed = breakTackleUsed,
+                    ArmBarApplies = armBarApplies
                 }
             },
             Log =
@@ -3091,7 +3597,7 @@ public sealed class MatchService
         var square = pending.Context.Path[pending.Context.StepIndex];
         return pending.Kind switch
         {
-            PendingRerollKind.Dodge => ResolveFailedDodge(match, ruleset, team, player, square, pending.Roll, pending.Target),
+            PendingRerollKind.Dodge => ResolveFailedDodge(match, ruleset, team, player, square, pending.Roll, pending.Target, pending.Context.ArmBarApplies),
             PendingRerollKind.GoForIt => ResolveFailedGoForIt(
                 match,
                 ruleset,
@@ -3152,6 +3658,8 @@ public sealed class MatchService
                         stepIndex,
                         context.MovementAllowance,
                         opposingTeam,
+                        context.BreakTackleUsed,
+                        false,
                         goForItNumber,
                         context.BlitzDefenderPlayerId);
             }
@@ -3188,7 +3696,7 @@ public sealed class MatchService
             nextMatch = nextMatch with { Ball = new BallState { CarrierPlayerId = player.Id } };
         }
 
-        return ContinueMovementFromStep(nextMatch, ruleset, team, opposingTeam, player, context.Action, context.Destination, path, stepIndex + 1, context.MovementAllowance, goForItNumber, context.BlitzDefenderPlayerId);
+        return ContinueMovementFromStep(nextMatch, ruleset, team, opposingTeam, player, context.Action, context.Destination, path, stepIndex + 1, context.MovementAllowance, goForItNumber, context.BreakTackleUsed, context.BlitzDefenderPlayerId);
     }
 
     private MatchState ContinueMovementFromStep(
@@ -3203,6 +3711,7 @@ public sealed class MatchService
         int startStepIndex,
         int movementAllowance,
         int goForItNumber,
+        bool breakTackleUsed,
         Guid? blitzDefenderPlayerId = null)
     {
         var nextMatch = match;
@@ -3216,27 +3725,55 @@ public sealed class MatchService
             {
                 var dodgeRoll = _dice.RollD6();
                 var opposingTackleZones = CountOpposingTackleZones(nextMatch, team.Id, player.Id, nextSquare);
+                var breakTackleBonus = BreakTackleBonus(ruleset, player, breakTackleUsed);
                 var divingTackle = FindDivingTackler(nextMatch, ruleset, opposingTeam, currentSquare, nextSquare);
-                var baseDodgeTarget = DodgeTarget(player, opposingTackleZones);
+                var prehensileTailModifier = PrehensileTailModifier(nextMatch, ruleset, opposingTeam, player.Id, currentSquare);
+                var baseDodgeTarget = DodgeTarget(ruleset, player, opposingTackleZones + prehensileTailModifier, breakTackleBonus);
                 var divingTackleModifier = divingTackle is not null &&
                     RollSucceeds(dodgeRoll, baseDodgeTarget, ruleset.Dice) &&
-                    !RollSucceeds(dodgeRoll, DodgeTarget(player, opposingTackleZones + 2), ruleset.Dice)
+                    !RollSucceeds(dodgeRoll, DodgeTarget(ruleset, player, opposingTackleZones + prehensileTailModifier + 2, breakTackleBonus), ruleset.Dice)
                         ? 2
                         : 0;
-                var dodgeTarget = DodgeTarget(player, opposingTackleZones + divingTackleModifier);
+                var dodgeTarget = DodgeTarget(ruleset, player, opposingTackleZones + prehensileTailModifier + divingTackleModifier, breakTackleBonus);
+                var usedBreakTackleThisRoll = breakTackleBonus > 0 && dodgeTarget < DodgeTarget(ruleset, player, opposingTackleZones + prehensileTailModifier + divingTackleModifier);
                 if (divingTackle is not null && divingTackleModifier > 0)
                 {
                     nextMatch = ApplyDivingTackle(nextMatch, divingTackle, currentSquare);
                 }
                 if (!RollSucceeds(dodgeRoll, dodgeTarget, ruleset.Dice))
                 {
-                    return CreatePendingMovementReroll(nextMatch, ruleset, team, player, PendingRerollKind.Dodge, dodgeRoll, dodgeTarget, action, destination, path, stepIndex, movementAllowance, opposingTeam, goForItNumber, blitzDefenderPlayerId);
+                    return CreatePendingMovementReroll(
+                        nextMatch,
+                        ruleset,
+                        team,
+                        player,
+                        PendingRerollKind.Dodge,
+                        dodgeRoll,
+                        dodgeTarget,
+                        action,
+                        destination,
+                        path,
+                        stepIndex,
+                        movementAllowance,
+                        opposingTeam,
+                        breakTackleUsed || usedBreakTackleThisRoll,
+                        ArmBarApplies(nextMatch, ruleset, opposingTeam, player.Id, currentSquare, nextSquare),
+                        goForItNumber,
+                        blitzDefenderPlayerId);
                 }
 
+                breakTackleUsed = breakTackleUsed || usedBreakTackleThisRoll;
                 nextMatch = nextMatch with
                 {
-                    Log = [.. nextMatch.Log, new MatchLogEntry { Message = $"{player.Name} dodges from {currentSquare.X},{currentSquare.Y} to {nextSquare.X},{nextSquare.Y}: rolled {dodgeRoll} vs {dodgeTarget}+, success." }]
+                    Log = [.. nextMatch.Log, new MatchLogEntry { Message = $"{player.Name} dodges from {currentSquare.X},{currentSquare.Y} to {nextSquare.X},{nextSquare.Y}: rolled {dodgeRoll} vs {dodgeTarget}+{(prehensileTailModifier > 0 ? " with Prehensile Tail" : "")}{(usedBreakTackleThisRoll ? " with Break Tackle" : "")}, success." }]
                 };
+            }
+
+            var tentacles = ApplyTentacles(nextMatch, ruleset, opposingTeam, player, currentSquare);
+            nextMatch = tentacles.Match;
+            if (tentacles.Held)
+            {
+                return nextMatch;
             }
 
             if (stepIndex >= movementAllowance)
@@ -3246,7 +3783,7 @@ public sealed class MatchService
                 var goForItTarget = GoForItTarget(match.Weather);
                 if (!RollSucceeds(roll, goForItTarget, ruleset.Dice))
                 {
-                    return CreatePendingMovementReroll(nextMatch, ruleset, team, player, PendingRerollKind.GoForIt, roll, goForItTarget, action, destination, path, stepIndex, movementAllowance, opposingTeam, goForItNumber, blitzDefenderPlayerId);
+                    return CreatePendingMovementReroll(nextMatch, ruleset, team, player, PendingRerollKind.GoForIt, roll, goForItTarget, action, destination, path, stepIndex, movementAllowance, opposingTeam, breakTackleUsed, false, goForItNumber, blitzDefenderPlayerId);
                 }
 
                 nextMatch = nextMatch with
@@ -3263,6 +3800,7 @@ public sealed class MatchService
                         : current)
                     .ToArray()
             };
+            nextMatch = ApplyShadowing(nextMatch, ruleset, opposingTeam, player, currentSquare, nextSquare);
 
             if (nextMatch.Ball.CarrierPlayerId is null && nextMatch.Ball.Square == nextSquare)
             {
@@ -3348,35 +3886,77 @@ public sealed class MatchService
         return teamId == match.HomeTeamId ? match.HomeRerollsRemaining : match.AwayRerollsRemaining;
     }
 
-    private static bool CanUseTeamReroll(MatchState match, Guid teamId)
+    private static bool CanUseTeamReroll(MatchState match, Ruleset ruleset, LeagueTeam team)
     {
-        return TeamRerollsRemaining(match, teamId) > 0 &&
+        return EffectiveTeamRerollsRemaining(match, ruleset, team) > 0 &&
             !match.TeamRerollUses.Any(use =>
-                use.TeamId == teamId &&
+                use.TeamId == team.Id &&
                 use.Half == match.Half &&
                 use.Turn == match.Turn);
     }
 
-    private static MatchState SpendTeamReroll(MatchState match, Guid teamId)
+    private static int EffectiveTeamRerollsRemaining(MatchState match, Ruleset ruleset, LeagueTeam team)
+    {
+        var standardRerolls = TeamRerollsRemaining(match, team.Id);
+        var leaderReroll = LeaderRerollAvailable(match, ruleset, team) ? 1 : 0;
+        return standardRerolls + leaderReroll;
+    }
+
+    private static bool LeaderRerollAvailable(MatchState match, Ruleset ruleset, LeagueTeam team)
+    {
+        var availableFlag = team.Id == match.HomeTeamId
+            ? match.HomeLeaderRerollAvailable
+            : match.AwayLeaderRerollAvailable;
+
+        return availableFlag && HasLeaderOnPitch(match, ruleset, team);
+    }
+
+    private static MatchState SpendTeamReroll(MatchState match, Ruleset ruleset, LeagueTeam team)
     {
         var nextUses = match.TeamRerollUses
-            .Append(new TeamRerollUse { TeamId = teamId, Half = match.Half, Turn = match.Turn })
+            .Append(new TeamRerollUse { TeamId = team.Id, Half = match.Half, Turn = match.Turn })
             .ToArray();
 
-        if (teamId == match.HomeTeamId)
+        if (team.Id == match.HomeTeamId)
+        {
+            if (match.HomeRerollsRemaining > 0)
+            {
+                return match with
+                {
+                    HomeRerollsRemaining = match.HomeRerollsRemaining - 1,
+                    TeamRerollUses = nextUses
+                };
+            }
+
+            if (LeaderRerollAvailable(match, ruleset, team))
+            {
+                return match with
+                {
+                    HomeLeaderRerollAvailable = false,
+                    TeamRerollUses = nextUses
+                };
+            }
+        }
+
+        if (match.AwayRerollsRemaining > 0)
         {
             return match with
             {
-                HomeRerollsRemaining = Math.Max(0, match.HomeRerollsRemaining - 1),
+                AwayRerollsRemaining = match.AwayRerollsRemaining - 1,
                 TeamRerollUses = nextUses
             };
         }
 
-        return match with
+        if (LeaderRerollAvailable(match, ruleset, team))
         {
-            AwayRerollsRemaining = Math.Max(0, match.AwayRerollsRemaining - 1),
-            TeamRerollUses = nextUses
-        };
+            return match with
+            {
+                AwayLeaderRerollAvailable = false,
+                TeamRerollUses = nextUses
+            };
+        }
+
+        throw new InvalidOperationException($"{team.Name} has no team rerolls available.");
     }
 
     private static int TeamBribesRemaining(MatchState match, Guid teamId)
@@ -3459,14 +4039,43 @@ public sealed class MatchService
             _ => throw new InvalidOperationException("Unknown reroll kind.")
         };
 
-        return player.Skills
+        var rerolls = player.Skills
             .Where(skill => SkillHasEffect(ruleset, skill, effect))
             .ToArray();
+        if (PlayerHasSkillEffect(ruleset, player, SkillEffect.Pro))
+        {
+            rerolls = [.. rerolls, "pro"];
+        }
+
+        return rerolls;
     }
 
-    private PitchSquare[] LegalPushSquares(MatchState match, Ruleset ruleset, PitchSquare attackerSquare, PitchSquare defenderSquare, Player defender)
+    private PitchSquare[] LegalPushSquares(
+        MatchState match,
+        Ruleset ruleset,
+        PitchSquare attackerSquare,
+        PitchSquare defenderSquare,
+        Player attacker,
+        Player defender,
+        PlayerTurnAction attackerAction)
     {
-        if (!PlayerHasSkillEffect(ruleset, defender, SkillEffect.SideStep))
+        var attackerCanUseGrab = PlayerHasSkillEffect(ruleset, attacker, SkillEffect.Grab) &&
+            !PlayerHasSkillEffect(ruleset, attacker, SkillEffect.Frenzy);
+        if (attackerCanUseGrab && attackerAction == PlayerTurnAction.Block)
+        {
+            var grabSquares = AdjacentSquares(defenderSquare)
+                .Where(square => IsOnPitch(ruleset, square))
+                .Where(square => square != attackerSquare)
+                .Where(square => FindPushOccupant(match, square, defender.Id) is null)
+                .Distinct()
+                .ToArray();
+
+            return grabSquares.Length > 0
+                ? grabSquares
+                : LegalPushSquares(match, ruleset, attackerSquare, defenderSquare, defender.Id);
+        }
+
+        if (attackerCanUseGrab || !PlayerHasSkillEffect(ruleset, defender, SkillEffect.SideStep))
         {
             return LegalPushSquares(match, ruleset, attackerSquare, defenderSquare, defender.Id);
         }
@@ -3502,6 +4111,224 @@ public sealed class MatchService
             placement.Square is PitchSquare opponentSquare &&
             IsAdjacent(opponentSquare, square) &&
             PlayerHasSkillEffect(ruleset, FindTeamPlayer(opposingTeam, placement.PlayerId), effect));
+    }
+
+    private static bool ArmBarApplies(
+        MatchState match,
+        Ruleset ruleset,
+        LeagueTeam? opposingTeam,
+        Guid playerId,
+        PitchSquare currentSquare,
+        PitchSquare destination)
+    {
+        return opposingTeam is not null &&
+            (IsAdjacentToOpponentWithSkillEffect(match, ruleset, opposingTeam, playerId, currentSquare, SkillEffect.ArmBar) ||
+                IsAdjacentToOpponentWithSkillEffect(match, ruleset, opposingTeam, playerId, destination, SkillEffect.ArmBar));
+    }
+
+    private static int PrehensileTailModifier(
+        MatchState match,
+        Ruleset ruleset,
+        LeagueTeam? opposingTeam,
+        Guid playerId,
+        PitchSquare currentSquare)
+    {
+        return opposingTeam is not null &&
+            IsAdjacentToOpponentWithSkillEffect(match, ruleset, opposingTeam, playerId, currentSquare, SkillEffect.PrehensileTail)
+                ? 1
+                : 0;
+    }
+
+    private static int DisturbingPresenceModifier(MatchState match, Ruleset ruleset, LeagueTeam? opposingTeam, PitchSquare square)
+    {
+        if (opposingTeam is null)
+        {
+            return 0;
+        }
+
+        return match.Placements.Count(placement =>
+            placement.TeamId == opposingTeam.Id &&
+            placement.State is PlayerPitchState.Standing or PlayerPitchState.Prone or PlayerPitchState.Stunned &&
+            placement.Square is PitchSquare disturbingSquare &&
+            Math.Max(Math.Abs(disturbingSquare.X - square.X), Math.Abs(disturbingSquare.Y - square.Y)) <= 3 &&
+            PlayerHasSkillEffect(ruleset, FindTeamPlayer(opposingTeam, placement.PlayerId), SkillEffect.DisturbingPresence));
+    }
+
+    private TentaclesResolution ApplyTentacles(
+        MatchState match,
+        Ruleset ruleset,
+        LeagueTeam? opposingTeam,
+        Player mover,
+        PitchSquare currentSquare)
+    {
+        if (opposingTeam is null)
+        {
+            return new TentaclesResolution(match, false);
+        }
+
+        var tentaclePlacement = match.Placements
+            .Where(placement =>
+                placement.TeamId == opposingTeam.Id &&
+                placement.State == PlayerPitchState.Standing &&
+                placement.Square is PitchSquare square &&
+                IsAdjacent(square, currentSquare) &&
+                PlayerHasSkillEffect(ruleset, FindTeamPlayer(opposingTeam, placement.PlayerId), SkillEffect.Tentacles))
+            .FirstOrDefault();
+
+        if (tentaclePlacement is null)
+        {
+            return new TentaclesResolution(match, false);
+        }
+
+        var tentaclePlayer = FindTeamPlayer(opposingTeam, tentaclePlacement.PlayerId);
+        var roll = _dice.RollD6();
+        var result = roll + tentaclePlayer.Stats.Strength - mover.Stats.Strength;
+        if (roll == 1 || result <= 5)
+        {
+            return new TentaclesResolution(match with
+            {
+                Log =
+                [
+                    .. match.Log,
+                    new MatchLogEntry { Message = $"{tentaclePlayer.Name} uses Tentacles against {mover.Name}: rolled {roll}, result {result}, no effect." }
+                ]
+            }, false);
+        }
+
+        return new TentaclesResolution(match with
+        {
+            Log =
+            [
+                .. match.Log,
+                new MatchLogEntry { Message = $"{tentaclePlayer.Name} uses Tentacles against {mover.Name}: rolled {roll}, result {result}, movement ends." }
+            ]
+        }, true);
+    }
+
+    private static bool ShouldStripBall(Ruleset ruleset, Player attacker, Player defender, bool defenderHasBall, bool knockDown)
+    {
+        return defenderHasBall &&
+            !knockDown &&
+            PlayerHasSkillEffect(ruleset, attacker, SkillEffect.StripBall) &&
+            !PlayerHasSkillEffect(ruleset, defender, SkillEffect.PickupReroll) &&
+            !PlayerHasSkillEffect(ruleset, defender, SkillEffect.MonstrousMouth);
+    }
+
+    private FoulAppearanceResolution ResolveFoulAppearance(MatchState match, Ruleset ruleset, Player attacker, Player defender)
+    {
+        if (!PlayerHasSkillEffect(ruleset, defender, SkillEffect.FoulAppearance))
+        {
+            return new FoulAppearanceResolution(match, false);
+        }
+
+        var roll = _dice.RollD6();
+        if (roll != 1)
+        {
+            return new FoulAppearanceResolution(match with
+            {
+                Log =
+                [
+                    .. match.Log,
+                    new MatchLogEntry { Message = $"{attacker.Name} checks Foul Appearance against {defender.Name}: rolled {roll}, action continues." }
+                ]
+            }, false);
+        }
+
+        return new FoulAppearanceResolution(match with
+        {
+            Log =
+            [
+                .. match.Log,
+                new MatchLogEntry { Message = $"{attacker.Name} checks Foul Appearance against {defender.Name}: rolled 1, action wasted." }
+            ]
+        }, true);
+    }
+
+    private static bool HasKickPlayer(MatchState match, Ruleset ruleset, LeagueTeam kickingTeam)
+    {
+        return match.Placements.Any(placement =>
+            placement.TeamId == kickingTeam.Id &&
+            placement.State == PlayerPitchState.Standing &&
+            placement.Square is not null &&
+            PlayerHasSkillEffect(ruleset, FindTeamPlayer(kickingTeam, placement.PlayerId), SkillEffect.Kick));
+    }
+
+    private static bool HasLeaderPlayer(Ruleset ruleset, LeagueTeam team)
+    {
+        return team.Players.Any(player => PlayerHasSkillEffect(ruleset, player, SkillEffect.Leader));
+    }
+
+    private static bool HasLeaderOnPitch(MatchState match, Ruleset ruleset, LeagueTeam team)
+    {
+        return match.Placements.Any(placement =>
+            placement.TeamId == team.Id &&
+            placement.State is PlayerPitchState.Standing or PlayerPitchState.Prone or PlayerPitchState.Stunned &&
+            PlayerHasSkillEffect(ruleset, FindTeamPlayer(team, placement.PlayerId), SkillEffect.Leader));
+    }
+
+    private MatchState ApplyShadowing(
+        MatchState match,
+        Ruleset ruleset,
+        LeagueTeam? opposingTeam,
+        Player movingPlayer,
+        PitchSquare fromSquare,
+        PitchSquare toSquare)
+    {
+        if (opposingTeam is null)
+        {
+            return match;
+        }
+
+        var shadowerPlacement = match.Placements.FirstOrDefault(placement =>
+            placement.TeamId == opposingTeam.Id &&
+            placement.State == PlayerPitchState.Standing &&
+            placement.Square is PitchSquare shadowerSquare &&
+            IsAdjacent(shadowerSquare, fromSquare) &&
+            !IsAdjacent(shadowerSquare, toSquare) &&
+            PlayerHasSkillEffect(ruleset, FindTeamPlayer(opposingTeam, placement.PlayerId), SkillEffect.Shadowing));
+        if (shadowerPlacement is null || match.Placements.Any(placement => placement.PlayerId != shadowerPlacement.PlayerId && placement.Square == fromSquare && OccupiesPitch(placement.State)))
+        {
+            return match;
+        }
+
+        var shadower = FindTeamPlayer(opposingTeam, shadowerPlacement.PlayerId);
+        var roll = _dice.RollD6();
+        var total = roll + shadower.Stats.Movement - movingPlayer.Stats.Movement;
+        if (total < 6)
+        {
+            return match with
+            {
+                Log =
+                [
+                    .. match.Log,
+                    new MatchLogEntry { Message = $"{shadower.Name} attempts Shadowing: rolled {roll} + MA difference = {total}, failed." }
+                ]
+            };
+        }
+
+        return match with
+        {
+            Placements = match.Placements
+                .Select(placement => placement.PlayerId == shadower.Id
+                    ? placement with { Square = fromSquare }
+                    : placement)
+                .ToArray(),
+            Log =
+            [
+                .. match.Log,
+                new MatchLogEntry { Message = $"{shadower.Name} uses Shadowing and follows to {fromSquare.X},{fromSquare.Y}." }
+            ]
+        };
+    }
+
+    private static int BreakTackleBonus(Ruleset ruleset, Player player, bool breakTackleUsed)
+    {
+        if (breakTackleUsed || !PlayerHasSkillEffect(ruleset, player, SkillEffect.BreakTackle))
+        {
+            return 0;
+        }
+
+        return player.Stats.Strength >= 5 ? 2 : 1;
     }
 
     private static bool SkillHasEffect(Ruleset ruleset, string skillId, SkillEffect effect)
@@ -3584,6 +4411,8 @@ public sealed class MatchService
             Ball = new BallState(),
             HomeRerollsRemaining = recoveredMatch.HomeTeamRerolls,
             AwayRerollsRemaining = recoveredMatch.AwayTeamRerolls,
+            HomeLeaderRerollAvailable = recoveredMatch.HomeLeaderRerollAvailable,
+            AwayLeaderRerollAvailable = recoveredMatch.AwayLeaderRerollAvailable,
             TeamRerollUses = recoveredMatch.TeamRerollUses
                 .Where(use => use.Half != 2)
                 .ToArray(),
@@ -3813,24 +4642,34 @@ public sealed class MatchService
             : square.X == 0;
     }
 
-    private InjuryResolution ResolveFallInjury(Player player)
+    private InjuryResolution ResolveFallInjury(Player player, bool armBarApplies = false)
     {
         var armorRoll = Roll2D6();
         if (armorRoll <= player.Stats.Armor)
         {
-            return new InjuryResolution(PlayerPitchState.Prone);
+            if (!armBarApplies || armorRoll + 1 <= player.Stats.Armor)
+            {
+                return new InjuryResolution(PlayerPitchState.Prone);
+            }
+
+            return ResolveInjury(Roll2D6());
         }
 
-        return ResolveInjury(Roll2D6());
+        var injuryRoll = Roll2D6();
+        return ResolveInjury(armBarApplies ? injuryRoll + 1 : injuryRoll);
     }
 
     private InjuryResolution ResolveBlockInjury(Ruleset ruleset, Player attacker, Player defender)
     {
         var armorRoll = Roll2D6();
         var hasMightyBlow = PlayerHasSkillEffect(ruleset, attacker, SkillEffect.MightyBlow);
-        if (armorRoll <= defender.Stats.Armor)
+        var hasIronHardSkin = PlayerHasSkillEffect(ruleset, defender, SkillEffect.IronHardSkin);
+        var clawsBreaksArmor = PlayerHasSkillEffect(ruleset, attacker, SkillEffect.Claws) &&
+            !hasIronHardSkin &&
+            armorRoll >= 8;
+        if (armorRoll <= defender.Stats.Armor && !clawsBreaksArmor)
         {
-            if (!hasMightyBlow || armorRoll + 1 <= defender.Stats.Armor)
+            if (hasIronHardSkin || !hasMightyBlow || armorRoll + 1 <= defender.Stats.Armor)
             {
                 return new InjuryResolution(PlayerPitchState.Prone);
             }
@@ -4036,10 +4875,11 @@ public sealed class MatchService
         return placement;
     }
 
-    private static int CatchTarget(Player player, WeatherCondition weather, int opposingTackleZones = 0)
+    private static int CatchTarget(Ruleset ruleset, Player player, WeatherCondition weather, int opposingTackleZones = 0, int disturbingPresence = 0)
     {
         var weatherModifier = weather == WeatherCondition.PouringRain ? 1 : 0;
-        return Math.Clamp(player.Stats.Agility + weatherModifier + opposingTackleZones, 2, 6);
+        var extraArmsModifier = PlayerHasSkillEffect(ruleset, player, SkillEffect.ExtraArms) ? -1 : 0;
+        return Math.Clamp(player.Stats.Agility + weatherModifier + opposingTackleZones + disturbingPresence + extraArmsModifier, 2, 6);
     }
 
     private CatchAttempt RollCatch(Ruleset ruleset, Player player, int target)
@@ -4050,7 +4890,8 @@ public sealed class MatchService
             return new CatchAttempt(roll, null, true);
         }
 
-        if (!PlayerHasSkillEffect(ruleset, player, SkillEffect.CatchReroll))
+        if (!PlayerHasSkillEffect(ruleset, player, SkillEffect.CatchReroll) &&
+            !PlayerHasSkillEffect(ruleset, player, SkillEffect.MonstrousMouth))
         {
             return new CatchAttempt(roll, null, false);
         }
@@ -4066,15 +4907,54 @@ public sealed class MatchService
             : $"catch roll {attempt.Roll} vs {target}+";
     }
 
-    private static int DodgeTarget(Player player, int opposingTackleZones)
+    private PassAttempt RollPass(Ruleset ruleset, Player player, int target, bool usePassSkillReroll)
     {
-        return Math.Clamp(player.Stats.Agility - 1 + opposingTackleZones, 2, 6);
+        var roll = _dice.RollD6();
+        int? reroll = null;
+        var finalRoll = roll;
+        if (usePassSkillReroll &&
+            !RollSucceeds(roll, target, ruleset.Dice) &&
+            PlayerHasSkillEffect(ruleset, player, SkillEffect.PassReroll))
+        {
+            reroll = _dice.RollD6();
+            finalRoll = reroll.Value;
+        }
+
+        var fumbled = finalRoll == 1;
+        var safePassPreventedFumble = fumbled && PlayerHasSkillEffect(ruleset, player, SkillEffect.SafePass);
+
+        return new PassAttempt(
+            roll,
+            reroll,
+            finalRoll,
+            RollSucceeds(finalRoll, target, ruleset.Dice),
+            fumbled,
+            safePassPreventedFumble);
     }
 
-    private static int PickupTarget(Player player, int opposingTackleZones, WeatherCondition weather)
+    private static string FormatPassAttempt(PassAttempt attempt, int target)
     {
-        var weatherModifier = weather == WeatherCondition.PouringRain ? 1 : 0;
-        return Math.Clamp(player.Stats.Agility - 1 + opposingTackleZones + weatherModifier, 2, 6);
+        var text = attempt.Reroll is int reroll
+            ? $"pass roll {attempt.Roll} rerolled with Pass to {reroll} vs {target}+"
+            : $"pass roll {attempt.Roll} vs {target}+";
+
+        return attempt.SafePassPreventedFumble
+            ? $"{text}; Safe Pass"
+            : text;
+    }
+
+    private static int DodgeTarget(Ruleset ruleset, Player player, int opposingTackleZones, int skillBonus = 0)
+    {
+        var twoHeadsBonus = PlayerHasSkillEffect(ruleset, player, SkillEffect.TwoHeads) ? 1 : 0;
+        return Math.Clamp(player.Stats.Agility - 1 + opposingTackleZones - skillBonus - twoHeadsBonus, 2, 6);
+    }
+
+    private static int PickupTarget(Ruleset ruleset, Player player, int opposingTackleZones, WeatherCondition weather)
+    {
+        var markedModifier = PlayerHasSkillEffect(ruleset, player, SkillEffect.BigHand) ? 0 : opposingTackleZones;
+        var weatherModifier = weather == WeatherCondition.PouringRain && !PlayerHasSkillEffect(ruleset, player, SkillEffect.BigHand) ? 1 : 0;
+        var extraArmsModifier = PlayerHasSkillEffect(ruleset, player, SkillEffect.ExtraArms) ? -1 : 0;
+        return Math.Clamp(player.Stats.Agility - 1 + markedModifier + weatherModifier + extraArmsModifier, 2, 6);
     }
 
     private static int CountOpposingTackleZones(MatchState match, Guid teamId, Guid playerId, PitchSquare square)
@@ -4087,10 +4967,12 @@ public sealed class MatchService
             IsAdjacent(opponentSquare, square));
     }
 
-    private static int InterceptionTarget(Player player, WeatherCondition weather, int opposingTackleZones = 0)
+    private static int InterceptionTarget(Ruleset ruleset, Player player, WeatherCondition weather, int opposingTackleZones = 0, int disturbingPresence = 0)
     {
         var weatherModifier = weather == WeatherCondition.PouringRain ? 1 : 0;
-        return Math.Clamp(player.Stats.Agility + 2 + weatherModifier + opposingTackleZones, 2, 6);
+        var extraArmsModifier = PlayerHasSkillEffect(ruleset, player, SkillEffect.ExtraArms) ? -1 : 0;
+        var veryLongLegsModifier = PlayerHasSkillEffect(ruleset, player, SkillEffect.VeryLongLegs) ? -2 : 0;
+        return Math.Clamp(player.Stats.Agility + 2 + weatherModifier + opposingTackleZones + disturbingPresence + extraArmsModifier + veryLongLegsModifier, 2, 6);
     }
 
     private PlayerPlacement? FindDivingCatchReceiver(MatchState match, Ruleset ruleset, LeagueTeam team, PitchSquare targetSquare)
@@ -4153,15 +5035,37 @@ public sealed class MatchService
         };
     }
 
-    private static int PassingTarget(Player player, PassRange passRange, WeatherCondition weather, int opposingTackleZones = 0)
+    private static int PassingTarget(Ruleset ruleset, Player player, PassRange passRange, WeatherCondition weather, int opposingTackleZones = 0, int disturbingPresence = 0)
     {
         var weatherModifier = weather is WeatherCondition.VerySunny or WeatherCondition.Blizzard ? 1 : 0;
-        return Math.Clamp(player.Stats.Passing + passRange.TargetModifier + weatherModifier + opposingTackleZones, 2, 6);
+        var skillModifier = 0;
+        if (PlayerHasSkillEffect(ruleset, player, SkillEffect.Accurate) && passRange.Name is "quick" or "short")
+        {
+            skillModifier--;
+        }
+        else if (PlayerHasSkillEffect(ruleset, player, SkillEffect.Cannoneer) && IsLongPass(passRange.Name))
+        {
+            skillModifier--;
+        }
+
+        return Math.Clamp(player.Stats.Passing + passRange.TargetModifier + weatherModifier + opposingTackleZones + disturbingPresence + skillModifier, 2, 6);
     }
 
     private static string PassTargetName(Player? receiver, PitchSquare targetSquare)
     {
         return receiver is null ? $"{targetSquare.X},{targetSquare.Y}" : receiver.Name;
+    }
+
+    private static bool IsLongPass(string passRangeName)
+    {
+        return passRangeName is "long" or "long bomb";
+    }
+
+    private static bool CrossesMidline(Ruleset ruleset, PitchSquare start, PitchSquare destination)
+    {
+        var midline = ruleset.PitchWidth / 2;
+        return start.X < midline && destination.X >= midline ||
+            start.X >= midline && destination.X < midline;
     }
 
     private static int GoForItTarget(WeatherCondition weather)
@@ -4431,6 +5335,12 @@ public sealed record BallLanding(PitchSquare Square, IReadOnlyList<MatchLogEntry
 sealed record InjuryResolution(PlayerPitchState State, CasualtyRoll? Casualty = null);
 
 sealed record CatchAttempt(int Roll, int? Reroll, bool Success);
+
+sealed record PassAttempt(int Roll, int? Reroll, int FinalRoll, bool Success, bool Fumbled, bool SafePassPreventedFumble);
+
+sealed record TentaclesResolution(MatchState Match, bool Held);
+
+sealed record FoulAppearanceResolution(MatchState Match, bool BlockPrevented);
 
 sealed record ApothecaryResolution(MatchState Match, InjuryResolution Injury, IReadOnlyList<MatchLogEntry> Log);
 

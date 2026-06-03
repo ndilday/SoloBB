@@ -9,9 +9,17 @@ var rosterSet = await store.LoadRosterSetAsync(Path.Combine(root, "data", "roste
 Assert(ruleset.Id == "bb2020-lite", "ruleset id should load");
 Assert(rosterSet.Rosters.Count >= 2, "sample roster set should contain teams");
 Assert(ruleset.Skills.Single(skill => skill.Id == "block").Effects.Contains(SkillEffect.BothDownProtection), "block skill should declare its ruleset mechanic");
+Assert(ruleset.Skills.Single(skill => skill.Id == "dauntless").Effects.Contains(SkillEffect.Dauntless), "dauntless should declare its strength challenge mechanic");
 Assert(ruleset.Skills.Single(skill => skill.Id == "dodge").Effects.Contains(SkillEffect.DodgeReroll), "dodge skill should declare its reroll mechanic");
 Assert(ruleset.Skills.Single(skill => skill.Id == "tackle").Effects.Contains(SkillEffect.CancelDodgeReroll), "tackle skill should declare its dodge-cancel mechanic");
 Assert(ruleset.Skills.Single(skill => skill.Id == "guard").Effects.Contains(SkillEffect.GuardAssist), "guard skill should declare its assist mechanic");
+Assert(ruleset.Skills.Single(skill => skill.Id == "frenzy").Effects.Contains(SkillEffect.Frenzy), "frenzy should declare its forced-block mechanic");
+Assert(ruleset.Skills.Single(skill => skill.Id == "fend").Effects.Contains(SkillEffect.Fend), "fend should declare its follow-up prevention mechanic");
+Assert(ruleset.Skills.Single(skill => skill.Id == "wrestle").Effects.Contains(SkillEffect.Wrestle), "wrestle should declare its both-down mechanic");
+Assert(ruleset.Skills.Single(skill => skill.Id == "kick").Effects.Contains(SkillEffect.Kick), "kick should declare its kickoff scatter mechanic");
+Assert(ruleset.Skills.Single(skill => skill.Id == "pro").Effects.Contains(SkillEffect.Pro), "pro should declare its conditional reroll mechanic");
+Assert(ruleset.Skills.Single(skill => skill.Id == "shadowing").Effects.Contains(SkillEffect.Shadowing), "shadowing should declare its follow mechanic");
+Assert(ruleset.Skills.Single(skill => skill.Id == "strip-ball").Effects.Contains(SkillEffect.StripBall), "strip ball should declare its ball-loosening mechanic");
 Assert(ruleset.Skills.Single(skill => skill.Id == "mighty-blow").Effects.Contains(SkillEffect.MightyBlow), "mighty blow should declare its injury-pressure mechanic");
 Assert(ruleset.Skills.Single(skill => skill.Id == "stand-firm").Effects.Contains(SkillEffect.StandFirm), "stand firm should declare its push-prevention mechanic");
 Assert(ruleset.Skills.Single(skill => skill.Id == "dirty-player").Effects.Contains(SkillEffect.DirtyPlayer), "dirty player should declare its foul-pressure mechanic");
@@ -25,6 +33,37 @@ Assert(ruleset.Skills.Single(skill => skill.Id == "safe-pair-of-hands").Effects.
 Assert(ruleset.Skills.Single(skill => skill.Id == "sidestep").Effects.Contains(SkillEffect.SideStep), "sidestep should declare its push-choice mechanic");
 Assert(ruleset.Skills.Single(skill => skill.Id == "sneaky-git").Effects.Contains(SkillEffect.SneakyGit), "sneaky git should declare its foul-sendoff mechanic");
 Assert(ruleset.Skills.Single(skill => skill.Id == "sprint").Effects.Contains(SkillEffect.Sprint), "sprint should declare its extra go-for-it mechanic");
+Assert(ruleset.Skills.Single(skill => skill.Id == "arm-bar").Effects.Contains(SkillEffect.ArmBar), "arm bar should declare its failed-movement injury mechanic");
+Assert(ruleset.Skills.Single(skill => skill.Id == "brawler").Effects.Contains(SkillEffect.Brawler), "brawler should declare its both-down reroll mechanic");
+Assert(ruleset.Skills.Single(skill => skill.Id == "break-tackle").Effects.Contains(SkillEffect.BreakTackle), "break tackle should declare its dodge modifier mechanic");
+Assert(ruleset.Skills.Single(skill => skill.Id == "grab").Effects.Contains(SkillEffect.Grab), "grab should declare its push-control mechanic");
+Assert(ruleset.Skills.Single(skill => skill.Id == "juggernaut").Effects.Contains(SkillEffect.Juggernaut), "juggernaut should declare its blitz block mechanic");
+Assert(ruleset.Skills.Single(skill => skill.Id == "multiple-block").Effects.Contains(SkillEffect.MultipleBlock), "multiple block should declare its multi-block mechanic");
+Assert(ruleset.Skills.Single(skill => skill.Id == "pile-driver").Effects.Contains(SkillEffect.PileDriver), "pile driver should declare its follow-up foul mechanic");
+Assert(ruleset.Skills.Single(skill => skill.Id == "strong-arm").Effects.Contains(SkillEffect.StrongArm), "strong arm should declare its throw-team-mate mechanic");
+Assert(ruleset.Skills.Single(skill => skill.Id == "accurate").Effects.Contains(SkillEffect.Accurate), "accurate should declare its short-pass mechanic");
+Assert(ruleset.Skills.Single(skill => skill.Id == "cannoneer").Effects.Contains(SkillEffect.Cannoneer), "cannoneer should declare its long-pass mechanic");
+Assert(ruleset.Skills.Single(skill => skill.Id == "cloud-burster").Effects.Contains(SkillEffect.CloudBurster), "cloud burster should declare its interference mechanic");
+Assert(ruleset.Skills.Single(skill => skill.Id == "dump-off").Effects.Contains(SkillEffect.DumpOff), "dump-off should declare its block-interrupt mechanic");
+Assert(ruleset.Skills.Single(skill => skill.Id == "fumblerooskie").Effects.Contains(SkillEffect.Fumblerooskie), "fumblerooskie should declare its ball-drop mechanic");
+Assert(ruleset.Skills.Single(skill => skill.Id == "hail-mary-pass").Effects.Contains(SkillEffect.HailMaryPass), "hail mary pass should declare its special pass mechanic");
+Assert(ruleset.Skills.Single(skill => skill.Id == "leader").Effects.Contains(SkillEffect.Leader), "leader should declare its leader-reroll mechanic");
+Assert(ruleset.Skills.Single(skill => skill.Id == "nerves-of-steel").Effects.Contains(SkillEffect.NervesOfSteel), "nerves of steel should declare its tackle-zone ignore mechanic");
+Assert(ruleset.Skills.Single(skill => skill.Id == "on-the-ball").Effects.Contains(SkillEffect.OnTheBall), "on the ball should declare its reposition mechanic");
+Assert(ruleset.Skills.Single(skill => skill.Id == "running-pass").Effects.Contains(SkillEffect.RunningPass), "running pass should declare its continue-moving mechanic");
+Assert(ruleset.Skills.Single(skill => skill.Id == "safe-pass").Effects.Contains(SkillEffect.SafePass), "safe pass should declare its fumble-prevention mechanic");
+Assert(ruleset.Skills.Single(skill => skill.Id == "big-hand").Effects.Contains(SkillEffect.BigHand), "big hand should declare its pickup mechanic");
+Assert(ruleset.Skills.Single(skill => skill.Id == "claws").Effects.Contains(SkillEffect.Claws), "claws should declare its armor mechanic");
+Assert(ruleset.Skills.Single(skill => skill.Id == "disturbing-presence").Effects.Contains(SkillEffect.DisturbingPresence), "disturbing presence should declare its pass pressure mechanic");
+Assert(ruleset.Skills.Single(skill => skill.Id == "extra-arms").Effects.Contains(SkillEffect.ExtraArms), "extra arms should declare its ball handling mechanic");
+Assert(ruleset.Skills.Single(skill => skill.Id == "foul-appearance").Effects.Contains(SkillEffect.FoulAppearance), "foul appearance should declare its targeting mechanic");
+Assert(ruleset.Skills.Single(skill => skill.Id == "horns").Effects.Contains(SkillEffect.Horns), "horns should declare its blitz strength mechanic");
+Assert(ruleset.Skills.Single(skill => skill.Id == "iron-hard-skin").Effects.Contains(SkillEffect.IronHardSkin), "iron hard skin should declare its armor protection mechanic");
+Assert(ruleset.Skills.Single(skill => skill.Id == "monstrous-mouth").Effects.Contains(SkillEffect.MonstrousMouth), "monstrous mouth should declare its catch mechanic");
+Assert(ruleset.Skills.Single(skill => skill.Id == "prehensile-tail").Effects.Contains(SkillEffect.PrehensileTail), "prehensile tail should declare its movement pressure mechanic");
+Assert(ruleset.Skills.Single(skill => skill.Id == "tentacles").Effects.Contains(SkillEffect.Tentacles), "tentacles should declare its hold mechanic");
+Assert(ruleset.Skills.Single(skill => skill.Id == "two-heads").Effects.Contains(SkillEffect.TwoHeads), "two heads should declare its dodge mechanic");
+Assert(ruleset.Skills.Single(skill => skill.Id == "very-long-legs").Effects.Contains(SkillEffect.VeryLongLegs), "very long legs should declare its leap and interference mechanic");
 Assert(ruleset.Skills.Count >= 75, "ruleset should include the full 2020 skill and trait catalog");
 Assert(ruleset.Skills.Single(skill => skill.Id == "frenzy").Compulsory, "compulsory skills should be represented in ruleset data");
 Assert(ruleset.Skills.Single(skill => skill.Id == "disturbing-presence").Category == "mutation", "skill categories should be represented in ruleset data");
@@ -561,22 +600,33 @@ Assert(failedPassMatch.Phase == MatchPhase.DefensiveTurn, "fumbled pass should c
 Assert(failedPassMatch.Ball.CarrierPlayerId is null, "fumbled pass should leave the ball loose if not recovered");
 Assert(failedPassMatch.Ball.Square == new PitchSquare(2, 1), "fumbled pass should bounce from the passer");
 
+var passRerollService = new MatchService(new FixedDiceRoller(d6: [1, 2, 3]));
+var passRerollMatch = passRerollService.PassBall(passReadyMatch, ruleset, loadedLeague.Teams[0], passerPlayer.Id, passReceiver.Id, usePassSkillReroll: true);
+
+Assert(passRerollMatch.Ball.CarrierPlayerId == passReceiver.Id, "Pass skill should be an optional reroll that can rescue a failed passing test");
+
 var emptyTargetPassService = new MatchService(new FixedDiceRoller(d6: [2]));
 var emptyTargetPassMatch = emptyTargetPassService.PassBall(passReadyMatch, ruleset, loadedLeague.Teams[0], passerPlayer.Id, new PitchSquare(4, 2));
 
 Assert(emptyTargetPassMatch.Phase == MatchPhase.DefensiveTurn, "accurate pass to an empty square should cause a turnover if not recovered");
 Assert(emptyTargetPassMatch.Ball.Square == new PitchSquare(4, 2), "accurate pass to an empty square should land on the target square");
 
-var sunnyPassService = new MatchService(new FixedDiceRoller(d6: [2], d8: [5]));
+var sunnyPassService = new MatchService(new FixedDiceRoller(d6: [2]));
+var accurateTeam = loadedLeague.Teams[0] with
+{
+    Players = loadedLeague.Teams[0].Players
+        .Select(player => player.Id == passerPlayer.Id ? player with { Skills = [.. player.Skills, "accurate"] } : player)
+        .ToArray()
+};
 var sunnyPassMatch = sunnyPassService.PassBall(
     passReadyMatch with { Weather = WeatherCondition.VerySunny },
     ruleset,
-    loadedLeague.Teams[0],
+    accurateTeam,
     passerPlayer.Id,
     passReceiver.Id);
 
-Assert(sunnyPassMatch.Phase == MatchPhase.DefensiveTurn, "very sunny weather should make a normal 2+ pass need 3+");
-Assert(sunnyPassMatch.Ball.Square == new PitchSquare(5, 1), "failed sunny pass should scatter from the receiver");
+Assert(sunnyPassMatch.Phase == MatchPhase.OffensivePlayerTurn, "accurate should offset very sunny weather on quick and short passes");
+Assert(sunnyPassMatch.Ball.CarrierPlayerId == passReceiver.Id, "accurate sunny pass should still be completed");
 
 var markedPasserMatch = passReadyMatch with
 {
@@ -586,11 +636,29 @@ var markedPasserMatch = passReadyMatch with
             : placement)
         .ToArray()
 };
-var markedPasserService = new MatchService(new FixedDiceRoller(d6: [2], d8: [5]));
-var markedPasserResult = markedPasserService.PassBall(markedPasserMatch, ruleset, loadedLeague.Teams[0], passerPlayer.Id, passReceiver.Id);
+var markedPasserService = new MatchService(new FixedDiceRoller(d6: [2]));
+var nervesTeam = loadedLeague.Teams[0] with
+{
+    Players = loadedLeague.Teams[0].Players
+        .Select(player => player.Id == passerPlayer.Id ? player with { Skills = [.. player.Skills, "nerves-of-steel"] } : player)
+        .ToArray()
+};
+var markedPasserResult = markedPasserService.PassBall(markedPasserMatch, ruleset, nervesTeam, passerPlayer.Id, passReceiver.Id);
 
-Assert(markedPasserResult.Phase == MatchPhase.DefensiveTurn, "opposing tackle zones on the passer should make passing harder");
-Assert(markedPasserResult.Ball.Square == new PitchSquare(5, 1), "marked passer inaccurate pass should scatter from the target square");
+Assert(markedPasserResult.Phase == MatchPhase.OffensivePlayerTurn, "passing skills should let the thrower overcome the marker");
+Assert(markedPasserResult.Ball.CarrierPlayerId == passReceiver.Id, "skilled marked passer should still complete the pass");
+
+var safePassService = new MatchService(new FixedDiceRoller(d6: [1]));
+var safePassTeam = loadedLeague.Teams[0] with
+{
+    Players = loadedLeague.Teams[0].Players
+        .Select(player => player.Id == passerPlayer.Id ? player with { Skills = [.. player.Skills, "safe-pass"] } : player)
+        .ToArray()
+};
+var safePassMatch = safePassService.PassBall(passReadyMatch, ruleset, safePassTeam, passerPlayer.Id, passReceiver.Id);
+
+Assert(safePassMatch.Phase == MatchPhase.OffensivePlayerTurn, "Safe Pass should prevent a fumble turnover automatically");
+Assert(safePassMatch.Ball.CarrierPlayerId == passerPlayer.Id, "Safe Pass should leave the ball carried by the passer");
 
 var droppedPassService = new MatchService(new FixedDiceRoller(d6: [2, 1, 1], d8: [5]));
 var droppedPassMatch = droppedPassService.PassBall(passReadyMatch, ruleset, loadedLeague.Teams[0], passerPlayer.Id, passReceiver.Id);
@@ -617,12 +685,14 @@ var friendlyPassBounceMatch = passReadyMatch with
 {
     Placements = passReadyMatch.Placements
         .Select(placement => placement.PlayerId == passBounceReceiver.Id
-            ? placement with { Square = new PitchSquare(5, 1), State = PlayerPitchState.Standing }
+            ? placement with { Square = new PitchSquare(11, 1), State = PlayerPitchState.Standing }
+            : placement.PlayerId == passReceiver.Id
+                ? placement with { Square = new PitchSquare(10, 1), State = PlayerPitchState.Standing }
             : placement)
         .ToArray()
 };
-var friendlyPassBounceService = new MatchService(new FixedDiceRoller(d6: [2, 4], d8: [5]));
-var friendlyPassBounceResult = friendlyPassBounceService.PassBall(friendlyPassBounceMatch with { Weather = WeatherCondition.VerySunny }, ruleset, loadedLeague.Teams[0], passerPlayer.Id, passReceiver.Id);
+var friendlyPassBounceService = new MatchService(new FixedDiceRoller(d6: [2, 3, 4], d8: [5]));
+var friendlyPassBounceResult = friendlyPassBounceService.PassBall(friendlyPassBounceMatch, ruleset, loadedLeague.Teams[0], passerPlayer.Id, passReceiver.Id);
 
 Assert(friendlyPassBounceResult.Phase == MatchPhase.OffensivePlayerTurn, "friendly catch on an inaccurate pass scatter should avoid turnover");
 Assert(friendlyPassBounceResult.Ball.CarrierPlayerId == passBounceReceiver.Id, "friendly player should be able to recover a scattered pass");
@@ -670,6 +740,184 @@ Assert(completedAfterFailedInterception.PendingInterception is null, "choosing a
 Assert(completedAfterFailedInterception.Ball.CarrierPlayerId == passReceiver.Id, "failed interception should allow the receiver to catch the pass");
 Assert(completedAfterFailedInterception.Phase == MatchPhase.OffensivePlayerTurn, "failed interception and completed catch should not cause a turnover");
 
+var cloudBursterTeam = loadedLeague.Teams[0] with
+{
+    Players = loadedLeague.Teams[0].Players
+        .Select(player => player.Id == passerPlayer.Id ? player with { Skills = [.. player.Skills, "cloud-burster"] } : player)
+        .ToArray()
+};
+var longPassMatch = passReadyMatch with
+{
+    Placements = passReadyMatch.Placements
+        .Select(placement => placement.PlayerId == passReceiver.Id
+            ? placement with { Square = new PitchSquare(10, 1), State = PlayerPitchState.Standing }
+            : placement.PlayerId == awayPlayerToPlace.Id
+                ? placement with { Square = new PitchSquare(5, 1), State = PlayerPitchState.Standing }
+                : placement)
+        .ToArray()
+};
+var cloudDeclinedService = new MatchService(new FixedDiceRoller(d6: [4, 6]));
+var cloudDeclinedMatch = cloudDeclinedService.PassBall(longPassMatch, ruleset, cloudBursterTeam, passerPlayer.Id, passReceiver.Id, awayLeague.Teams[0], useCloudBurster: false);
+
+Assert(cloudDeclinedMatch.Ball.CarrierPlayerId == awayPlayerToPlace.Id, "Cloud Burster should be optional, not automatic");
+
+var cloudUsedService = new MatchService(new FixedDiceRoller(d6: [4, 6, 1, 3]));
+var cloudUsedMatch = cloudUsedService.PassBall(longPassMatch, ruleset, cloudBursterTeam, passerPlayer.Id, passReceiver.Id, awayLeague.Teams[0], useCloudBurster: true);
+
+Assert(cloudUsedMatch.Ball.CarrierPlayerId == passReceiver.Id, "Cloud Burster should reroll a successful long-pass interference when chosen");
+
+var veryLongLegsInterferenceTeam = awayLeague.Teams[0] with
+{
+    Players = awayLeague.Teams[0].Players
+        .Select(player => player.Id == awayPlayerToPlace.Id ? player with { Skills = [.. player.Skills, "very-long-legs"] } : player)
+        .ToArray()
+};
+var veryLongLegsInterferenceService = new MatchService(new FixedDiceRoller(d6: [4, 3]));
+var veryLongLegsInterferenceMatch = veryLongLegsInterferenceService.PassBall(longPassMatch, ruleset, cloudBursterTeam, passerPlayer.Id, passReceiver.Id, veryLongLegsInterferenceTeam, useCloudBurster: true);
+
+Assert(veryLongLegsInterferenceMatch.Ball.CarrierPlayerId == awayPlayerToPlace.Id, "Very Long Legs should improve interference and ignore Cloud Burster");
+
+var hailMaryTeam = loadedLeague.Teams[0] with
+{
+    Players = loadedLeague.Teams[0].Players
+        .Select(player => player.Id == passerPlayer.Id ? player with { Skills = [.. player.Skills, "hail-mary-pass"] } : player)
+        .ToArray()
+};
+var hailMaryService = new MatchService(new FixedDiceRoller(d6: [6], d8: [5]));
+var hailMaryMatch = hailMaryService.HailMaryPassBall(passReadyMatch, ruleset, hailMaryTeam, passerPlayer.Id, new PitchSquare(20, 5));
+
+Assert(hailMaryMatch.Ball.Square == new PitchSquare(21, 5), "Hail Mary Pass should target anywhere and always resolve as inaccurate at best");
+
+var dumpOffTeam = loadedLeague.Teams[0] with
+{
+    Players = loadedLeague.Teams[0].Players
+        .Select(player => player.Id == passerPlayer.Id ? player with { Skills = [.. player.Skills, "dump-off"] } : player)
+        .ToArray()
+};
+var dumpOffService = new MatchService(new FixedDiceRoller(d6: [2, 3]));
+var dumpOffMatch = dumpOffService.DumpOffPassBall(passReadyMatch with { ActiveTeamId = awayLeague.Teams[0].Id }, ruleset, dumpOffTeam, passerPlayer.Id, new PitchSquare(4, 1), defendingTeam: null);
+
+Assert(dumpOffMatch.Ball.CarrierPlayerId == passReceiver.Id, "Dump-Off should allow a non-active ball carrier to make a Quick Pass without causing a turnover");
+
+var fumblerooskieTeam = loadedLeague.Teams[0] with
+{
+    Players = loadedLeague.Teams[0].Players
+        .Select(player => player.Id == playerToPlace.Id ? player with { Skills = [.. player.Skills, "fumblerooskie"] } : player)
+        .ToArray()
+};
+var fumblerooskieMatch = offensiveTurnMatch with
+{
+    Ball = new BallState { CarrierPlayerId = playerToPlace.Id },
+    Activations =
+    [
+        new PlayerTurnActivation { PlayerId = playerToPlace.Id, TeamId = loadedLeague.Teams[0].Id, Half = offensiveTurnMatch.Half, Turn = offensiveTurnMatch.Turn, Action = PlayerTurnAction.Move }
+    ],
+    Placements = offensiveTurnMatch.Placements
+        .Select(placement => placement.PlayerId == playerToPlace.Id
+            ? placement with { Square = new PitchSquare(2, 0), State = PlayerPitchState.Standing }
+            : placement)
+        .ToArray()
+};
+var fumblerooskieResult = matchService.UseFumblerooskie(fumblerooskieMatch, ruleset, fumblerooskieTeam, playerToPlace.Id, new PitchSquare(1, 0));
+
+Assert(fumblerooskieResult.Ball.Square == new PitchSquare(1, 0), "Fumblerooskie should place the ball without a bounce or turnover");
+
+var onTheBallTeam = loadedLeague.Teams[0] with
+{
+    Players = loadedLeague.Teams[0].Players
+        .Select(player => player.Id == playerToPlace.Id ? player with { Skills = [.. player.Skills, "on-the-ball"] } : player)
+        .ToArray()
+};
+var onTheBallResult = matchService.MoveOnTheBallPlayer(offensiveTurnMatch, ruleset, onTheBallTeam, playerToPlace.Id, new PitchSquare(2, 0));
+
+Assert(onTheBallResult.Placements.Single(placement => placement.PlayerId == playerToPlace.Id).Square == new PitchSquare(2, 0), "On the Ball should move up to three squares");
+
+var runningPassTeam = loadedLeague.Teams[0] with
+{
+    Players = loadedLeague.Teams[0].Players
+        .Select(player => player.Id == passerPlayer.Id ? player with { Skills = [.. player.Skills, "running-pass"] } : player)
+        .ToArray()
+};
+var runningPassResult = matchService.ContinueRunningPassMove(completedPassMatch, ruleset, runningPassTeam, passerPlayer.Id, new PitchSquare(2, 1));
+
+Assert(runningPassResult.Placements.Single(placement => placement.PlayerId == passerPlayer.Id).Square == new PitchSquare(2, 1), "Running Pass should allow movement to continue after a pass activation");
+
+var disturbingPresenceTeam = awayLeague.Teams[0] with
+{
+    Players = awayLeague.Teams[0].Players
+        .Select(player => player.Id == awayPlayerToPlace.Id ? player with { Skills = [.. player.Skills, "disturbing-presence"] } : player)
+        .ToArray()
+};
+var disturbingPresenceMatch = passReadyMatch with
+{
+    Placements = passReadyMatch.Placements
+        .Select(placement => placement.PlayerId == awayPlayerToPlace.Id
+            ? placement with { Square = new PitchSquare(2, 1), State = PlayerPitchState.Prone }
+            : placement)
+        .ToArray()
+};
+var disturbingPresenceService = new MatchService(new FixedDiceRoller(d6: [2], d8: [5]));
+var disturbingPresenceResult = disturbingPresenceService.PassBall(disturbingPresenceMatch, ruleset, loadedLeague.Teams[0], passerPlayer.Id, passReceiver.Id, disturbingPresenceTeam);
+
+Assert(disturbingPresenceResult.Phase == MatchPhase.DefensiveTurn, "Disturbing Presence should modify nearby opposition passing tests even while prone");
+
+var monstrousMouthReceiver = loadedLeague.Teams[0].Players[1];
+var monstrousMouthTeam = loadedLeague.Teams[0] with
+{
+    Players = loadedLeague.Teams[0].Players
+        .Select(player => player.Id == monstrousMouthReceiver.Id ? player with { Skills = [.. player.Skills, "monstrous-mouth"] } : player)
+        .ToArray()
+};
+var monstrousMouthMatch = handOffReadyMatch with
+{
+    Placements = handOffReadyMatch.Placements
+        .Select(placement => placement.PlayerId == monstrousMouthReceiver.Id
+            ? placement with { Square = new PitchSquare(2, 1), State = PlayerPitchState.Standing }
+            : placement)
+        .ToArray()
+};
+var monstrousMouthService = new MatchService(new FixedDiceRoller(d6: [1, 3]));
+var monstrousMouthResult = monstrousMouthService.HandOffBall(monstrousMouthMatch, ruleset, monstrousMouthTeam, playerToPlace.Id, monstrousMouthReceiver.Id);
+
+Assert(monstrousMouthResult.Ball.CarrierPlayerId == monstrousMouthReceiver.Id, "Monstrous Mouth should reroll failed catch attempts");
+
+var bigHandTeam = loadedLeague.Teams[0] with
+{
+    Players = loadedLeague.Teams[0].Players
+        .Select(player => player.Id == playerToPlace.Id ? player with { Skills = [.. player.Skills, "big-hand"] } : player)
+        .ToArray()
+};
+var bigHandMatch = offensiveTurnMatch with
+{
+    Weather = WeatherCondition.PouringRain,
+    Ball = new BallState { Square = new PitchSquare(2, 0) },
+    Placements = offensiveTurnMatch.Placements
+        .Select(placement => placement.PlayerId == awayPlayerToPlace.Id
+            ? placement with { Square = new PitchSquare(3, 0), State = PlayerPitchState.Standing }
+            : placement)
+        .ToArray()
+};
+var bigHandService = new MatchService(new FixedDiceRoller(d6: [2]));
+var bigHandResult = bigHandService.MovePlayer(bigHandMatch, ruleset, bigHandTeam, playerToPlace.Id, new PitchSquare(2, 0), awayLeague.Teams[0]);
+
+Assert(bigHandResult.Ball.CarrierPlayerId == playerToPlace.Id, "Big Hand should ignore marked and pouring-rain pickup modifiers");
+
+var extraArmsTeam = loadedLeague.Teams[0] with
+{
+    Players = loadedLeague.Teams[0].Players
+        .Select(player => player.Id == playerToPlace.Id ? player with { Skills = [.. player.Skills, "extra-arms"] } : player)
+        .ToArray()
+};
+var extraArmsMatch = offensiveTurnMatch with
+{
+    Weather = WeatherCondition.PouringRain,
+    Ball = new BallState { Square = new PitchSquare(2, 0) }
+};
+var extraArmsService = new MatchService(new FixedDiceRoller(d6: [2]));
+var extraArmsResult = extraArmsService.MovePlayer(extraArmsMatch, ruleset, extraArmsTeam, playerToPlace.Id, new PitchSquare(2, 0));
+
+Assert(extraArmsResult.Ball.CarrierPlayerId == playerToPlace.Id, "Extra Arms should improve pickup tests");
+
 var blockReadyMatch = offensiveTurnMatch with
 {
     Placements = offensiveTurnMatch.Placements
@@ -680,6 +928,119 @@ var blockReadyMatch = offensiveTurnMatch with
                 : placement)
         .ToArray()
 };
+
+var foulAppearanceTeam = awayLeague.Teams[0] with
+{
+    Players = awayLeague.Teams[0].Players
+        .Select(player => player.Id == awayPlayerToPlace.Id ? player with { Skills = [.. player.Skills, "foul-appearance"] } : player)
+        .ToArray()
+};
+var foulAppearanceService = new MatchService(new FixedDiceRoller(d6: [1]));
+var foulAppearanceResult = foulAppearanceService.BlockPlayer(blockReadyMatch, ruleset, loadedLeague.Teams[0], playerToPlace.Id, foulAppearanceTeam, awayPlayerToPlace.Id);
+
+Assert(foulAppearanceResult.Activations.Single(activation => activation.PlayerId == playerToPlace.Id).Action == PlayerTurnAction.Block, "Foul Appearance should waste the declared block action");
+Assert(foulAppearanceResult.Placements.Single(placement => placement.PlayerId == awayPlayerToPlace.Id).State == PlayerPitchState.Standing, "Foul Appearance roll of 1 should prevent the block");
+
+var hornsTeam = loadedLeague.Teams[0] with
+{
+    Players = loadedLeague.Teams[0].Players
+        .Select(player => player.Id == playerToPlace.Id ? player with { Skills = [.. player.Skills, "horns"] } : player)
+        .ToArray()
+};
+var hornsDefenderTeam = awayLeague.Teams[0] with
+{
+    Players = awayLeague.Teams[0].Players
+        .Select(player => player.Id == awayPlayerToPlace.Id ? player with { Stats = player.Stats with { Strength = 4 } } : player)
+        .ToArray()
+};
+var hornsBlitzMatch = offensiveTurnMatch with
+{
+    Placements = offensiveTurnMatch.Placements
+        .Select(placement => placement.PlayerId == playerToPlace.Id
+            ? placement with { Square = new PitchSquare(1, 1), State = PlayerPitchState.Standing }
+            : placement.PlayerId == awayPlayerToPlace.Id
+                ? placement with { Square = new PitchSquare(3, 1), State = PlayerPitchState.Standing }
+                : placement)
+        .ToArray()
+};
+var hornsService = new MatchService(new FixedDiceRoller(d6: [6]));
+var hornsResult = hornsService.BlitzPlayer(hornsBlitzMatch, ruleset, hornsTeam, playerToPlace.Id, new PitchSquare(2, 1), hornsDefenderTeam, awayPlayerToPlace.Id);
+
+Assert(hornsResult.PendingBlock is null, "Horns should add strength before assists during a blitz block");
+
+var clawsTeam = loadedLeague.Teams[0] with
+{
+    Players = loadedLeague.Teams[0].Players
+        .Select(player => player.Id == playerToPlace.Id ? player with { Skills = [.. player.Skills, "claws"] } : player)
+        .ToArray()
+};
+var highArmorTeam = awayLeague.Teams[0] with
+{
+    Players = awayLeague.Teams[0].Players
+        .Select(player => player.Id == awayPlayerToPlace.Id ? player with { Stats = player.Stats with { Armor = 10 } } : player)
+        .ToArray()
+};
+var clawsService = new MatchService(new FixedDiceRoller(d6: [6, 4, 4, 1, 1]));
+var clawsResult = clawsService.BlockPlayer(blockReadyMatch, ruleset, clawsTeam, playerToPlace.Id, highArmorTeam, awayPlayerToPlace.Id);
+clawsResult = clawsService.ChoosePushSquare(clawsResult, ruleset, clawsTeam, highArmorTeam, new PitchSquare(3, 1));
+
+Assert(clawsResult.Placements.Single(placement => placement.PlayerId == awayPlayerToPlace.Id).State == PlayerPitchState.Stunned, "Claws should break armor on an unmodified 8+ block armor roll");
+
+var ironHardSkinTeam = highArmorTeam with
+{
+    Players = highArmorTeam.Players
+        .Select(player => player.Id == awayPlayerToPlace.Id ? player with { Skills = [.. player.Skills, "iron-hard-skin"] } : player)
+        .ToArray()
+};
+var ironHardSkinService = new MatchService(new FixedDiceRoller(d6: [6, 4, 4]));
+var ironHardSkinResult = ironHardSkinService.BlockPlayer(blockReadyMatch, ruleset, clawsTeam, playerToPlace.Id, ironHardSkinTeam, awayPlayerToPlace.Id);
+ironHardSkinResult = ironHardSkinService.ChoosePushSquare(ironHardSkinResult, ruleset, clawsTeam, ironHardSkinTeam, new PitchSquare(3, 1));
+
+Assert(ironHardSkinResult.Placements.Single(placement => placement.PlayerId == awayPlayerToPlace.Id).State == PlayerPitchState.Prone, "Iron Hard Skin should prevent Claws from breaking armor");
+
+var tentaclesTeam = awayLeague.Teams[0] with
+{
+    Players = awayLeague.Teams[0].Players
+        .Select(player => player.Id == awayPlayerToPlace.Id ? player with { Skills = [.. player.Skills, "tentacles"] } : player)
+        .ToArray()
+};
+var tentaclesMatch = offensiveTurnMatch with
+{
+    Placements = offensiveTurnMatch.Placements
+        .Select(placement => placement.PlayerId == playerToPlace.Id
+            ? placement with { Square = new PitchSquare(1, 1), State = PlayerPitchState.Standing }
+            : placement.PlayerId == awayPlayerToPlace.Id
+                ? placement with { Square = new PitchSquare(2, 1), State = PlayerPitchState.Standing }
+                : placement)
+        .ToArray()
+};
+var tentaclesService = new MatchService(new FixedDiceRoller(d6: [6, 6]));
+var tentaclesResult = tentaclesService.MovePlayer(tentaclesMatch, ruleset, loadedLeague.Teams[0], playerToPlace.Id, new PitchSquare(1, 2), tentaclesTeam);
+
+Assert(tentaclesResult.Placements.Single(placement => placement.PlayerId == playerToPlace.Id).Square == new PitchSquare(1, 1), "Tentacles should hold a marked opponent in place on a successful roll");
+
+var prehensileTailTeam = awayLeague.Teams[0] with
+{
+    Players = awayLeague.Teams[0].Players
+        .Select(player => player.Id == awayPlayerToPlace.Id ? player with { Skills = [.. player.Skills, "prehensile-tail"] } : player)
+        .ToArray()
+};
+var prehensileTailService = new MatchService(new FixedDiceRoller(d6: [3]));
+var prehensileTailResult = prehensileTailService.MovePlayer(tentaclesMatch, ruleset, loadedLeague.Teams[0], playerToPlace.Id, new PitchSquare(1, 2), prehensileTailTeam);
+
+Assert(prehensileTailResult.PendingReroll?.Kind == PendingRerollKind.Dodge && prehensileTailResult.PendingReroll.Target == 4, "Prehensile Tail should worsen a dodge away by one");
+
+var twoHeadsTeam = loadedLeague.Teams[0] with
+{
+    Players = loadedLeague.Teams[0].Players
+        .Select(player => player.Id == playerToPlace.Id ? player with { Skills = [.. player.Skills, "two-heads"] } : player)
+        .ToArray()
+};
+var twoHeadsService = new MatchService(new FixedDiceRoller(d6: [3]));
+var twoHeadsResult = twoHeadsService.MovePlayer(tentaclesMatch, ruleset, twoHeadsTeam, playerToPlace.Id, new PitchSquare(1, 2), prehensileTailTeam);
+
+Assert(twoHeadsResult.Placements.Single(placement => placement.PlayerId == playerToPlace.Id).Square == new PitchSquare(1, 2), "Two Heads should improve dodge tests");
+
 var blockService = new MatchService(new FixedDiceRoller(d6: [6, 1, 1]));
 var blockMatch = blockService.BlockPlayer(blockReadyMatch, ruleset, loadedLeague.Teams[0], playerToPlace.Id, awayLeague.Teams[0], awayPlayerToPlace.Id);
 
@@ -826,6 +1187,44 @@ var blockSkillBothDownResult = blockSkillBothDownService.BlockPlayer(blockSkillB
 Assert(blockSkillBothDownResult.Phase == MatchPhase.OffensivePlayerTurn, "block skill should prevent an attacker both-down turnover");
 Assert(blockSkillBothDownResult.Placements.Single(placement => placement.PlayerId == loadedLeague.Teams[0].Players[8].Id).State == PlayerPitchState.Standing, "block skill should keep the attacker standing on both down");
 Assert(blockSkillBothDownResult.Placements.Single(placement => placement.PlayerId == awayPlayerToPlace.Id).State == PlayerPitchState.Prone, "both down should still knock over a defender without block");
+
+var wrestleTeam = loadedLeague.Teams[0] with
+{
+    Players = loadedLeague.Teams[0].Players
+        .Select(player => player.Id == playerToPlace.Id ? player with { Skills = [.. player.Skills, "wrestle"] } : player)
+        .ToArray()
+};
+var wrestleService = new MatchService(new FixedDiceRoller(d6: [2], d8: [5]));
+var wrestleMatch = wrestleService.BlockPlayer(blockReadyMatch with { Ball = new BallState { CarrierPlayerId = playerToPlace.Id } }, ruleset, wrestleTeam, playerToPlace.Id, awayLeague.Teams[0], awayPlayerToPlace.Id);
+
+Assert(wrestleMatch.Phase == MatchPhase.DefensiveTurn, "using wrestle with the blocking ball carrier should cause a turnover");
+Assert(wrestleMatch.Placements.Single(placement => placement.PlayerId == playerToPlace.Id).State == PlayerPitchState.Prone, "wrestle should place the attacker prone");
+Assert(wrestleMatch.Placements.Single(placement => placement.PlayerId == awayPlayerToPlace.Id).State == PlayerPitchState.Prone, "wrestle should place the defender prone");
+Assert(wrestleMatch.Ball.CarrierPlayerId is null && wrestleMatch.Ball.Square is not null, "wrestle should drop the ball without keeping it carried");
+
+var defenderCarrierWrestleService = new MatchService(new FixedDiceRoller(d6: [2], d8: [5]));
+var defenderCarrierWrestleMatch = defenderCarrierWrestleService.BlockPlayer(blockReadyMatch with { Ball = new BallState { CarrierPlayerId = awayPlayerToPlace.Id } }, ruleset, wrestleTeam, playerToPlace.Id, awayLeague.Teams[0], awayPlayerToPlace.Id);
+
+Assert(defenderCarrierWrestleMatch.Phase == MatchPhase.OffensivePlayerTurn, "using wrestle against a defending ball carrier should not by itself cause the blocking team to turn over");
+Assert(defenderCarrierWrestleMatch.Ball.CarrierPlayerId is null && defenderCarrierWrestleMatch.Ball.Square is not null, "wrestle should drop a defending carrier's ball");
+
+var strongerAwayTeam = awayLeague.Teams[0] with
+{
+    Players = awayLeague.Teams[0].Players
+        .Select(player => player.Id == awayPlayerToPlace.Id ? player with { Stats = player.Stats with { Strength = 4 } } : player)
+        .ToArray()
+};
+var dauntlessTeam = loadedLeague.Teams[0] with
+{
+    Players = loadedLeague.Teams[0].Players
+        .Select(player => player.Id == playerToPlace.Id ? player with { Skills = [.. player.Skills, "dauntless"] } : player)
+        .ToArray()
+};
+var dauntlessService = new MatchService(new FixedDiceRoller(d6: [2, 6, 1]));
+var dauntlessBlock = dauntlessService.BlockPlayer(blockReadyMatch, ruleset, dauntlessTeam, playerToPlace.Id, strongerAwayTeam, awayPlayerToPlace.Id);
+
+Assert(dauntlessBlock.PendingBlock is null, "successful dauntless should treat the blocker as equal raw strength before assists and roll one block die");
+Assert(dauntlessBlock.PendingPush?.KnockDefenderDown == true, "successful dauntless should consume its roll before the one block die is resolved");
 
 var badBlockService = new MatchService(new FixedDiceRoller(d6: [1, 6, 6, 6, 6], d8: [5]));
 var badBlockMatch = badBlockService.BlockPlayer(

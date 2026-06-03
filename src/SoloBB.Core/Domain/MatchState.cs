@@ -19,6 +19,8 @@ public sealed record MatchState
     public int AwayRerollsRemaining { get; init; }
     public int HomeTeamRerolls { get; init; }
     public int AwayTeamRerolls { get; init; }
+    public bool HomeLeaderRerollAvailable { get; init; }
+    public bool AwayLeaderRerollAvailable { get; init; }
     public int HomeCheerleaders { get; init; }
     public int AwayCheerleaders { get; init; }
     public int HomeAssistantCoaches { get; init; }
@@ -163,6 +165,7 @@ public sealed record PendingInterceptionChoice
     public required int PassRoll { get; init; }
     public required int PassTarget { get; init; }
     public required string PassRangeName { get; init; }
+    public bool UseCloudBurster { get; init; }
 }
 
 public sealed record PendingRerollChoice
@@ -221,6 +224,8 @@ public sealed record PendingRerollContext
     public required int MovementAllowance { get; init; }
     public int GoForItNumber { get; init; }
     public Guid? BlitzDefenderPlayerId { get; init; }
+    public bool BreakTackleUsed { get; init; }
+    public bool ArmBarApplies { get; init; }
 }
 
 public enum PlayerPitchState
