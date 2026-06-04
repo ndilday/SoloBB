@@ -14,8 +14,8 @@ public sealed class PreGameService
 
         return new PreGameSummary
         {
-            Home = BuildTeamSummary(ruleset, homeRoster, homeTeam, homePettyCash),
-            Away = BuildTeamSummary(ruleset, awayRoster, awayTeam, awayPettyCash),
+            Home = BuildTeamSummary(ruleset, rosterSet, homeRoster, homeTeam, homePettyCash),
+            Away = BuildTeamSummary(ruleset, rosterSet, awayRoster, awayTeam, awayPettyCash),
             BribeCost = BribeCost,
             StarPlayersSupported = rosterSet.StarPlayers.Count > 0
         };
@@ -38,11 +38,13 @@ public sealed class PreGameService
         int homeBribes,
         int awayBribes,
         int homeTreasurySpent = 0,
-        int awayTreasurySpent = 0)
+        int awayTreasurySpent = 0,
+        IReadOnlyList<string>? homeStarPlayerIds = null,
+        IReadOnlyList<string>? awayStarPlayerIds = null)
     {
         var (homePettyCash, awayPettyCash) = CalculatePettyCash(ruleset, homeTeam, awayTeam);
-        var home = CreateTeamPlan(homeTeam, homePettyCash, homeBribes, homeTreasurySpent);
-        var away = CreateTeamPlan(awayTeam, awayPettyCash, awayBribes, awayTreasurySpent);
+        var home = CreateTeamPlan(homeTeam, homePettyCash, homeBribes, homeTreasurySpent, homeStarPlayerIds ?? []);
+        var away = CreateTeamPlan(awayTeam, awayPettyCash, awayBribes, awayTreasurySpent, awayStarPlayerIds ?? []);
 
         return new MatchInducementPlan { Home = home, Away = away };
     }
@@ -61,6 +63,7 @@ public sealed class PreGameService
         ValidateExpectedPettyCash(plan.Away, expectedPlan.Away);
         ValidatePlan(homeTeam, plan.Home);
         ValidatePlan(awayTeam, plan.Away);
+        ValidateSharedStarPlayers(plan.Home, plan.Away);
 
         var homeRoster = FindRoster(rosterSet, homeTeam);
         var awayRoster = FindRoster(rosterSet, awayTeam);
@@ -75,7 +78,7 @@ public sealed class PreGameService
         };
     }
 
-    private static TeamPreGameSummary BuildTeamSummary(Ruleset ruleset, TeamRoster roster, LeagueTeam team, int pettyCash)
+    private static TeamPreGameSummary BuildTeamSummary(Ruleset ruleset, RosterSet rosterSet, TeamRoster roster, LeagueTeam team, int pettyCash)
     {
         var journeymenNeeded = JourneymenNeeded(ruleset, team);
         return new TeamPreGameSummary
@@ -86,18 +89,22 @@ public sealed class PreGameService
             Treasury = team.Treasury,
             PettyCash = pettyCash,
             JourneymenNeeded = journeymenNeeded,
-            MaximumBribesFromPettyCash = pettyCash / BribeCost
+            MaximumBribesFromPettyCash = pettyCash / BribeCost,
+            SpecialRules = roster.SpecialRules,
+            RosterRestrictions = roster.RosterRestrictions,
+            EligibleStarPlayers = EligibleStarPlayers(rosterSet, roster)
         };
     }
 
-    private static TeamInducementPlan CreateTeamPlan(LeagueTeam team, int pettyCash, int bribes, int treasurySpent)
+    private static TeamInducementPlan CreateTeamPlan(LeagueTeam team, int pettyCash, int bribes, int treasurySpent, IReadOnlyList<string> starPlayerIds)
     {
         var plan = new TeamInducementPlan
         {
             TeamId = team.Id,
             PettyCash = pettyCash,
             Bribes = bribes,
-            TreasurySpent = treasurySpent
+            TreasurySpent = treasurySpent,
+            StarPlayerIds = starPlayerIds
         };
         ValidatePlan(team, plan);
         return plan;
@@ -160,6 +167,16 @@ public sealed class PreGameService
         }
     }
 
+    private static void ValidateSharedStarPlayers(TeamInducementPlan home, TeamInducementPlan away)
+    {
+        var sharedStar = home.StarPlayerIds
+            .FirstOrDefault(starId => away.StarPlayerIds.Contains(starId, StringComparer.OrdinalIgnoreCase));
+        if (sharedStar is not null)
+        {
+            throw new InvalidOperationException($"Star player '{sharedStar}' cannot be selected by both teams.");
+        }
+    }
+
     private static LeagueTeam ApplyMatchOnlyInducements(Ruleset ruleset, RosterSet rosterSet, TeamRoster roster, LeagueTeam team, TeamInducementPlan plan)
     {
         var journeymanPosition = FindJourneymanPosition(roster);
@@ -213,6 +230,31 @@ public sealed class PreGameService
     {
         return rosterSet.StarPlayers.FirstOrDefault(star => string.Equals(star.Id, starPlayerId, StringComparison.OrdinalIgnoreCase))
             ?? throw new InvalidOperationException($"Roster set '{rosterSet.Id}' does not contain star player '{starPlayerId}'.");
+    }
+
+    private static EligibleStarPlayerSummary[] EligibleStarPlayers(RosterSet rosterSet, TeamRoster roster)
+    {
+        return rosterSet.StarPlayers
+            .Select(star => new
+            {
+                Star = star,
+                MatchedRules = star.SpecialRules
+                    .Where(rule => roster.SpecialRules.Contains(rule, StringComparer.OrdinalIgnoreCase))
+                    .ToArray()
+            })
+            .Where(candidate => candidate.MatchedRules.Length > 0)
+            .OrderBy(candidate => candidate.Star.Cost)
+            .ThenBy(candidate => candidate.Star.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(candidate => new EligibleStarPlayerSummary
+            {
+                Id = candidate.Star.Id,
+                Name = candidate.Star.Name,
+                Cost = candidate.Star.Cost,
+                Stats = candidate.Star.Stats,
+                Skills = candidate.Star.Skills,
+                MatchedSpecialRules = candidate.MatchedRules
+            })
+            .ToArray();
     }
 
     private static int JourneymenNeeded(Ruleset ruleset, LeagueTeam team)

@@ -309,6 +309,14 @@ var completedCampaignMatch = new MatchState
             PlayerId = campaignScorer.Id,
             Kind = MatchPlayerAwardKind.Touchdown,
             StarPlayerPoints = 3
+        },
+        new MatchPlayerAward
+        {
+            TeamId = campaignHomeTeam.Id,
+            PlayerId = returningPlayer.Id,
+            VictimPlayerId = injuredAwayPlayer.Id,
+            Kind = MatchPlayerAwardKind.Casualty,
+            StarPlayerPoints = 2
         }
     ],
     Placements =
@@ -331,9 +339,14 @@ var updatedCampaignAway = afterFirstCampaignMatch.Teams.Single(team => team.Id =
 
 Assert(firstCampaignResult.HomeScore == 2 && firstCampaignResult.AwayScore == 1, "post-match should record the completed scheduled result");
 Assert(firstCampaignResult.PlayerAwards.Any(award => award.Kind == MatchPlayerAwardKind.MostValuablePlayer), "post-match should add MVP awards");
+var enrichedTouchdownAward = firstCampaignResult.PlayerAwards.Single(award => award.Kind == MatchPlayerAwardKind.Touchdown);
+var enrichedCasualtyAward = firstCampaignResult.PlayerAwards.Single(award => award.Kind == MatchPlayerAwardKind.Casualty);
+Assert(enrichedTouchdownAward.PlayerName == campaignScorer.Name && enrichedTouchdownAward.TeamName == campaignHomeTeam.Name, "post-match should enrich touchdown SPP awards with player and team names");
+Assert(enrichedCasualtyAward.PlayerName == returningPlayer.Name && enrichedCasualtyAward.VictimPlayerName == injuredAwayPlayer.Name && enrichedCasualtyAward.CasualtyResult == CasualtyResult.SeriouslyHurt, "post-match should enrich casualty SPP awards with victim names and casualty results");
 Assert(afterFirstCampaignMatch.Seasons.Single().CurrentWeek == 1, "league week should not advance until every game in the week is complete");
 Assert(updatedCampaignHome.Treasury == campaignHomeTeam.Treasury - 100_000 + firstCampaignResult.HomeWinnings, "post-match should apply pre-game treasury spend and winnings");
 Assert(updatedCampaignHome.Players.Single(player => player.Id == campaignScorer.Id).StarPlayerPoints == 7, "post-match should apply touchdown and MVP SPP");
+Assert(updatedCampaignHome.Players.Single(player => player.Id == returningPlayer.Id).StarPlayerPoints == 2, "post-match should apply casualty SPP to the credited player");
 Assert(updatedCampaignHome.Players.Single(player => player.Id == returningPlayer.Id).Status == PlayerStatus.Available, "post-match should clear old Miss Next Game status after the missed match");
 Assert(updatedCampaignHome.FanFactor == campaignHomeTeam.FanFactor + 1, "post-match should improve the winning team's fan factor");
 Assert(updatedCampaignAway.Players.Single(player => player.Id == injuredAwayPlayer.Id).Status == PlayerStatus.MissNextGame, "post-match should apply current-match casualty roster status");
@@ -403,6 +416,20 @@ Assert(preparedDepletedMatch.HomeTeam.Players.Count(player => player.Injuries.Co
 Assert(preparedDepletedMatch.HomeTeam.Players.Where(player => player.Injuries.Contains("journeyman")).All(player => player.Skills.Contains("loner")), "journeymen should have Loner");
 Assert(inducedMatch.HomeBribesRemaining == 2 && inducedMatch.AwayBribesRemaining == 0, "purchased inducement bribes should be available in match state");
 Assert(preGameSummary.StarPlayersSupported, "pre-game should report star player support when roster data defines stars");
+Assert(preGameSummary.Home.EligibleStarPlayers.Any(star => star.Id == "griff-oberwald"), "pre-game summary should list star players eligible for the team's roster special rules");
+Assert(preGameSummary.Home.EligibleStarPlayers.All(star => star.MatchedSpecialRules.Count > 0), "eligible star player summaries should name the matched roster special rules");
+var restrictedRosterTeam = loadedLeague.Teams[0] with { RosterId = "old-world-alliance" };
+var restrictedRosterSummary = preGameService.BuildSummary(ruleset, rosterSet, restrictedRosterTeam, richerAwayTeam);
+Assert(restrictedRosterSummary.Home.RosterRestrictions.Contains("mixed-position-animosity"), "pre-game summary should surface roster restriction metadata");
+var createdStarPlan = preGameService.CreatePlan(
+    ruleset,
+    loadedLeague.Teams[0],
+    richerAwayTeam,
+    homeBribes: 0,
+    awayBribes: 0,
+    homeTreasurySpent: 80_000,
+    homeStarPlayerIds: ["griff-oberwald"]);
+Assert(createdStarPlan.Home.StarPlayerIds.SequenceEqual(["griff-oberwald"]), "pre-game CreatePlan should carry selected star players for the UI");
 var starPlan = preGameService.CreateDefaultPlan(ruleset, loadedLeague.Teams[0], richerAwayTeam) with
 {
     Home = preGameService.CreateDefaultPlan(ruleset, loadedLeague.Teams[0], richerAwayTeam).Home with
@@ -419,6 +446,18 @@ AssertThrows(
 AssertThrows(
     () => preGameService.PrepareMatch(ruleset, rosterSet, loadedLeague.Teams[0], richerAwayTeam, starPlan with { Home = starPlan.Home with { StarPlayerIds = ["varag-ghoul-chewer"] } }),
     "pre-game should reject star players that are not eligible for a team's special rules");
+AssertThrows(
+    () => preGameService.PrepareMatch(
+        ruleset,
+        rosterSet,
+        loadedLeague.Teams[0],
+        richerAwayTeam,
+        starPlan with
+        {
+            Home = starPlan.Home with { StarPlayerIds = ["morg-n-thorg"] },
+            Away = starPlan.Away with { StarPlayerIds = ["morg-n-thorg"] }
+        }),
+    "pre-game should reject the same star player selected for both teams");
 Assert(loadedMatch.HomeTeamId == loadedLeague.Teams[0].Id, "match home team should round-trip");
 Assert(loadedMatch.AwayTeamId == awayLeague.Teams[0].Id, "match away team should round-trip");
 Assert(loadedMatch.Phase == MatchPhase.DefenseSetup, "match should start with defense setup");
@@ -739,6 +778,32 @@ var secretWeaponBribed = secretWeaponTouchdownService.ResolvePendingSendOff(secr
 Assert(secretWeaponBribed.HomeBribesRemaining == 0, "using a Secret Weapon bribe should spend the bribe");
 Assert(secretWeaponBribed.Placements.Single(placement => placement.PlayerId == playerToPlace.Id).State == PlayerPitchState.Reserve, "successful Secret Weapon bribe should keep the player available for the next drive");
 Assert(secretWeaponBribed.Phase == MatchPhase.DefenseSetup && secretWeaponBribed.Drive == 2, "resolving Secret Weapon bribes should continue the next drive setup");
+
+var secondSecretWeaponPlayer = loadedLeague.Teams[0].Players[1];
+var secretWeaponQueueService = new MatchService(new FixedDiceRoller(d6: [3, 3]));
+var secretWeaponQueuePending = secretWeaponQueueService.MovePlayer(
+    touchdownReadyMatch with
+    {
+        HomeBribesRemaining = 2,
+        SecretWeaponPlayerIds = [playerToPlace.Id, secondSecretWeaponPlayer.Id],
+        Placements = touchdownReadyMatch.Placements
+            .Select(placement => placement.PlayerId == secondSecretWeaponPlayer.Id
+                ? placement with { Square = new PitchSquare(0, 1), State = PlayerPitchState.Standing }
+                : placement.PlayerId == awayPlayerToPlace.Id
+                    ? placement with { Square = null, State = PlayerPitchState.Reserve }
+                    : placement)
+            .ToArray()
+    },
+    ruleset,
+    loadedLeague.Teams[0],
+    playerToPlace.Id,
+    new(ruleset.PitchWidth - 1, 0));
+Assert(secretWeaponQueuePending.PendingSendOff?.PlayerId == playerToPlace.Id, "drive end should queue the first Secret Weapon send-off choice");
+Assert(secretWeaponQueuePending.Log.Last().Message.Contains("1 more Secret Weapon", StringComparison.Ordinal), "drive end send-off presentation should report the remaining Secret Weapon queue");
+var secondSecretWeaponPending = secretWeaponQueueService.ResolvePendingSendOff(secretWeaponQueuePending, ruleset, loadedLeague.Teams[0], useBribe: true);
+Assert(secondSecretWeaponPending.PendingSendOff?.PlayerId == secondSecretWeaponPlayer.Id, "resolving the first Secret Weapon should continue to the next queued send-off");
+var completedSecretWeaponQueue = secretWeaponQueueService.ResolvePendingSendOff(secondSecretWeaponPending, ruleset, loadedLeague.Teams[0], useBribe: false);
+Assert(completedSecretWeaponQueue.Phase == MatchPhase.DefenseSetup && completedSecretWeaponQueue.Drive == 2, "resolving the Secret Weapon queue should continue into next drive setup");
 
 var secretWeaponNoBribeService = new MatchService(new FixedDiceRoller());
 var secretWeaponSentOff = secretWeaponNoBribeService.MovePlayer(
@@ -1279,6 +1344,48 @@ var twoHeadsResult = twoHeadsService.MovePlayer(tentaclesMatch, ruleset, twoHead
 
 Assert(twoHeadsResult.Placements.Single(placement => placement.PlayerId == playerToPlace.Id).Square == new PitchSquare(1, 2), "Two Heads should improve dodge tests");
 
+var divingTackleTeam = awayLeague.Teams[0] with
+{
+    Players = awayLeague.Teams[0].Players
+        .Select(player => player.Id == awayPlayerToPlace.Id ? player with { Skills = [.. player.Skills, "diving-tackle"] } : player)
+        .ToArray()
+};
+var divingTackleMatch = tentaclesMatch with
+{
+    Placements = tentaclesMatch.Placements
+        .Select(placement => placement.PlayerId == playerToPlace.Id
+            ? placement with { Square = new PitchSquare(1, 1), State = PlayerPitchState.Standing }
+            : placement.PlayerId == awayPlayerToPlace.Id
+                ? placement with { Square = new PitchSquare(2, 1), State = PlayerPitchState.Standing }
+                : placement)
+        .ToArray()
+};
+var divingTackleService = new MatchService(new FixedDiceRoller(d6: [3]));
+var divingTacklePending = divingTackleService.MovePlayer(divingTackleMatch, ruleset, loadedLeague.Teams[0], playerToPlace.Id, new PitchSquare(0, 1), divingTackleTeam);
+
+Assert(divingTacklePending.PendingDivingTackle?.TacklerPlayerId == awayPlayerToPlace.Id, "Diving Tackle should create a defender choice when it can change a successful dodge into a failure");
+AssertThrows(
+    () => divingTackleService.AdvanceTurn(divingTacklePending, ruleset),
+    "pending Diving Tackle should block turn advancement");
+
+var declinedDivingTackle = divingTackleService.ResolvePendingDivingTackle(divingTacklePending, ruleset, loadedLeague.Teams[0], divingTackleTeam, useDivingTackle: false);
+Assert(declinedDivingTackle.PendingDivingTackle is null, "declining Diving Tackle should clear the pending choice");
+Assert(declinedDivingTackle.Placements.Single(placement => placement.PlayerId == playerToPlace.Id).Square == new PitchSquare(0, 1), "declining Diving Tackle should let the dodge succeed");
+Assert(declinedDivingTackle.Placements.Single(placement => placement.PlayerId == awayPlayerToPlace.Id).State == PlayerPitchState.Standing, "declining Diving Tackle should leave the tackler standing");
+
+var usedDivingTackle = divingTackleService.ResolvePendingDivingTackle(divingTacklePending, ruleset, loadedLeague.Teams[0], divingTackleTeam, useDivingTackle: true);
+Assert(usedDivingTackle.PendingReroll?.Kind == PendingRerollKind.Dodge && usedDivingTackle.PendingReroll.Target == 4, "using Diving Tackle should turn the dodge into a failed dodge with reroll options");
+Assert(usedDivingTackle.Placements.Single(placement => placement.PlayerId == awayPlayerToPlace.Id).State == PlayerPitchState.Prone, "using Diving Tackle should place the tackler prone");
+
+var titchyMarkerTeam = awayLeague.Teams[0] with
+{
+    Players = awayLeague.Teams[0].Players
+        .Select(player => player.Id == awayPlayerToPlace.Id ? player with { Skills = [.. player.Skills, "titchy"] } : player)
+        .ToArray()
+};
+var titchyMarkerResult = new MatchService(new FixedDiceRoller(d6: [1])).MovePlayer(divingTackleMatch, ruleset, loadedLeague.Teams[0], playerToPlace.Id, new PitchSquare(0, 1), titchyMarkerTeam);
+Assert(titchyMarkerResult.PendingReroll is null && titchyMarkerResult.Placements.Single(placement => placement.PlayerId == playerToPlace.Id).Square == new PitchSquare(0, 1), "Titchy players should not project tackle zones that force dodges");
+
 var blockService = new MatchService(new FixedDiceRoller(d6: [6, 1, 1]));
 var blockMatch = blockService.BlockPlayer(blockReadyMatch, ruleset, loadedLeague.Teams[0], playerToPlace.Id, awayLeague.Teams[0], awayPlayerToPlace.Id);
 
@@ -1456,6 +1563,13 @@ var blockSkillBothDownResult = blockSkillBothDownService.BlockPlayer(blockSkillB
 Assert(blockSkillBothDownResult.Phase == MatchPhase.OffensivePlayerTurn, "block skill should prevent an attacker both-down turnover");
 Assert(blockSkillBothDownResult.Placements.Single(placement => placement.PlayerId == loadedLeague.Teams[0].Players[8].Id).State == PlayerPitchState.Standing, "block skill should keep the attacker standing on both down");
 Assert(blockSkillBothDownResult.Placements.Single(placement => placement.PlayerId == awayPlayerToPlace.Id).State == PlayerPitchState.Prone, "both down should still knock over a defender without block");
+
+var blockSkillCasualtyService = new MatchService(new FixedDiceRoller(d6: [2, 6, 6, 6, 6], d16: [9]));
+var blockSkillCasualtyResult = blockSkillCasualtyService.BlockPlayer(blockSkillBothDownMatch, ruleset, loadedLeague.Teams[0], loadedLeague.Teams[0].Players[8].Id, awayLeague.Teams[0], awayPlayerToPlace.Id);
+var blockSkillCasualtyAward = blockSkillCasualtyResult.PlayerAwards.Single(award => award.Kind == MatchPlayerAwardKind.Casualty);
+Assert(blockSkillCasualtyAward.PlayerId == loadedLeague.Teams[0].Players[8].Id && blockSkillCasualtyAward.VictimPlayerId == awayPlayerToPlace.Id, "direct block casualty SPP should credit the blocker and name the victim");
+Assert(blockSkillCasualtyAward.PlayerName == loadedLeague.Teams[0].Players[8].Name && blockSkillCasualtyAward.VictimPlayerName == awayPlayerToPlace.Name, "direct block casualty awards should include post-match display names");
+Assert(blockSkillCasualtyAward.CasualtyResult == CasualtyResult.SeriouslyHurt && blockSkillCasualtyAward.StarPlayerPoints == 2, "direct block casualty awards should include casualty result and SPP value");
 
 var wrestleTeam = loadedLeague.Teams[0] with
 {
@@ -2102,9 +2216,21 @@ var animalSavageryTeam = loadedLeague.Teams[0] with
         .Select(player => player.Id == playerToPlace.Id ? player with { Skills = [.. player.Skills, "animal-savagery"] } : player)
         .ToArray()
 };
-var animalSavageryService = new MatchService(new FixedDiceRoller(d6: [1]));
-var animalSavageryResult = animalSavageryService.MovePlayer(offensiveTurnMatch, ruleset, animalSavageryTeam, playerToPlace.Id, new(3, 0));
-Assert(animalSavageryResult.Placements.Single(placement => placement.PlayerId == playerToPlace.Id).TackleZonesLost, "failed Animal Savagery should remove tackle zones in the current simplified trait model");
+var adjacentTeammate = loadedLeague.Teams[0].Players[1];
+var animalSavageryMatch = offensiveTurnMatch with
+{
+    Placements = offensiveTurnMatch.Placements
+        .Select(placement => placement.PlayerId == playerToPlace.Id
+            ? placement with { Square = new PitchSquare(0, 0), State = PlayerPitchState.Standing }
+            : placement.PlayerId == adjacentTeammate.Id
+                ? placement with { Square = new PitchSquare(0, 1), State = PlayerPitchState.Standing }
+                : placement)
+        .ToArray()
+};
+var animalSavageryService = new MatchService(new FixedDiceRoller(d6: [1, 6, 6, 3, 4]));
+var animalSavageryResult = animalSavageryService.MovePlayer(animalSavageryMatch, ruleset, animalSavageryTeam, playerToPlace.Id, new(1, 0));
+Assert(animalSavageryResult.Placements.Single(placement => placement.PlayerId == adjacentTeammate.Id).State == PlayerPitchState.Stunned, "failed Animal Savagery should bite a nearby teammate when one is available");
+Assert(animalSavageryResult.Placements.Single(placement => placement.PlayerId == playerToPlace.Id).Square == new PitchSquare(1, 0), "Animal Savagery should continue the declared action after the bite if the turn does not end");
 
 var furyTeam = loadedLeague.Teams[0] with
 {
@@ -2122,9 +2248,20 @@ var bloodlustTeam = loadedLeague.Teams[0] with
         .Select(player => player.Id == playerToPlace.Id ? player with { Skills = [.. player.Skills, "bloodlust"] } : player)
         .ToArray()
 };
-var bloodlustService = new MatchService(new FixedDiceRoller(d6: [1]));
-var bloodlustResult = bloodlustService.MovePlayer(offensiveTurnMatch, ruleset, bloodlustTeam, playerToPlace.Id, new(3, 0));
-Assert(bloodlustResult.Placements.Single(placement => placement.PlayerId == playerToPlace.Id).Square == new PitchSquare(0, 0), "failed Bloodlust should waste the action in the current simplified trait model");
+var bloodlustMatch = offensiveTurnMatch with
+{
+    Placements = offensiveTurnMatch.Placements
+        .Select(placement => placement.PlayerId == playerToPlace.Id
+            ? placement with { Square = new PitchSquare(0, 0), State = PlayerPitchState.Standing }
+            : placement.PlayerId == adjacentTeammate.Id
+                ? placement with { Square = new PitchSquare(0, 1), State = PlayerPitchState.Standing }
+                : placement)
+        .ToArray()
+};
+var bloodlustService = new MatchService(new FixedDiceRoller(d6: [1, 6, 6, 3, 4]));
+var bloodlustResult = bloodlustService.MovePlayer(bloodlustMatch, ruleset, bloodlustTeam, playerToPlace.Id, new(1, 0));
+Assert(bloodlustResult.Placements.Single(placement => placement.PlayerId == adjacentTeammate.Id).State == PlayerPitchState.Stunned, "failed Bloodlust should bite a nearby teammate when one is available");
+Assert(bloodlustResult.Placements.Single(placement => placement.PlayerId == playerToPlace.Id).Square == new PitchSquare(1, 0), "Bloodlust should continue the declared action after the bite if the turn does not end");
 
 var noHandsTeam = loadedLeague.Teams[0] with
 {
@@ -2286,6 +2423,20 @@ var bombService = new MatchService(new FixedDiceRoller(d6: [6, 1, 6, 6, 3, 4]));
 var bombResult = bombService.ThrowBomb(bombMatch, ruleset, bombardierTeam, playerToPlace.Id, new PitchSquare(3, 1), awayLeague.Teams[0]);
 Assert(bombResult.Placements.Single(placement => placement.PlayerId == bombTarget.Id).State == PlayerPitchState.Stunned, "Bombardier should throw, allow a catch attempt on the landing square, and explode against affected players");
 
+var caughtBombService = new MatchService(new FixedDiceRoller(d6: [6, 6, 6, 6, 6]));
+var caughtBombPending = caughtBombService.ThrowBomb(bombMatch, ruleset, bombardierTeam, playerToPlace.Id, new PitchSquare(3, 1), awayLeague.Teams[0]);
+Assert(caughtBombPending.PendingBombThrow?.ThrowerPlayerId == bombTarget.Id, "a caught bomb should create a pending throw-back instead of exploding immediately");
+AssertThrows(
+    () => caughtBombService.AdvanceTurn(caughtBombPending, ruleset),
+    "pending bomb throw-back should block turn advancement");
+
+var thrownBackBomb = caughtBombService.ThrowPendingBomb(caughtBombPending, ruleset, awayLeague.Teams[0], bombardierTeam, new PitchSquare(1, 1));
+Assert(thrownBackBomb.PendingBombThrow?.ThrowerPlayerId == playerToPlace.Id, "a thrown-back bomb caught by another player should continue the throw-back loop");
+
+var explodedThrownBackBomb = caughtBombService.ThrowPendingBomb(thrownBackBomb, ruleset, bombardierTeam, awayLeague.Teams[0], new PitchSquare(5, 1));
+Assert(explodedThrownBackBomb.PendingBombThrow is null, "a thrown-back bomb that lands without a catch should explode and clear the pending throw");
+Assert(explodedThrownBackBomb.Log.Any(entry => entry.Message.Contains("Bomb explodes at 5,1", StringComparison.Ordinal)), "throw-back explosion should be logged at the final landing square");
+
 smoke.StartSection("Throw and kick team-mate");
 var launchedPlayer = loadedLeague.Teams[0].Players[1];
 var throwTeamMateTeam = loadedLeague.Teams[0] with
@@ -2312,6 +2463,24 @@ var throwTeamMateService = new MatchService(new FixedDiceRoller(d6: [4, 3]));
 var throwTeamMateResult = throwTeamMateService.ThrowTeamMate(throwTeamMateMatch, ruleset, throwTeamMateTeam, playerToPlace.Id, launchedPlayer.Id, new PitchSquare(3, 1));
 Assert(throwTeamMateResult.Placements.Single(placement => placement.PlayerId == launchedPlayer.Id).Square == new PitchSquare(3, 1), "Throw Team-Mate should place a Right Stuff player on the target square after a successful throw and landing");
 Assert(throwTeamMateResult.Activations.Single(activation => activation.PlayerId == playerToPlace.Id).Action == PlayerTurnAction.Pass, "Throw Team-Mate should spend the team's pass action");
+
+var firstLaunchCollisionPlayer = loadedLeague.Teams[0].Players[2];
+var secondLaunchCollisionPlayer = loadedLeague.Teams[0].Players[3];
+var launchCollisionMatch = throwTeamMateMatch with
+{
+    Placements = throwTeamMateMatch.Placements
+        .Select(placement => placement.PlayerId == firstLaunchCollisionPlayer.Id
+            ? placement with { Square = new PitchSquare(3, 1), State = PlayerPitchState.Standing }
+            : placement.PlayerId == secondLaunchCollisionPlayer.Id
+                ? placement with { Square = new PitchSquare(4, 1), State = PlayerPitchState.Standing }
+                : placement)
+        .ToArray()
+};
+var launchCollisionService = new MatchService(new FixedDiceRoller(d6: [4, 1, 1, 1, 1, 3], d8: [5, 5]));
+var launchCollisionResult = launchCollisionService.ThrowTeamMate(launchCollisionMatch, ruleset, throwTeamMateTeam, playerToPlace.Id, launchedPlayer.Id, new PitchSquare(3, 1));
+Assert(launchCollisionResult.Placements.Single(placement => placement.PlayerId == firstLaunchCollisionPlayer.Id).State == PlayerPitchState.Prone, "landing on an occupied square should knock down the first collision occupant");
+Assert(launchCollisionResult.Placements.Single(placement => placement.PlayerId == secondLaunchCollisionPlayer.Id).State == PlayerPitchState.Prone, "launch collision scatter should continue into and knock down a second occupied square");
+Assert(launchCollisionResult.Placements.Single(placement => placement.PlayerId == launchedPlayer.Id).Square == new PitchSquare(5, 1), "launch collision chains should scatter the launched player onward until a landing can be resolved");
 
 var ineligibleLaunchTeam = loadedLeague.Teams[0] with
 {

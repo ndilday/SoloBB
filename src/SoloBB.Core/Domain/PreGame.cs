@@ -40,4 +40,17 @@ public sealed record TeamPreGameSummary
     public int PettyCash { get; init; }
     public int JourneymenNeeded { get; init; }
     public int MaximumBribesFromPettyCash { get; init; }
+    public IReadOnlyList<string> SpecialRules { get; init; } = [];
+    public IReadOnlyList<string> RosterRestrictions { get; init; } = [];
+    public IReadOnlyList<EligibleStarPlayerSummary> EligibleStarPlayers { get; init; } = [];
+}
+
+public sealed record EligibleStarPlayerSummary
+{
+    public required string Id { get; init; }
+    public required string Name { get; init; }
+    public int Cost { get; init; }
+    public required PlayerStats Stats { get; init; }
+    public IReadOnlyList<string> Skills { get; init; } = [];
+    public IReadOnlyList<string> MatchedSpecialRules { get; init; } = [];
 }

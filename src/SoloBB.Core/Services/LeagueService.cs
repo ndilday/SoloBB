@@ -217,7 +217,7 @@ public sealed class LeagueService
             ?? throw new InvalidOperationException("Home team is not part of this league.");
         var awayTeam = league.Teams.FirstOrDefault(team => team.Id == match.AwayTeamId)
             ?? throw new InvalidOperationException("Away team is not part of this league.");
-        var awards = AppendMostValuablePlayerAwards(match.PlayerAwards, homeTeam, awayTeam);
+        var awards = AppendMostValuablePlayerAwards(EnrichPlayerAwards(match.PlayerAwards, match, homeTeam, awayTeam), homeTeam, awayTeam);
         var homeWinnings = CalculateWinnings(homeTeam, match.HomeScore, match.AwayScore);
         var awayWinnings = CalculateWinnings(awayTeam, match.AwayScore, match.HomeScore);
         var result = new MatchResult
@@ -487,9 +487,64 @@ public sealed class LeagueService
                     TeamId = team.Id,
                     PlayerId = player.Id,
                     Kind = MatchPlayerAwardKind.MostValuablePlayer,
-                    StarPlayerPoints = 4
+                    StarPlayerPoints = 4,
+                    TeamName = team.Name,
+                    PlayerName = player.Name
                 }
             ];
+    }
+
+    private static MatchPlayerAward[] EnrichPlayerAwards(IReadOnlyList<MatchPlayerAward> awards, MatchState match, LeagueTeam homeTeam, LeagueTeam awayTeam)
+    {
+        return awards.Select(award =>
+        {
+            var team = TeamById(homeTeam, awayTeam, award.TeamId);
+            var player = team?.Players.FirstOrDefault(current => current.Id == award.PlayerId);
+            var victimTeam = award.VictimTeamId is Guid victimTeamId
+                ? TeamById(homeTeam, awayTeam, victimTeamId)
+                : FindTeamContainingPlayer(homeTeam, awayTeam, award.VictimPlayerId);
+            var victim = award.VictimPlayerId is Guid victimPlayerId
+                ? victimTeam?.Players.FirstOrDefault(current => current.Id == victimPlayerId)
+                : null;
+            var victimPlacement = award.VictimPlayerId is Guid placementPlayerId
+                ? match.Placements.FirstOrDefault(placement => placement.PlayerId == placementPlayerId)
+                : null;
+
+            return award with
+            {
+                TeamName = award.TeamName ?? team?.Name,
+                PlayerName = award.PlayerName ?? player?.Name,
+                VictimTeamId = award.VictimTeamId ?? victimTeam?.Id,
+                VictimTeamName = award.VictimTeamName ?? victimTeam?.Name,
+                VictimPlayerName = award.VictimPlayerName ?? victim?.Name,
+                CasualtyResult = award.CasualtyResult ?? victimPlacement?.Casualty?.Result
+            };
+        }).ToArray();
+    }
+
+    private static LeagueTeam? TeamById(LeagueTeam homeTeam, LeagueTeam awayTeam, Guid teamId)
+    {
+        if (homeTeam.Id == teamId)
+        {
+            return homeTeam;
+        }
+
+        return awayTeam.Id == teamId ? awayTeam : null;
+    }
+
+    private static LeagueTeam? FindTeamContainingPlayer(LeagueTeam homeTeam, LeagueTeam awayTeam, Guid? playerId)
+    {
+        if (playerId is null)
+        {
+            return null;
+        }
+
+        if (homeTeam.Players.Any(player => player.Id == playerId))
+        {
+            return homeTeam;
+        }
+
+        return awayTeam.Players.Any(player => player.Id == playerId) ? awayTeam : null;
     }
 
     private static League AdvanceSeasonWeek(League league, Guid seasonId)

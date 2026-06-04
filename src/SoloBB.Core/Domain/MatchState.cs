@@ -47,8 +47,10 @@ public sealed record MatchState
     public PendingRerollChoice? PendingReroll { get; init; }
     public PendingApothecaryChoice? PendingApothecary { get; init; }
     public PendingStandFirmChoice? PendingStandFirm { get; init; }
+    public PendingDivingTackleChoice? PendingDivingTackle { get; init; }
     public PendingFollowUpChoice? PendingFollowUp { get; init; }
     public PendingBallPlacementChoice? PendingBallPlacement { get; init; }
+    public PendingBombThrowChoice? PendingBombThrow { get; init; }
     public PendingMultipleBlockContinuation? PendingMultipleBlock { get; init; }
     public PendingSendOffChoice? PendingSendOff { get; init; }
     public PendingKickoffEventChoice? PendingKickoffEvent { get; init; }
@@ -190,6 +192,14 @@ public sealed record PendingBallPlacementChoice
     public required string Reason { get; init; }
 }
 
+public sealed record PendingBombThrowChoice
+{
+    public required Guid ThrowingTeamId { get; init; }
+    public required Guid OpposingTeamId { get; init; }
+    public required Guid ThrowerPlayerId { get; init; }
+    public required PitchSquare BombSquare { get; init; }
+}
+
 public sealed record PendingSendOffChoice
 {
     public required Guid TeamId { get; init; }
@@ -289,6 +299,20 @@ public sealed record PendingRerollContext
     public bool ArmBarApplies { get; init; }
 }
 
+public sealed record PendingDivingTackleChoice
+{
+    public required Guid DodgingTeamId { get; init; }
+    public required Guid TacklerTeamId { get; init; }
+    public required Guid DodgerPlayerId { get; init; }
+    public required Guid TacklerPlayerId { get; init; }
+    public required PitchSquare DodgerSquare { get; init; }
+    public required PitchSquare Destination { get; init; }
+    public required int Roll { get; init; }
+    public required int TargetWithoutDivingTackle { get; init; }
+    public required int TargetWithDivingTackle { get; init; }
+    public required PendingRerollContext Context { get; init; }
+}
+
 public enum PlayerPitchState
 {
     Reserve,
@@ -327,8 +351,14 @@ public sealed record MatchPlayerAward
     public required Guid TeamId { get; init; }
     public required Guid PlayerId { get; init; }
     public Guid? VictimPlayerId { get; init; }
+    public Guid? VictimTeamId { get; init; }
     public required MatchPlayerAwardKind Kind { get; init; }
     public int StarPlayerPoints { get; init; }
+    public string? TeamName { get; init; }
+    public string? PlayerName { get; init; }
+    public string? VictimTeamName { get; init; }
+    public string? VictimPlayerName { get; init; }
+    public CasualtyResult? CasualtyResult { get; init; }
 }
 
 public enum MatchPlayerAwardKind

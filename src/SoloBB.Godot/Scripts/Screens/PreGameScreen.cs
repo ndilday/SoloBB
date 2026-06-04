@@ -1,5 +1,6 @@
 using Godot;
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using SoloBB.Core.Domain;
@@ -22,6 +23,10 @@ public partial class PreGameScreen : VBoxContainer
     private SpinBox _awayTreasurySpin = null!;
     private Label _homeBudgetLabel = null!;
     private Label _awayBudgetLabel = null!;
+    private TeamPreGameSummary _homeSummary = null!;
+    private TeamPreGameSummary _awaySummary = null!;
+    private readonly Dictionary<string, CheckBox> _homeStarChecks = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, CheckBox> _awayStarChecks = new(StringComparer.OrdinalIgnoreCase);
     private Label _statusLabel = null!;
     private Button _doneButton = null!;
 
@@ -41,6 +46,10 @@ public partial class PreGameScreen : VBoxContainer
         _homeTeam = FindTeam(league, scheduledMatch.HomeTeamId);
         _awayTeam = FindTeam(league, scheduledMatch.AwayTeamId);
         var summary = _preGameService.BuildSummary(_ruleset, _rosterSet, _homeTeam, _awayTeam);
+        _homeSummary = summary.Home;
+        _awaySummary = summary.Away;
+        _homeStarChecks.Clear();
+        _awayStarChecks.Clear();
 
         AddTitle("Pre-Game");
         AddChild(new Label { Text = $"Week {scheduledMatch.Week}" });
@@ -64,7 +73,15 @@ public partial class PreGameScreen : VBoxContainer
         _awayBudgetLabel = new Label { AutowrapMode = TextServer.AutowrapMode.WordSmart };
         AddChild(_awayBudgetLabel);
 
-        if (!summary.StarPlayersSupported)
+        AddRosterMetadata(summary.Home);
+        AddRosterMetadata(summary.Away);
+
+        if (summary.StarPlayersSupported)
+        {
+            AddTeamStarSection(summary.Home, _homeStarChecks);
+            AddTeamStarSection(summary.Away, _awayStarChecks);
+        }
+        else
         {
             AddChild(new Label
             {
@@ -123,7 +140,9 @@ public partial class PreGameScreen : VBoxContainer
             homeBribes: (int)_homeBribesSpin.Value,
             awayBribes: (int)_awayBribesSpin.Value,
             homeTreasurySpent: (int)_homeTreasurySpin.Value,
-            awayTreasurySpent: (int)_awayTreasurySpin.Value);
+            awayTreasurySpent: (int)_awayTreasurySpin.Value,
+            homeStarPlayerIds: SelectedStarIds(_homeStarChecks),
+            awayStarPlayerIds: SelectedStarIds(_awayStarChecks));
     }
 
     private void UpdatePlanStatus()
@@ -131,8 +150,10 @@ public partial class PreGameScreen : VBoxContainer
         try
         {
             var plan = BuildPlan();
-            _homeBudgetLabel.Text = BudgetText(_homeTeam, plan.Home);
-            _awayBudgetLabel.Text = BudgetText(_awayTeam, plan.Away);
+            _homeBudgetLabel.Text = BudgetText(_homeTeam, _homeSummary, plan.Home);
+            _awayBudgetLabel.Text = BudgetText(_awayTeam, _awaySummary, plan.Away);
+            UpdateStarAffordability(_homeSummary, plan.Home, _homeStarChecks);
+            UpdateStarAffordability(_awaySummary, plan.Away, _awayStarChecks);
             _doneButton.Disabled = false;
             SetStatus("Ready.");
         }
@@ -151,10 +172,98 @@ public partial class PreGameScreen : VBoxContainer
         }
     }
 
-    private static string BudgetText(LeagueTeam team, TeamInducementPlan plan)
+    private static string BudgetText(LeagueTeam team, TeamPreGameSummary summary, TeamInducementPlan plan)
     {
-        var cost = plan.Bribes * PreGameService.BribeCost;
-        return $"{team.Name}: {plan.Bribes} bribe(s), cost {FormatGold(cost)}, budget {FormatGold(plan.PettyCash + plan.TreasurySpent)}.";
+        var bribeCost = plan.Bribes * PreGameService.BribeCost;
+        var starCost = SelectedStarCost(summary, plan);
+        var totalCost = bribeCost + starCost;
+        var budget = plan.PettyCash + plan.TreasurySpent;
+        return $"{team.Name}: budget {FormatGold(budget)} ({FormatGold(plan.PettyCash)} petty cash + {FormatGold(plan.TreasurySpent)} treasury), selected {FormatGold(totalCost)}, remaining {FormatGold(budget - totalCost)}. Bribes: {plan.Bribes} ({FormatGold(bribeCost)}). Stars: {plan.StarPlayerIds.Count} ({FormatGold(starCost)}).";
+    }
+
+    private void AddRosterMetadata(TeamPreGameSummary summary)
+    {
+        var details = summary.SpecialRules.Count == 0
+            ? "Special rules: none"
+            : $"Special rules: {string.Join(", ", summary.SpecialRules)}";
+        if (summary.RosterRestrictions.Count > 0)
+        {
+            details += $". Restrictions: {string.Join(", ", summary.RosterRestrictions)}";
+        }
+
+        AddChild(new Label
+        {
+            Text = $"{summary.TeamName} roster: {details}.",
+            AutowrapMode = TextServer.AutowrapMode.WordSmart
+        });
+    }
+
+    private void AddTeamStarSection(TeamPreGameSummary summary, Dictionary<string, CheckBox> checks)
+    {
+        AddChild(new Label
+        {
+            Text = $"{summary.TeamName} eligible Star Players",
+            ThemeTypeVariation = "HeaderSmall"
+        });
+
+        if (summary.EligibleStarPlayers.Count == 0)
+        {
+            AddChild(new Label { Text = "No eligible Star Players for this roster.", AutowrapMode = TextServer.AutowrapMode.WordSmart });
+            return;
+        }
+
+        var grid = new GridContainer { Columns = 6 };
+        AddChild(grid);
+        AddHeader(grid, "Select");
+        AddHeader(grid, "Star");
+        AddHeader(grid, "Cost");
+        AddHeader(grid, "Stats");
+        AddHeader(grid, "Skills");
+        AddHeader(grid, "Eligibility");
+
+        foreach (var star in summary.EligibleStarPlayers)
+        {
+            var check = new CheckBox();
+            check.Toggled += _ => UpdatePlanStatus();
+            checks[star.Id] = check;
+            grid.AddChild(check);
+            grid.AddChild(new Label { Text = star.Name });
+            grid.AddChild(new Label { Text = FormatGold(star.Cost) });
+            grid.AddChild(new Label { Text = FormatStats(star.Stats) });
+            grid.AddChild(new Label { Text = star.Skills.Count == 0 ? "-" : string.Join(", ", star.Skills), AutowrapMode = TextServer.AutowrapMode.WordSmart });
+            grid.AddChild(new Label { Text = string.Join(", ", star.MatchedSpecialRules), AutowrapMode = TextServer.AutowrapMode.WordSmart });
+        }
+    }
+
+    private void UpdateStarAffordability(TeamPreGameSummary summary, TeamInducementPlan plan, Dictionary<string, CheckBox> checks)
+    {
+        var selectedCost = SelectedStarCost(summary, plan);
+        var budgetBeforeStars = plan.PettyCash + plan.TreasurySpent - (plan.Bribes * PreGameService.BribeCost);
+        foreach (var star in summary.EligibleStarPlayers)
+        {
+            if (!checks.TryGetValue(star.Id, out var check))
+            {
+                continue;
+            }
+
+            var selected = plan.StarPlayerIds.Contains(star.Id, StringComparer.OrdinalIgnoreCase);
+            check.Disabled = !selected && selectedCost + star.Cost > budgetBeforeStars;
+        }
+    }
+
+    private static IReadOnlyList<string> SelectedStarIds(Dictionary<string, CheckBox> checks)
+    {
+        return checks
+            .Where(pair => pair.Value.ButtonPressed)
+            .Select(pair => pair.Key)
+            .ToArray();
+    }
+
+    private static int SelectedStarCost(TeamPreGameSummary summary, TeamInducementPlan plan)
+    {
+        return summary.EligibleStarPlayers
+            .Where(star => plan.StarPlayerIds.Contains(star.Id, StringComparer.OrdinalIgnoreCase))
+            .Sum(star => star.Cost);
     }
 
     private SpinBox CreateSpinBox(double min, double max, double value, double step)
@@ -209,5 +318,10 @@ public partial class PreGameScreen : VBoxContainer
     private static string FormatGold(int value)
     {
         return $"{value:N0} gp";
+    }
+
+    private static string FormatStats(PlayerStats stats)
+    {
+        return $"MA {stats.Movement} ST {stats.Strength} AG {stats.Agility}+ PA {stats.Passing}+ AV {stats.Armor}+";
     }
 }
