@@ -14,6 +14,7 @@ public sealed record Ruleset
     public bool UseTeamValueInducements { get; init; } = true;
     public required DiceRules Dice { get; init; }
     public IReadOnlyList<SkillDefinition> Skills { get; init; } = [];
+    public IReadOnlyList<InducementDefinition> Inducements { get; init; } = [];
     public IReadOnlyDictionary<string, int> AdvancementThresholds { get; init; } = new Dictionary<string, int>();
 }
 
@@ -31,8 +32,18 @@ public sealed record SkillDefinition
     public required string Name { get; init; }
     public string Category { get; init; } = "";
     public bool Compulsory { get; init; }
+    public bool DataOnly { get; init; }
     public SkillTiming Timing { get; init; } = SkillTiming.Passive;
     public IReadOnlyList<SkillEffect> Effects { get; init; } = [];
+    public string Description { get; init; } = "";
+}
+
+public sealed record InducementDefinition
+{
+    public required string Id { get; init; }
+    public required string Name { get; init; }
+    public int Cost { get; init; }
+    public string Kind { get; init; } = "";
     public string Description { get; init; } = "";
 }
 

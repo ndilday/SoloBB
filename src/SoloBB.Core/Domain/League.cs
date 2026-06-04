@@ -80,5 +80,8 @@ public sealed record MatchResult
 {
     public int HomeScore { get; init; }
     public int AwayScore { get; init; }
+    public int HomeWinnings { get; init; }
+    public int AwayWinnings { get; init; }
+    public IReadOnlyList<MatchPlayerAward> PlayerAwards { get; init; } = [];
     public DateTimeOffset CompletedAt { get; init; } = DateTimeOffset.UtcNow;
 }

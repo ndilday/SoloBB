@@ -15,6 +15,13 @@ public sealed class RosterSetValidator
         }
 
         var knownSkills = ruleset.Skills.Select(skill => skill.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var duplicateRoster = rosterSet.Rosters
+            .GroupBy(roster => roster.Id, StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault(group => group.Count() > 1);
+        if (duplicateRoster is not null)
+        {
+            throw new InvalidDataException($"Duplicate roster id '{duplicateRoster.Key}'.");
+        }
 
         foreach (var roster in rosterSet.Rosters)
         {
@@ -29,6 +36,43 @@ public sealed class RosterSetValidator
             foreach (var position in roster.Positions)
             {
                 ValidatePosition(roster.Id, position, knownSkills);
+            }
+        }
+
+        var duplicateStar = rosterSet.StarPlayers
+            .GroupBy(star => star.Id, StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault(group => group.Count() > 1);
+        if (duplicateStar is not null)
+        {
+            throw new InvalidDataException($"Duplicate star player id '{duplicateStar.Key}'.");
+        }
+
+        foreach (var star in rosterSet.StarPlayers)
+        {
+            ValidateStarPlayer(star, knownSkills);
+        }
+    }
+
+    private static void ValidateStarPlayer(StarPlayerDefinition star, ISet<string> knownSkills)
+    {
+        RequireText(star.Id, "Star player id is required.");
+        RequireText(star.Name, $"Star player '{star.Id}' name is required.");
+
+        if (star.Cost < 0)
+        {
+            throw new InvalidDataException($"Star player '{star.Id}' has a negative cost.");
+        }
+
+        if (star.SpecialRules.Count == 0)
+        {
+            throw new InvalidDataException($"Star player '{star.Id}' must define at least one eligibility special rule.");
+        }
+
+        foreach (var skill in star.Skills)
+        {
+            if (!knownSkills.Contains(skill))
+            {
+                throw new InvalidDataException($"Star player '{star.Id}' references unknown skill '{skill}'.");
             }
         }
     }

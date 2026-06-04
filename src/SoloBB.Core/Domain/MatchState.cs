@@ -8,6 +8,8 @@ public sealed record MatchState
     public required Guid AwayTeamId { get; init; }
     public Guid ActiveTeamId { get; init; }
     public int Half { get; init; } = 1;
+    public int Drive { get; init; } = 1;
+    public DriveState DriveState { get; init; } = DriveState.Setup;
     public int Turn { get; init; } = 1;
     public int HomeTurn { get; init; } = 1;
     public int AwayTurn { get; init; } = 1;
@@ -27,20 +29,28 @@ public sealed record MatchState
     public int AwayAssistantCoaches { get; init; }
     public int HomeBribesRemaining { get; init; }
     public int AwayBribesRemaining { get; init; }
+    public int HomeTreasurySpent { get; init; }
+    public int AwayTreasurySpent { get; init; }
     public int HomeApothecariesRemaining { get; init; }
     public int AwayApothecariesRemaining { get; init; }
     public WeatherCondition Weather { get; init; } = WeatherCondition.Nice;
     public BallState Ball { get; init; } = new();
     public IReadOnlyList<PlayerPlacement> Placements { get; init; } = [];
+    public IReadOnlyList<Guid> SecretWeaponPlayerIds { get; init; } = [];
+    public IReadOnlyList<Guid> PickMeUpPlayerIds { get; init; } = [];
     public IReadOnlyList<PlayerTurnActivation> Activations { get; init; } = [];
     public IReadOnlyList<TeamRerollUse> TeamRerollUses { get; init; } = [];
+    public IReadOnlyList<MatchPlayerAward> PlayerAwards { get; init; } = [];
     public PendingBlockChoice? PendingBlock { get; init; }
     public PendingPushChoice? PendingPush { get; init; }
     public PendingInterceptionChoice? PendingInterception { get; init; }
     public PendingRerollChoice? PendingReroll { get; init; }
     public PendingApothecaryChoice? PendingApothecary { get; init; }
     public PendingStandFirmChoice? PendingStandFirm { get; init; }
+    public PendingFollowUpChoice? PendingFollowUp { get; init; }
     public PendingBallPlacementChoice? PendingBallPlacement { get; init; }
+    public PendingMultipleBlockContinuation? PendingMultipleBlock { get; init; }
+    public PendingSendOffChoice? PendingSendOff { get; init; }
     public PendingKickoffEventChoice? PendingKickoffEvent { get; init; }
     public IReadOnlyList<MatchLogEntry> Log { get; init; } = [];
 }
@@ -53,6 +63,14 @@ public enum MatchPhase
     OffensivePlayerTurn,
     DefensiveTurn,
     EndOfHalf,
+    Complete
+}
+
+public enum DriveState
+{
+    Setup,
+    InProgress,
+    Ending,
     Complete
 }
 
@@ -71,6 +89,8 @@ public sealed record PlayerPlacement
     public required Guid TeamId { get; init; }
     public PitchSquare? Square { get; init; }
     public PlayerPitchState State { get; init; } = PlayerPitchState.Reserve;
+    public bool TackleZonesLost { get; init; }
+    public bool Rooted { get; init; }
     public int? StunnedRecoveryHalf { get; init; }
     public int? StunnedRecoveryTurn { get; init; }
     public CasualtyRoll? Casualty { get; init; }
@@ -92,6 +112,9 @@ public sealed record PlayerTurnActivation
     public int Turn { get; init; }
     public int GoForItsUsed { get; init; }
     public PlayerTurnAction Action { get; init; } = PlayerTurnAction.Move;
+    public bool DeclaredOnly { get; init; }
+    public int BlocksMade { get; init; }
+    public bool MayMoveAfterFoul { get; init; }
 }
 
 public sealed record TeamRerollUse
@@ -108,7 +131,8 @@ public enum PlayerTurnAction
     Blitz,
     HandOff,
     Pass,
-    Foul
+    Foul,
+    Special
 }
 
 public sealed record PendingBlockChoice
@@ -120,6 +144,7 @@ public sealed record PendingBlockChoice
     public required IReadOnlyList<int> Rolls { get; init; }
     public required int AttackerStrength { get; init; }
     public required int DefenderStrength { get; init; }
+    public bool PreventFollowUp { get; init; }
 }
 
 public sealed record PendingPushChoice
@@ -132,6 +157,7 @@ public sealed record PendingPushChoice
     public required IReadOnlyList<PitchSquare> LegalSquares { get; init; }
     public bool KnockDefenderDown { get; init; }
     public required string ResultMessage { get; init; }
+    public bool PreventFollowUp { get; init; }
 }
 
 public sealed record PendingStandFirmChoice
@@ -144,6 +170,16 @@ public sealed record PendingStandFirmChoice
     public required IReadOnlyList<PitchSquare> LegalSquares { get; init; }
     public bool KnockDefenderDown { get; init; }
     public required string ResultMessage { get; init; }
+    public bool PreventFollowUp { get; init; }
+}
+
+public sealed record PendingFollowUpChoice
+{
+    public required Guid AttackerTeamId { get; init; }
+    public required Guid DefenderTeamId { get; init; }
+    public required Guid AttackerPlayerId { get; init; }
+    public required Guid DefenderPlayerId { get; init; }
+    public required PitchSquare FollowUpSquare { get; init; }
 }
 
 public sealed record PendingBallPlacementChoice
@@ -152,6 +188,31 @@ public sealed record PendingBallPlacementChoice
     public required Guid PlayerId { get; init; }
     public required IReadOnlyList<PitchSquare> LegalSquares { get; init; }
     public required string Reason { get; init; }
+}
+
+public sealed record PendingSendOffChoice
+{
+    public required Guid TeamId { get; init; }
+    public required Guid PlayerId { get; init; }
+    public required string Reason { get; init; }
+    public bool BribeAvailable { get; init; }
+    public PendingDriveEndContinuation? DriveEnd { get; init; }
+}
+
+public sealed record PendingDriveEndContinuation
+{
+    public required Guid NextDefenseTeamId { get; init; }
+    public bool StartSecondHalf { get; init; }
+    public bool CompleteMatch { get; init; }
+    public IReadOnlyList<Guid> ResolvedPlayerIds { get; init; } = [];
+}
+
+public sealed record PendingMultipleBlockContinuation
+{
+    public required Guid AttackerTeamId { get; init; }
+    public required Guid DefenderTeamId { get; init; }
+    public required Guid AttackerPlayerId { get; init; }
+    public required Guid DefenderPlayerId { get; init; }
 }
 
 public sealed record PendingInterceptionChoice
@@ -259,4 +320,22 @@ public sealed record MatchLogEntry
 {
     public DateTimeOffset At { get; init; } = DateTimeOffset.UtcNow;
     public required string Message { get; init; }
+}
+
+public sealed record MatchPlayerAward
+{
+    public required Guid TeamId { get; init; }
+    public required Guid PlayerId { get; init; }
+    public Guid? VictimPlayerId { get; init; }
+    public required MatchPlayerAwardKind Kind { get; init; }
+    public int StarPlayerPoints { get; init; }
+}
+
+public enum MatchPlayerAwardKind
+{
+    Touchdown,
+    Casualty,
+    Completion,
+    Interception,
+    MostValuablePlayer
 }

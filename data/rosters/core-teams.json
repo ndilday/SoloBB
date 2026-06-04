@@ -9,61 +9,11 @@
       "rerollCost": 50000,
       "specialRules": ["old-world-classic"],
       "positions": [
-        {
-          "id": "lineman",
-          "name": "Lineman",
-          "min": 0,
-          "max": 16,
-          "cost": 50000,
-          "stats": { "movement": 6, "strength": 3, "agility": 3, "passing": 4, "armor": 9 },
-          "startingSkills": [],
-          "primarySkillCategories": ["general"],
-          "secondarySkillCategories": ["agility", "passing", "strength"]
-        },
-        {
-          "id": "thrower",
-          "name": "Thrower",
-          "min": 0,
-          "max": 2,
-          "cost": 80000,
-          "stats": { "movement": 6, "strength": 3, "agility": 3, "passing": 2, "armor": 9 },
-          "startingSkills": ["pass", "sure-hands"],
-          "primarySkillCategories": ["general", "passing"],
-          "secondarySkillCategories": ["agility", "strength"]
-        },
-        {
-          "id": "catcher",
-          "name": "Catcher",
-          "min": 0,
-          "max": 4,
-          "cost": 65000,
-          "stats": { "movement": 8, "strength": 2, "agility": 3, "passing": 5, "armor": 8 },
-          "startingSkills": ["catch", "dodge"],
-          "primarySkillCategories": ["agility", "general"],
-          "secondarySkillCategories": ["passing", "strength"]
-        },
-        {
-          "id": "blitzer",
-          "name": "Blitzer",
-          "min": 0,
-          "max": 4,
-          "cost": 85000,
-          "stats": { "movement": 7, "strength": 3, "agility": 3, "passing": 4, "armor": 9 },
-          "startingSkills": ["block"],
-          "primarySkillCategories": ["general", "strength"],
-          "secondarySkillCategories": ["agility", "passing"]
-        },
-        {
-          "id": "ogre",
-          "name": "Ogre",
-          "min": 0,
-          "max": 1,
-          "cost": 140000,
-          "stats": { "movement": 5, "strength": 5, "agility": 4, "passing": 5, "armor": 10 },
-          "startingSkills": ["bone-head", "mighty-blow", "throw-team-mate"],
-          "primarySkillCategories": ["strength"],
-          "secondarySkillCategories": ["general", "agility", "passing"]
-        }
+        { "id": "lineman", "name": "Lineman", "min": 0, "max": 16, "cost": 50000, "stats": { "movement": 6, "strength": 3, "agility": 3, "passing": 4, "armor": 9 }, "startingSkills": [], "primarySkillCategories": ["general"], "secondarySkillCategories": ["agility", "passing", "strength"] },
+        { "id": "thrower", "name": "Thrower", "min": 0, "max": 2, "cost": 80000, "stats": { "movement": 6, "strength": 3, "agility": 3, "passing": 2, "armor": 9 }, "startingSkills": ["pass", "sure-hands"], "primarySkillCategories": ["general", "passing"], "secondarySkillCategories": ["agility", "strength"] },
+        { "id": "catcher", "name": "Catcher", "min": 0, "max": 4, "cost": 65000, "stats": { "movement": 8, "strength": 2, "agility": 3, "passing": 5, "armor": 8 }, "startingSkills": ["catch", "dodge"], "primarySkillCategories": ["agility", "general"], "secondarySkillCategories": ["passing", "strength"] },
+        { "id": "blitzer", "name": "Blitzer", "min": 0, "max": 4, "cost": 85000, "stats": { "movement": 7, "strength": 3, "agility": 3, "passing": 4, "armor": 9 }, "startingSkills": ["block"], "primarySkillCategories": ["general", "strength"], "secondarySkillCategories": ["agility", "passing"] },
+        { "id": "ogre", "name": "Ogre", "min": 0, "max": 1, "cost": 140000, "stats": { "movement": 5, "strength": 5, "agility": 4, "passing": 5, "armor": 10 }, "startingSkills": ["bone-head", "mighty-blow", "throw-team-mate"], "primarySkillCategories": ["strength"], "secondarySkillCategories": ["general", "agility", "passing"] }
       ]
     },
     {
@@ -72,51 +22,338 @@
       "rerollCost": 60000,
       "specialRules": ["badlands-brawl"],
       "positions": [
-        {
-          "id": "lineman",
-          "name": "Lineman",
-          "min": 0,
-          "max": 16,
-          "cost": 50000,
-          "stats": { "movement": 5, "strength": 3, "agility": 3, "passing": 4, "armor": 10 },
-          "startingSkills": [],
-          "primarySkillCategories": ["general"],
-          "secondarySkillCategories": ["agility", "passing", "strength"]
-        },
-        {
-          "id": "thrower",
-          "name": "Thrower",
-          "min": 0,
-          "max": 2,
-          "cost": 65000,
-          "stats": { "movement": 5, "strength": 3, "agility": 3, "passing": 3, "armor": 10 },
-          "startingSkills": ["pass", "sure-hands"],
-          "primarySkillCategories": ["general", "passing"],
-          "secondarySkillCategories": ["agility", "strength"]
-        },
-        {
-          "id": "blitzer",
-          "name": "Blitzer",
-          "min": 0,
-          "max": 4,
-          "cost": 80000,
-          "stats": { "movement": 6, "strength": 3, "agility": 3, "passing": 5, "armor": 10 },
-          "startingSkills": ["block"],
-          "primarySkillCategories": ["general", "strength"],
-          "secondarySkillCategories": ["agility", "passing"]
-        },
-        {
-          "id": "big-un",
-          "name": "Big Un",
-          "min": 0,
-          "max": 4,
-          "cost": 90000,
-          "stats": { "movement": 5, "strength": 4, "agility": 4, "passing": 5, "armor": 10 },
-          "startingSkills": [],
-          "primarySkillCategories": ["general", "strength"],
-          "secondarySkillCategories": ["agility", "passing"]
-        }
+        { "id": "lineman", "name": "Lineman", "min": 0, "max": 16, "cost": 50000, "stats": { "movement": 5, "strength": 3, "agility": 3, "passing": 4, "armor": 10 }, "startingSkills": [], "primarySkillCategories": ["general"], "secondarySkillCategories": ["agility", "passing", "strength"] },
+        { "id": "thrower", "name": "Thrower", "min": 0, "max": 2, "cost": 65000, "stats": { "movement": 5, "strength": 3, "agility": 3, "passing": 3, "armor": 10 }, "startingSkills": ["pass", "sure-hands"], "primarySkillCategories": ["general", "passing"], "secondarySkillCategories": ["agility", "strength"] },
+        { "id": "blitzer", "name": "Blitzer", "min": 0, "max": 4, "cost": 80000, "stats": { "movement": 6, "strength": 3, "agility": 3, "passing": 5, "armor": 10 }, "startingSkills": ["block"], "primarySkillCategories": ["general", "strength"], "secondarySkillCategories": ["agility", "passing"] },
+        { "id": "big-un", "name": "Big Un", "min": 0, "max": 4, "cost": 90000, "stats": { "movement": 5, "strength": 4, "agility": 4, "passing": 5, "armor": 10 }, "startingSkills": [], "primarySkillCategories": ["general", "strength"], "secondarySkillCategories": ["agility", "passing"] }
+      ]
+    },
+    {
+      "id": "amazon",
+      "name": "Amazon",
+      "rerollCost": 50000,
+      "specialRules": ["lustrian-superleague"],
+      "positions": [
+        { "id": "lineman", "name": "Linewoman", "min": 0, "max": 16, "cost": 50000, "stats": { "movement": 6, "strength": 3, "agility": 3, "passing": 4, "armor": 8 }, "startingSkills": ["dodge"], "primarySkillCategories": ["general"], "secondarySkillCategories": ["agility", "passing", "strength"] },
+        { "id": "thrower", "name": "Thrower", "min": 0, "max": 2, "cost": 70000, "stats": { "movement": 6, "strength": 3, "agility": 3, "passing": 3, "armor": 8 }, "startingSkills": ["dodge", "pass"], "primarySkillCategories": ["general", "passing"], "secondarySkillCategories": ["agility", "strength"] },
+        { "id": "catcher", "name": "Eagle Warrior", "min": 0, "max": 2, "cost": 75000, "stats": { "movement": 6, "strength": 3, "agility": 3, "passing": 4, "armor": 8 }, "startingSkills": ["dodge", "on-the-ball"], "primarySkillCategories": ["agility", "general"], "secondarySkillCategories": ["passing", "strength"] },
+        { "id": "blitzer", "name": "Piranha Warrior", "min": 0, "max": 2, "cost": 90000, "stats": { "movement": 6, "strength": 3, "agility": 3, "passing": 5, "armor": 9 }, "startingSkills": ["block", "dodge"], "primarySkillCategories": ["general", "strength"], "secondarySkillCategories": ["agility", "passing"] }
+      ]
+    },
+    {
+      "id": "black-orc",
+      "name": "Black Orc",
+      "rerollCost": 60000,
+      "specialRules": ["badlands-brawl"],
+      "positions": [
+        { "id": "goblin", "name": "Goblin Bruiser Lineman", "min": 0, "max": 12, "cost": 45000, "stats": { "movement": 6, "strength": 2, "agility": 3, "passing": 4, "armor": 8 }, "startingSkills": ["dodge", "right-stuff", "stunty"], "primarySkillCategories": ["agility"], "secondarySkillCategories": ["general", "passing", "strength"] },
+        { "id": "black-orc", "name": "Black Orc", "min": 0, "max": 6, "cost": 90000, "stats": { "movement": 4, "strength": 4, "agility": 4, "passing": 5, "armor": 10 }, "startingSkills": ["brawler", "grab"], "primarySkillCategories": ["general", "strength"], "secondarySkillCategories": ["agility", "passing"] },
+        { "id": "troll", "name": "Trained Troll", "min": 0, "max": 1, "cost": 115000, "stats": { "movement": 4, "strength": 5, "agility": 5, "passing": 5, "armor": 10 }, "startingSkills": ["always-hungry", "loner", "mighty-blow", "really-stupid", "regeneration", "throw-team-mate"], "primarySkillCategories": ["strength"], "secondarySkillCategories": ["general", "agility", "passing"] }
+      ]
+    },
+    {
+      "id": "chaos-chosen",
+      "name": "Chaos Chosen",
+      "rerollCost": 60000,
+      "specialRules": ["favoured-of-chaos-undivided"],
+      "positions": [
+        { "id": "lineman", "name": "Beastman Runner", "min": 0, "max": 16, "cost": 60000, "stats": { "movement": 6, "strength": 3, "agility": 3, "passing": 4, "armor": 9 }, "startingSkills": ["horns"], "primarySkillCategories": ["general", "mutation", "strength"], "secondarySkillCategories": ["agility", "passing"] },
+        { "id": "chosen-blocker", "name": "Chosen Blocker", "min": 0, "max": 4, "cost": 100000, "stats": { "movement": 5, "strength": 4, "agility": 4, "passing": 5, "armor": 10 }, "startingSkills": [], "primarySkillCategories": ["general", "mutation", "strength"], "secondarySkillCategories": ["agility", "passing"] },
+        { "id": "minotaur", "name": "Minotaur", "min": 0, "max": 1, "cost": 150000, "stats": { "movement": 5, "strength": 5, "agility": 4, "passing": 5, "armor": 9 }, "startingSkills": ["animal-savagery", "frenzy", "horns", "loner", "mighty-blow", "thick-skull"], "primarySkillCategories": ["mutation", "strength"], "secondarySkillCategories": ["agility", "general", "passing"] }
+      ]
+    },
+    {
+      "id": "chaos-dwarf",
+      "name": "Chaos Dwarf",
+      "rerollCost": 70000,
+      "specialRules": ["badlands-brawl", "favoured-of-hashut"],
+      "positions": [
+        { "id": "hobgoblin", "name": "Hobgoblin Lineman", "min": 0, "max": 16, "cost": 40000, "stats": { "movement": 6, "strength": 3, "agility": 3, "passing": 4, "armor": 8 }, "startingSkills": [], "primarySkillCategories": ["general"], "secondarySkillCategories": ["agility", "passing", "strength"] },
+        { "id": "blocker", "name": "Chaos Dwarf Blocker", "min": 0, "max": 6, "cost": 70000, "stats": { "movement": 4, "strength": 3, "agility": 4, "passing": 5, "armor": 10 }, "startingSkills": ["block", "tackle", "thick-skull"], "primarySkillCategories": ["general", "strength"], "secondarySkillCategories": ["agility", "mutation", "passing"] },
+        { "id": "bull-centaur", "name": "Bull Centaur Blitzer", "min": 0, "max": 2, "cost": 130000, "stats": { "movement": 6, "strength": 4, "agility": 4, "passing": 5, "armor": 10 }, "startingSkills": ["sprint", "sure-feet", "thick-skull"], "primarySkillCategories": ["general", "strength"], "secondarySkillCategories": ["agility", "mutation", "passing"] }
+      ]
+    },
+    {
+      "id": "chaos-renegade",
+      "name": "Chaos Renegade",
+      "rerollCost": 70000,
+      "specialRules": ["favoured-of-chaos-undivided"],
+      "rosterRestrictions": ["mixed-position-animosity"],
+      "positions": [
+        { "id": "lineman", "name": "Renegade Human Lineman", "min": 0, "max": 12, "cost": 50000, "stats": { "movement": 6, "strength": 3, "agility": 3, "passing": 4, "armor": 9 }, "startingSkills": ["animosity"], "primarySkillCategories": ["general", "mutation"], "secondarySkillCategories": ["agility", "passing", "strength"] },
+        { "id": "goblin", "name": "Renegade Goblin", "min": 0, "max": 1, "cost": 40000, "stats": { "movement": 6, "strength": 2, "agility": 3, "passing": 4, "armor": 8 }, "startingSkills": ["animosity", "dodge", "right-stuff", "stunty"], "primarySkillCategories": ["agility", "mutation"], "secondarySkillCategories": ["general", "passing", "strength"] },
+        { "id": "orc", "name": "Renegade Orc", "min": 0, "max": 1, "cost": 50000, "stats": { "movement": 5, "strength": 3, "agility": 3, "passing": 4, "armor": 10 }, "startingSkills": ["animosity"], "primarySkillCategories": ["general", "mutation"], "secondarySkillCategories": ["agility", "passing", "strength"] },
+        { "id": "troll", "name": "Renegade Troll", "min": 0, "max": 1, "cost": 115000, "stats": { "movement": 4, "strength": 5, "agility": 5, "passing": 5, "armor": 10 }, "startingSkills": ["always-hungry", "loner", "mighty-blow", "really-stupid", "regeneration", "throw-team-mate"], "primarySkillCategories": ["mutation", "strength"], "secondarySkillCategories": ["agility", "general", "passing"] },
+        { "id": "ogre", "name": "Renegade Ogre", "min": 0, "max": 1, "cost": 140000, "stats": { "movement": 5, "strength": 5, "agility": 4, "passing": 5, "armor": 10 }, "startingSkills": ["bone-head", "loner", "mighty-blow", "throw-team-mate"], "primarySkillCategories": ["mutation", "strength"], "secondarySkillCategories": ["agility", "general", "passing"] }
+      ]
+    },
+    {
+      "id": "dark-elf",
+      "name": "Dark Elf",
+      "rerollCost": 50000,
+      "specialRules": ["elven-kingdoms-league"],
+      "positions": [
+        { "id": "lineman", "name": "Lineman", "min": 0, "max": 16, "cost": 70000, "stats": { "movement": 6, "strength": 3, "agility": 2, "passing": 4, "armor": 9 }, "startingSkills": [], "primarySkillCategories": ["agility", "general"], "secondarySkillCategories": ["passing", "strength"] },
+        { "id": "runner", "name": "Runner", "min": 0, "max": 2, "cost": 80000, "stats": { "movement": 7, "strength": 3, "agility": 2, "passing": 3, "armor": 8 }, "startingSkills": ["dump-off"], "primarySkillCategories": ["agility", "general", "passing"], "secondarySkillCategories": ["strength"] },
+        { "id": "witch-elf", "name": "Witch Elf", "min": 0, "max": 2, "cost": 110000, "stats": { "movement": 7, "strength": 3, "agility": 2, "passing": 5, "armor": 8 }, "startingSkills": ["dodge", "frenzy", "jump-up"], "primarySkillCategories": ["agility", "general"], "secondarySkillCategories": ["passing", "strength"] },
+        { "id": "blitzer", "name": "Blitzer", "min": 0, "max": 4, "cost": 100000, "stats": { "movement": 7, "strength": 3, "agility": 2, "passing": 4, "armor": 9 }, "startingSkills": ["block"], "primarySkillCategories": ["agility", "general"], "secondarySkillCategories": ["passing", "strength"] }
+      ]
+    },
+    {
+      "id": "dwarf",
+      "name": "Dwarf",
+      "rerollCost": 50000,
+      "specialRules": ["old-world-classic"],
+      "positions": [
+        { "id": "lineman", "name": "Blocker Lineman", "min": 0, "max": 12, "cost": 70000, "stats": { "movement": 4, "strength": 3, "agility": 4, "passing": 5, "armor": 10 }, "startingSkills": ["block", "tackle", "thick-skull"], "primarySkillCategories": ["general", "strength"], "secondarySkillCategories": ["agility", "passing"] },
+        { "id": "runner", "name": "Runner", "min": 0, "max": 2, "cost": 85000, "stats": { "movement": 6, "strength": 3, "agility": 3, "passing": 3, "armor": 9 }, "startingSkills": ["sure-hands", "thick-skull"], "primarySkillCategories": ["general", "passing"], "secondarySkillCategories": ["agility", "strength"] },
+        { "id": "blitzer", "name": "Blitzer", "min": 0, "max": 2, "cost": 80000, "stats": { "movement": 5, "strength": 3, "agility": 3, "passing": 4, "armor": 10 }, "startingSkills": ["block", "thick-skull"], "primarySkillCategories": ["general", "strength"], "secondarySkillCategories": ["agility", "passing"] },
+        { "id": "troll-slayer", "name": "Troll Slayer", "min": 0, "max": 2, "cost": 95000, "stats": { "movement": 5, "strength": 3, "agility": 4, "passing": 5, "armor": 9 }, "startingSkills": ["block", "dauntless", "frenzy", "thick-skull"], "primarySkillCategories": ["general", "strength"], "secondarySkillCategories": ["agility", "passing"] },
+        { "id": "deathroller", "name": "Deathroller", "min": 0, "max": 1, "cost": 170000, "stats": { "movement": 4, "strength": 7, "agility": 5, "passing": 5, "armor": 11 }, "startingSkills": ["break-tackle", "juggernaut", "loner", "mighty-blow", "no-hands", "secret-weapon", "stand-firm"], "primarySkillCategories": ["strength"], "secondarySkillCategories": ["general"] }
+      ]
+    },
+    {
+      "id": "elven-union",
+      "name": "Elven Union",
+      "rerollCost": 50000,
+      "specialRules": ["elven-kingdoms-league"],
+      "positions": [
+        { "id": "lineman", "name": "Lineman", "min": 0, "max": 16, "cost": 60000, "stats": { "movement": 6, "strength": 3, "agility": 2, "passing": 4, "armor": 8 }, "startingSkills": [], "primarySkillCategories": ["agility", "general"], "secondarySkillCategories": ["passing", "strength"] },
+        { "id": "thrower", "name": "Thrower", "min": 0, "max": 2, "cost": 75000, "stats": { "movement": 6, "strength": 3, "agility": 2, "passing": 2, "armor": 8 }, "startingSkills": ["pass"], "primarySkillCategories": ["agility", "general", "passing"], "secondarySkillCategories": ["strength"] },
+        { "id": "catcher", "name": "Catcher", "min": 0, "max": 4, "cost": 100000, "stats": { "movement": 8, "strength": 3, "agility": 2, "passing": 4, "armor": 8 }, "startingSkills": ["catch", "nerves-of-steel"], "primarySkillCategories": ["agility", "general"], "secondarySkillCategories": ["passing", "strength"] },
+        { "id": "blitzer", "name": "Blitzer", "min": 0, "max": 2, "cost": 115000, "stats": { "movement": 7, "strength": 3, "agility": 2, "passing": 4, "armor": 9 }, "startingSkills": ["block", "sidestep"], "primarySkillCategories": ["agility", "general"], "secondarySkillCategories": ["passing", "strength"] }
+      ]
+    },
+    {
+      "id": "goblin",
+      "name": "Goblin",
+      "rerollCost": 60000,
+      "specialRules": ["badlands-brawl"],
+      "positions": [
+        { "id": "lineman", "name": "Goblin Lineman", "min": 0, "max": 16, "cost": 40000, "stats": { "movement": 6, "strength": 2, "agility": 3, "passing": 4, "armor": 8 }, "startingSkills": ["dodge", "right-stuff", "stunty"], "primarySkillCategories": ["agility"], "secondarySkillCategories": ["general", "passing", "strength"] },
+        { "id": "looney", "name": "Looney", "min": 0, "max": 1, "cost": 40000, "stats": { "movement": 6, "strength": 2, "agility": 3, "passing": 5, "armor": 8 }, "startingSkills": ["chainsaw", "dodge", "secret-weapon", "stunty"], "primarySkillCategories": ["agility"], "secondarySkillCategories": ["general", "passing", "strength"] },
+        { "id": "bombardier", "name": "Bombardier", "min": 0, "max": 1, "cost": 45000, "stats": { "movement": 6, "strength": 2, "agility": 3, "passing": 4, "armor": 8 }, "startingSkills": ["bombardier", "dodge", "secret-weapon", "stunty"], "primarySkillCategories": ["agility", "passing"], "secondarySkillCategories": ["general", "strength"] },
+        { "id": "troll", "name": "Troll", "min": 0, "max": 2, "cost": 115000, "stats": { "movement": 4, "strength": 5, "agility": 5, "passing": 5, "armor": 10 }, "startingSkills": ["always-hungry", "loner", "mighty-blow", "really-stupid", "regeneration", "throw-team-mate"], "primarySkillCategories": ["strength"], "secondarySkillCategories": ["agility", "general", "passing"] }
+      ]
+    },
+    {
+      "id": "halfling",
+      "name": "Halfling",
+      "rerollCost": 60000,
+      "specialRules": ["halfling-thimble-cup", "old-world-classic"],
+      "positions": [
+        { "id": "lineman", "name": "Hopeful Lineman", "min": 0, "max": 16, "cost": 30000, "stats": { "movement": 5, "strength": 2, "agility": 3, "passing": 5, "armor": 7 }, "startingSkills": ["dodge", "right-stuff", "stunty"], "primarySkillCategories": ["agility"], "secondarySkillCategories": ["general", "passing", "strength"] },
+        { "id": "catcher", "name": "Hefty", "min": 0, "max": 2, "cost": 50000, "stats": { "movement": 5, "strength": 2, "agility": 3, "passing": 4, "armor": 8 }, "startingSkills": ["dodge", "fend", "stunty"], "primarySkillCategories": ["agility", "passing"], "secondarySkillCategories": ["general", "strength"] },
+        { "id": "treeman", "name": "Treeman", "min": 0, "max": 2, "cost": 120000, "stats": { "movement": 2, "strength": 6, "agility": 5, "passing": 5, "armor": 11 }, "startingSkills": ["loner", "mighty-blow", "stand-firm", "strong-arm", "take-root", "thick-skull", "throw-team-mate"], "primarySkillCategories": ["strength"], "secondarySkillCategories": ["general"] }
+      ]
+    },
+    {
+      "id": "high-elf",
+      "name": "High Elf",
+      "rerollCost": 50000,
+      "specialRules": ["elven-kingdoms-league"],
+      "positions": [
+        { "id": "lineman", "name": "Lineman", "min": 0, "max": 16, "cost": 70000, "stats": { "movement": 6, "strength": 3, "agility": 2, "passing": 4, "armor": 9 }, "startingSkills": [], "primarySkillCategories": ["agility", "general"], "secondarySkillCategories": ["passing", "strength"] },
+        { "id": "thrower", "name": "Thrower", "min": 0, "max": 2, "cost": 95000, "stats": { "movement": 6, "strength": 3, "agility": 2, "passing": 2, "armor": 9 }, "startingSkills": ["pass", "safe-pass"], "primarySkillCategories": ["agility", "general", "passing"], "secondarySkillCategories": ["strength"] },
+        { "id": "catcher", "name": "Catcher", "min": 0, "max": 4, "cost": 90000, "stats": { "movement": 8, "strength": 3, "agility": 2, "passing": 4, "armor": 8 }, "startingSkills": ["catch"], "primarySkillCategories": ["agility", "general"], "secondarySkillCategories": ["passing", "strength"] },
+        { "id": "blitzer", "name": "Blitzer", "min": 0, "max": 2, "cost": 100000, "stats": { "movement": 7, "strength": 3, "agility": 2, "passing": 4, "armor": 9 }, "startingSkills": ["block"], "primarySkillCategories": ["agility", "general"], "secondarySkillCategories": ["passing", "strength"] }
+      ]
+    },
+    {
+      "id": "imperial-nobility",
+      "name": "Imperial Nobility",
+      "rerollCost": 70000,
+      "specialRules": ["old-world-classic"],
+      "positions": [
+        { "id": "lineman", "name": "Retainer Lineman", "min": 0, "max": 16, "cost": 45000, "stats": { "movement": 6, "strength": 3, "agility": 4, "passing": 4, "armor": 9 }, "startingSkills": ["fend"], "primarySkillCategories": ["general"], "secondarySkillCategories": ["agility", "passing", "strength"] },
+        { "id": "bodyguard", "name": "Bodyguard", "min": 0, "max": 4, "cost": 90000, "stats": { "movement": 6, "strength": 3, "agility": 3, "passing": 4, "armor": 9 }, "startingSkills": ["stand-firm", "wrestle"], "primarySkillCategories": ["general", "strength"], "secondarySkillCategories": ["agility", "passing"] },
+        { "id": "thrower", "name": "Thrower", "min": 0, "max": 2, "cost": 75000, "stats": { "movement": 6, "strength": 3, "agility": 3, "passing": 3, "armor": 9 }, "startingSkills": ["pass", "running-pass"], "primarySkillCategories": ["general", "passing"], "secondarySkillCategories": ["agility", "strength"] },
+        { "id": "blitzer", "name": "Noble Blitzer", "min": 0, "max": 2, "cost": 105000, "stats": { "movement": 7, "strength": 3, "agility": 3, "passing": 4, "armor": 9 }, "startingSkills": ["block", "catch"], "primarySkillCategories": ["agility", "general"], "secondarySkillCategories": ["passing", "strength"] },
+        { "id": "ogre", "name": "Ogre", "min": 0, "max": 1, "cost": 140000, "stats": { "movement": 5, "strength": 5, "agility": 4, "passing": 5, "armor": 10 }, "startingSkills": ["bone-head", "loner", "mighty-blow", "throw-team-mate"], "primarySkillCategories": ["strength"], "secondarySkillCategories": ["agility", "general", "passing"] }
+      ]
+    },
+    {
+      "id": "khorne",
+      "name": "Khorne",
+      "rerollCost": 60000,
+      "specialRules": ["favoured-of-khorne"],
+      "positions": [
+        { "id": "lineman", "name": "Marauder Lineman", "min": 0, "max": 16, "cost": 50000, "stats": { "movement": 6, "strength": 3, "agility": 3, "passing": 4, "armor": 9 }, "startingSkills": [], "primarySkillCategories": ["general", "mutation"], "secondarySkillCategories": ["agility", "passing", "strength"] },
+        { "id": "bloodseeker", "name": "Bloodseeker", "min": 0, "max": 4, "cost": 110000, "stats": { "movement": 5, "strength": 4, "agility": 4, "passing": 5, "armor": 10 }, "startingSkills": ["frenzy"], "primarySkillCategories": ["general", "mutation", "strength"], "secondarySkillCategories": ["agility", "passing"] },
+        { "id": "khorngor", "name": "Khorngor", "min": 0, "max": 4, "cost": 70000, "stats": { "movement": 6, "strength": 3, "agility": 3, "passing": 4, "armor": 9 }, "startingSkills": ["horns"], "primarySkillCategories": ["general", "mutation"], "secondarySkillCategories": ["agility", "passing", "strength"] },
+        { "id": "bloodspawn", "name": "Bloodspawn", "min": 0, "max": 1, "cost": 160000, "stats": { "movement": 5, "strength": 5, "agility": 4, "passing": 5, "armor": 10 }, "startingSkills": ["animal-savagery", "claws", "frenzy", "loner", "mighty-blow"], "primarySkillCategories": ["mutation", "strength"], "secondarySkillCategories": ["agility", "general", "passing"] }
+      ]
+    },
+    {
+      "id": "lizardmen",
+      "name": "Lizardmen",
+      "rerollCost": 70000,
+      "specialRules": ["lustrian-superleague"],
+      "positions": [
+        { "id": "lineman", "name": "Skink Runner", "min": 0, "max": 16, "cost": 60000, "stats": { "movement": 8, "strength": 2, "agility": 3, "passing": 4, "armor": 8 }, "startingSkills": ["dodge", "stunty"], "primarySkillCategories": ["agility"], "secondarySkillCategories": ["general", "passing", "strength"] },
+        { "id": "chameleon", "name": "Chameleon Skink", "min": 0, "max": 2, "cost": 70000, "stats": { "movement": 7, "strength": 2, "agility": 3, "passing": 5, "armor": 8 }, "startingSkills": ["dodge", "on-the-ball", "stunty"], "primarySkillCategories": ["agility", "passing"], "secondarySkillCategories": ["general", "strength"] },
+        { "id": "saurus", "name": "Saurus Blocker", "min": 0, "max": 6, "cost": 85000, "stats": { "movement": 6, "strength": 4, "agility": 5, "passing": 5, "armor": 10 }, "startingSkills": [], "primarySkillCategories": ["general", "strength"], "secondarySkillCategories": ["agility", "passing"] },
+        { "id": "kroxigor", "name": "Kroxigor", "min": 0, "max": 1, "cost": 140000, "stats": { "movement": 6, "strength": 5, "agility": 5, "passing": 5, "armor": 10 }, "startingSkills": ["bone-head", "loner", "mighty-blow", "prehensile-tail", "thick-skull"], "primarySkillCategories": ["strength"], "secondarySkillCategories": ["agility", "general", "passing"] }
+      ]
+    },
+    {
+      "id": "necromantic-horror",
+      "name": "Necromantic Horror",
+      "rerollCost": 70000,
+      "specialRules": ["sylvanian-spotlight"],
+      "positions": [
+        { "id": "lineman", "name": "Zombie Lineman", "min": 0, "max": 16, "cost": 40000, "stats": { "movement": 4, "strength": 3, "agility": 4, "passing": 5, "armor": 9 }, "startingSkills": ["regeneration"], "primarySkillCategories": ["general"], "secondarySkillCategories": ["agility", "passing", "strength"] },
+        { "id": "ghoul", "name": "Ghoul Runner", "min": 0, "max": 2, "cost": 75000, "stats": { "movement": 7, "strength": 3, "agility": 3, "passing": 4, "armor": 8 }, "startingSkills": ["dodge"], "primarySkillCategories": ["agility", "general"], "secondarySkillCategories": ["passing", "strength"] },
+        { "id": "wraith", "name": "Wraith", "min": 0, "max": 2, "cost": 95000, "stats": { "movement": 6, "strength": 3, "agility": 3, "passing": 5, "armor": 9 }, "startingSkills": ["foul-appearance", "regeneration", "sidestep"], "primarySkillCategories": ["general", "strength"], "secondarySkillCategories": ["agility", "passing"] },
+        { "id": "werewolf", "name": "Werewolf", "min": 0, "max": 2, "cost": 125000, "stats": { "movement": 8, "strength": 3, "agility": 3, "passing": 4, "armor": 9 }, "startingSkills": ["claws", "frenzy", "regeneration"], "primarySkillCategories": ["agility", "general"], "secondarySkillCategories": ["mutation", "passing", "strength"] },
+        { "id": "flesh-golem", "name": "Flesh Golem", "min": 0, "max": 2, "cost": 115000, "stats": { "movement": 4, "strength": 4, "agility": 4, "passing": 5, "armor": 10 }, "startingSkills": ["regeneration", "stand-firm", "thick-skull"], "primarySkillCategories": ["general", "strength"], "secondarySkillCategories": ["agility", "passing"] }
+      ]
+    },
+    {
+      "id": "norse",
+      "name": "Norse",
+      "rerollCost": 60000,
+      "specialRules": ["old-world-classic"],
+      "positions": [
+        { "id": "lineman", "name": "Raider Lineman", "min": 0, "max": 16, "cost": 50000, "stats": { "movement": 6, "strength": 3, "agility": 3, "passing": 4, "armor": 8 }, "startingSkills": ["block", "drunkard"], "primarySkillCategories": ["general"], "secondarySkillCategories": ["agility", "passing", "strength"] },
+        { "id": "thrower", "name": "Beer Boar Runner", "min": 0, "max": 2, "cost": 20000, "stats": { "movement": 5, "strength": 1, "agility": 3, "passing": 5, "armor": 6 }, "startingSkills": ["dodge", "pick-me-up", "stunty", "titchy"], "primarySkillCategories": ["agility"], "secondarySkillCategories": ["general", "passing", "strength"] },
+        { "id": "berserker", "name": "Berserker", "min": 0, "max": 2, "cost": 90000, "stats": { "movement": 6, "strength": 3, "agility": 3, "passing": 5, "armor": 8 }, "startingSkills": ["block", "frenzy", "jump-up"], "primarySkillCategories": ["general", "strength"], "secondarySkillCategories": ["agility", "passing"] },
+        { "id": "ulfwerener", "name": "Ulfwerener", "min": 0, "max": 2, "cost": 105000, "stats": { "movement": 6, "strength": 4, "agility": 4, "passing": 5, "armor": 9 }, "startingSkills": ["frenzy"], "primarySkillCategories": ["general", "strength"], "secondarySkillCategories": ["agility", "passing"] },
+        { "id": "yhetee", "name": "Yhetee", "min": 0, "max": 1, "cost": 140000, "stats": { "movement": 5, "strength": 5, "agility": 4, "passing": 5, "armor": 9 }, "startingSkills": ["claws", "disturbing-presence", "frenzy", "loner"], "primarySkillCategories": ["mutation", "strength"], "secondarySkillCategories": ["agility", "general", "passing"] }
+      ]
+    },
+    {
+      "id": "nurgle",
+      "name": "Nurgle",
+      "rerollCost": 70000,
+      "specialRules": ["favoured-of-nurgle"],
+      "positions": [
+        { "id": "lineman", "name": "Rotter Lineman", "min": 0, "max": 16, "cost": 35000, "stats": { "movement": 5, "strength": 3, "agility": 4, "passing": 5, "armor": 9 }, "startingSkills": ["decay", "plague-ridden"], "primarySkillCategories": ["general", "mutation"], "secondarySkillCategories": ["agility", "passing", "strength"] },
+        { "id": "pestigor", "name": "Pestigor", "min": 0, "max": 4, "cost": 75000, "stats": { "movement": 6, "strength": 3, "agility": 3, "passing": 4, "armor": 9 }, "startingSkills": ["horns"], "primarySkillCategories": ["general", "mutation"], "secondarySkillCategories": ["agility", "passing", "strength"] },
+        { "id": "bloater", "name": "Bloater", "min": 0, "max": 4, "cost": 115000, "stats": { "movement": 4, "strength": 4, "agility": 4, "passing": 5, "armor": 10 }, "startingSkills": ["disturbing-presence", "foul-appearance"], "primarySkillCategories": ["general", "mutation", "strength"], "secondarySkillCategories": ["agility", "passing"] },
+        { "id": "rotspawn", "name": "Rotspawn", "min": 0, "max": 1, "cost": 140000, "stats": { "movement": 4, "strength": 5, "agility": 5, "passing": 5, "armor": 10 }, "startingSkills": ["disturbing-presence", "foul-appearance", "loner", "mighty-blow", "really-stupid", "tentacles"], "primarySkillCategories": ["mutation", "strength"], "secondarySkillCategories": ["agility", "general", "passing"] }
+      ]
+    },
+    {
+      "id": "ogre",
+      "name": "Ogre",
+      "rerollCost": 70000,
+      "specialRules": ["badlands-brawl"],
+      "positions": [
+        { "id": "lineman", "name": "Gnoblar Lineman", "min": 0, "max": 16, "cost": 15000, "stats": { "movement": 5, "strength": 1, "agility": 3, "passing": 5, "armor": 6 }, "startingSkills": ["dodge", "right-stuff", "sidestep", "stunty", "titchy"], "primarySkillCategories": ["agility"], "secondarySkillCategories": ["general", "passing", "strength"] },
+        { "id": "ogre", "name": "Ogre", "min": 0, "max": 6, "cost": 140000, "stats": { "movement": 5, "strength": 5, "agility": 4, "passing": 5, "armor": 10 }, "startingSkills": ["bone-head", "mighty-blow", "throw-team-mate"], "primarySkillCategories": ["strength"], "secondarySkillCategories": ["agility", "general", "passing"] },
+        { "id": "runt-punter", "name": "Runt Punter", "min": 0, "max": 1, "cost": 145000, "stats": { "movement": 5, "strength": 5, "agility": 4, "passing": 5, "armor": 10 }, "startingSkills": ["bone-head", "kick-team-mate", "mighty-blow"], "primarySkillCategories": ["strength"], "secondarySkillCategories": ["agility", "general", "passing"] }
+      ]
+    },
+    {
+      "id": "old-world-alliance",
+      "name": "Old World Alliance",
+      "rerollCost": 70000,
+      "specialRules": ["old-world-classic"],
+      "rosterRestrictions": ["mixed-position-animosity"],
+      "positions": [
+        { "id": "lineman", "name": "Human Lineman", "min": 0, "max": 12, "cost": 50000, "stats": { "movement": 6, "strength": 3, "agility": 3, "passing": 4, "armor": 9 }, "startingSkills": ["animosity"], "primarySkillCategories": ["general"], "secondarySkillCategories": ["agility", "passing", "strength"] },
+        { "id": "dwarf", "name": "Dwarf Blocker", "min": 0, "max": 2, "cost": 75000, "stats": { "movement": 4, "strength": 3, "agility": 4, "passing": 5, "armor": 10 }, "startingSkills": ["animosity", "block", "tackle", "thick-skull"], "primarySkillCategories": ["general", "strength"], "secondarySkillCategories": ["agility", "passing"] },
+        { "id": "halfling", "name": "Halfling Hopeful", "min": 0, "max": 3, "cost": 30000, "stats": { "movement": 5, "strength": 2, "agility": 3, "passing": 5, "armor": 7 }, "startingSkills": ["dodge", "right-stuff", "stunty"], "primarySkillCategories": ["agility"], "secondarySkillCategories": ["general", "passing", "strength"] },
+        { "id": "blitzer", "name": "Human Blitzer", "min": 0, "max": 2, "cost": 85000, "stats": { "movement": 7, "strength": 3, "agility": 3, "passing": 4, "armor": 9 }, "startingSkills": ["animosity", "block"], "primarySkillCategories": ["general", "strength"], "secondarySkillCategories": ["agility", "passing"] },
+        { "id": "ogre", "name": "Ogre", "min": 0, "max": 1, "cost": 140000, "stats": { "movement": 5, "strength": 5, "agility": 4, "passing": 5, "armor": 10 }, "startingSkills": ["bone-head", "loner", "mighty-blow", "throw-team-mate"], "primarySkillCategories": ["strength"], "secondarySkillCategories": ["agility", "general", "passing"] }
+      ]
+    },
+    {
+      "id": "shambling-undead",
+      "name": "Shambling Undead",
+      "rerollCost": 70000,
+      "specialRules": ["sylvanian-spotlight"],
+      "positions": [
+        { "id": "lineman", "name": "Skeleton Lineman", "min": 0, "max": 16, "cost": 40000, "stats": { "movement": 5, "strength": 3, "agility": 4, "passing": 5, "armor": 8 }, "startingSkills": ["regeneration", "thick-skull"], "primarySkillCategories": ["general"], "secondarySkillCategories": ["agility", "passing", "strength"] },
+        { "id": "zombie", "name": "Zombie Lineman", "min": 0, "max": 16, "cost": 40000, "stats": { "movement": 4, "strength": 3, "agility": 4, "passing": 5, "armor": 9 }, "startingSkills": ["regeneration"], "primarySkillCategories": ["general"], "secondarySkillCategories": ["agility", "passing", "strength"] },
+        { "id": "ghoul", "name": "Ghoul Runner", "min": 0, "max": 4, "cost": 75000, "stats": { "movement": 7, "strength": 3, "agility": 3, "passing": 4, "armor": 8 }, "startingSkills": ["dodge"], "primarySkillCategories": ["agility", "general"], "secondarySkillCategories": ["passing", "strength"] },
+        { "id": "wight", "name": "Wight Blitzer", "min": 0, "max": 2, "cost": 90000, "stats": { "movement": 6, "strength": 3, "agility": 3, "passing": 4, "armor": 9 }, "startingSkills": ["block", "regeneration"], "primarySkillCategories": ["general", "strength"], "secondarySkillCategories": ["agility", "passing"] },
+        { "id": "mummy", "name": "Mummy", "min": 0, "max": 2, "cost": 125000, "stats": { "movement": 3, "strength": 5, "agility": 5, "passing": 5, "armor": 10 }, "startingSkills": ["mighty-blow", "regeneration"], "primarySkillCategories": ["strength"], "secondarySkillCategories": ["general"] }
+      ]
+    },
+    {
+      "id": "skaven",
+      "name": "Skaven",
+      "rerollCost": 50000,
+      "specialRules": ["underworld-challenge"],
+      "positions": [
+        { "id": "lineman", "name": "Clanrat Lineman", "min": 0, "max": 16, "cost": 50000, "stats": { "movement": 7, "strength": 3, "agility": 3, "passing": 4, "armor": 8 }, "startingSkills": [], "primarySkillCategories": ["general"], "secondarySkillCategories": ["agility", "mutation", "passing", "strength"] },
+        { "id": "thrower", "name": "Thrower", "min": 0, "max": 2, "cost": 85000, "stats": { "movement": 7, "strength": 3, "agility": 3, "passing": 2, "armor": 8 }, "startingSkills": ["pass", "sure-hands"], "primarySkillCategories": ["general", "passing"], "secondarySkillCategories": ["agility", "mutation", "strength"] },
+        { "id": "gutter-runner", "name": "Gutter Runner", "min": 0, "max": 4, "cost": 85000, "stats": { "movement": 9, "strength": 2, "agility": 2, "passing": 4, "armor": 8 }, "startingSkills": ["dodge"], "primarySkillCategories": ["agility"], "secondarySkillCategories": ["general", "mutation", "passing", "strength"] },
+        { "id": "blitzer", "name": "Blitzer", "min": 0, "max": 2, "cost": 90000, "stats": { "movement": 7, "strength": 3, "agility": 3, "passing": 5, "armor": 9 }, "startingSkills": ["block"], "primarySkillCategories": ["general", "strength"], "secondarySkillCategories": ["agility", "mutation", "passing"] },
+        { "id": "rat-ogre", "name": "Rat Ogre", "min": 0, "max": 1, "cost": 150000, "stats": { "movement": 6, "strength": 5, "agility": 4, "passing": 5, "armor": 9 }, "startingSkills": ["animal-savagery", "frenzy", "loner", "mighty-blow", "prehensile-tail"], "primarySkillCategories": ["mutation", "strength"], "secondarySkillCategories": ["agility", "general", "passing"] }
+      ]
+    },
+    {
+      "id": "snotling",
+      "name": "Snotling",
+      "rerollCost": 60000,
+      "specialRules": ["badlands-brawl"],
+      "positions": [
+        { "id": "lineman", "name": "Snotling Lineman", "min": 0, "max": 16, "cost": 15000, "stats": { "movement": 5, "strength": 1, "agility": 3, "passing": 5, "armor": 6 }, "startingSkills": ["dodge", "right-stuff", "sidestep", "stunty", "swarming", "titchy"], "primarySkillCategories": ["agility"], "secondarySkillCategories": ["general", "passing", "strength"] },
+        { "id": "fungus-flinga", "name": "Fungus Flinga", "min": 0, "max": 2, "cost": 30000, "stats": { "movement": 5, "strength": 1, "agility": 3, "passing": 4, "armor": 6 }, "startingSkills": ["bombardier", "dodge", "secret-weapon", "stunty", "titchy"], "primarySkillCategories": ["agility", "passing"], "secondarySkillCategories": ["general", "strength"] },
+        { "id": "pump-wagon", "name": "Pump Wagon", "min": 0, "max": 2, "cost": 105000, "stats": { "movement": 4, "strength": 5, "agility": 5, "passing": 5, "armor": 9 }, "startingSkills": ["dirty-player", "juggernaut", "mighty-blow", "no-hands", "secret-weapon", "stand-firm"], "primarySkillCategories": ["strength"], "secondarySkillCategories": ["general"] },
+        { "id": "troll", "name": "Troll", "min": 0, "max": 2, "cost": 115000, "stats": { "movement": 4, "strength": 5, "agility": 5, "passing": 5, "armor": 10 }, "startingSkills": ["always-hungry", "loner", "mighty-blow", "really-stupid", "regeneration", "throw-team-mate"], "primarySkillCategories": ["strength"], "secondarySkillCategories": ["agility", "general", "passing"] }
+      ]
+    },
+    {
+      "id": "tomb-kings",
+      "name": "Tomb Kings",
+      "rerollCost": 70000,
+      "specialRules": ["sylvanian-spotlight"],
+      "positions": [
+        { "id": "lineman", "name": "Skeleton Lineman", "min": 0, "max": 16, "cost": 40000, "stats": { "movement": 5, "strength": 3, "agility": 4, "passing": 5, "armor": 8 }, "startingSkills": ["regeneration", "thick-skull"], "primarySkillCategories": ["general"], "secondarySkillCategories": ["agility", "passing", "strength"] },
+        { "id": "thrower", "name": "Thrower", "min": 0, "max": 2, "cost": 70000, "stats": { "movement": 6, "strength": 3, "agility": 4, "passing": 4, "armor": 8 }, "startingSkills": ["pass", "regeneration", "sure-hands", "thick-skull"], "primarySkillCategories": ["general", "passing"], "secondarySkillCategories": ["agility", "strength"] },
+        { "id": "blitzer", "name": "Blitzer", "min": 0, "max": 2, "cost": 90000, "stats": { "movement": 6, "strength": 3, "agility": 4, "passing": 5, "armor": 9 }, "startingSkills": ["block", "regeneration", "thick-skull"], "primarySkillCategories": ["general", "strength"], "secondarySkillCategories": ["agility", "passing"] },
+        { "id": "tomb-guardian", "name": "Tomb Guardian", "min": 0, "max": 4, "cost": 100000, "stats": { "movement": 4, "strength": 5, "agility": 5, "passing": 5, "armor": 10 }, "startingSkills": ["decay", "regeneration"], "primarySkillCategories": ["strength"], "secondarySkillCategories": ["general"] }
+      ]
+    },
+    {
+      "id": "underworld-denizens",
+      "name": "Underworld Denizens",
+      "rerollCost": 70000,
+      "specialRules": ["underworld-challenge"],
+      "rosterRestrictions": ["mixed-position-animosity"],
+      "positions": [
+        { "id": "lineman", "name": "Underworld Goblin", "min": 0, "max": 12, "cost": 40000, "stats": { "movement": 6, "strength": 2, "agility": 3, "passing": 4, "armor": 8 }, "startingSkills": ["animosity", "dodge", "right-stuff", "stunty"], "primarySkillCategories": ["agility", "mutation"], "secondarySkillCategories": ["general", "passing", "strength"] },
+        { "id": "skaven", "name": "Skaven Clanrat", "min": 0, "max": 3, "cost": 50000, "stats": { "movement": 7, "strength": 3, "agility": 3, "passing": 4, "armor": 8 }, "startingSkills": ["animosity"], "primarySkillCategories": ["general", "mutation"], "secondarySkillCategories": ["agility", "passing", "strength"] },
+        { "id": "gutter-runner", "name": "Gutter Runner", "min": 0, "max": 1, "cost": 85000, "stats": { "movement": 9, "strength": 2, "agility": 2, "passing": 4, "armor": 8 }, "startingSkills": ["animosity", "dodge"], "primarySkillCategories": ["agility", "mutation"], "secondarySkillCategories": ["general", "passing", "strength"] },
+        { "id": "troll", "name": "Underworld Troll", "min": 0, "max": 1, "cost": 115000, "stats": { "movement": 4, "strength": 5, "agility": 5, "passing": 5, "armor": 10 }, "startingSkills": ["always-hungry", "loner", "mighty-blow", "really-stupid", "regeneration", "throw-team-mate"], "primarySkillCategories": ["mutation", "strength"], "secondarySkillCategories": ["agility", "general", "passing"] }
+      ]
+    },
+    {
+      "id": "vampire",
+      "name": "Vampire",
+      "rerollCost": 70000,
+      "specialRules": ["sylvanian-spotlight"],
+      "positions": [
+        { "id": "lineman", "name": "Thrall Lineman", "min": 0, "max": 16, "cost": 40000, "stats": { "movement": 6, "strength": 3, "agility": 3, "passing": 4, "armor": 8 }, "startingSkills": [], "primarySkillCategories": ["general"], "secondarySkillCategories": ["agility", "passing", "strength"] },
+        { "id": "runner", "name": "Vampire Runner", "min": 0, "max": 2, "cost": 110000, "stats": { "movement": 8, "strength": 4, "agility": 2, "passing": 3, "armor": 9 }, "startingSkills": ["bloodlust", "hypnotic-gaze", "regeneration"], "primarySkillCategories": ["agility", "general", "passing", "strength"], "secondarySkillCategories": ["mutation"] },
+        { "id": "thrower", "name": "Vampire Thrower", "min": 0, "max": 2, "cost": 110000, "stats": { "movement": 6, "strength": 4, "agility": 2, "passing": 2, "armor": 9 }, "startingSkills": ["bloodlust", "hypnotic-gaze", "pass", "regeneration"], "primarySkillCategories": ["general", "passing", "strength"], "secondarySkillCategories": ["agility", "mutation"] },
+        { "id": "blitzer", "name": "Vampire Blitzer", "min": 0, "max": 2, "cost": 110000, "stats": { "movement": 6, "strength": 4, "agility": 2, "passing": 4, "armor": 9 }, "startingSkills": ["bloodlust", "frenzy", "hypnotic-gaze", "regeneration"], "primarySkillCategories": ["general", "strength"], "secondarySkillCategories": ["agility", "mutation", "passing"] }
+      ]
+    },
+    {
+      "id": "wood-elf",
+      "name": "Wood Elf",
+      "rerollCost": 50000,
+      "specialRules": ["elven-kingdoms-league"],
+      "positions": [
+        { "id": "lineman", "name": "Lineman", "min": 0, "max": 16, "cost": 70000, "stats": { "movement": 7, "strength": 3, "agility": 2, "passing": 4, "armor": 8 }, "startingSkills": [], "primarySkillCategories": ["agility", "general"], "secondarySkillCategories": ["passing", "strength"] },
+        { "id": "thrower", "name": "Thrower", "min": 0, "max": 2, "cost": 95000, "stats": { "movement": 7, "strength": 3, "agility": 2, "passing": 2, "armor": 8 }, "startingSkills": ["pass"], "primarySkillCategories": ["agility", "general", "passing"], "secondarySkillCategories": ["strength"] },
+        { "id": "catcher", "name": "Catcher", "min": 0, "max": 4, "cost": 90000, "stats": { "movement": 8, "strength": 2, "agility": 2, "passing": 4, "armor": 8 }, "startingSkills": ["catch", "dodge", "sprint"], "primarySkillCategories": ["agility", "general"], "secondarySkillCategories": ["passing", "strength"] },
+        { "id": "wardancer", "name": "Wardancer", "min": 0, "max": 2, "cost": 125000, "stats": { "movement": 8, "strength": 3, "agility": 2, "passing": 4, "armor": 8 }, "startingSkills": ["block", "dodge", "leap"], "primarySkillCategories": ["agility", "general"], "secondarySkillCategories": ["passing", "strength"] },
+        { "id": "treeman", "name": "Treeman", "min": 0, "max": 1, "cost": 120000, "stats": { "movement": 2, "strength": 6, "agility": 5, "passing": 5, "armor": 11 }, "startingSkills": ["loner", "mighty-blow", "stand-firm", "strong-arm", "take-root", "thick-skull", "throw-team-mate"], "primarySkillCategories": ["strength"], "secondarySkillCategories": ["general"] }
       ]
     }
+  ],
+  "starPlayers": [
+    { "id": "griff-oberwald", "name": "Griff Oberwald", "cost": 280000, "stats": { "movement": 7, "strength": 4, "agility": 2, "passing": 3, "armor": 9 }, "skills": ["block", "dodge", "fend", "sprint", "sure-feet"], "specialRules": ["old-world-classic"] },
+    { "id": "varag-ghoul-chewer", "name": "Varag Ghoul-Chewer", "cost": 280000, "stats": { "movement": 5, "strength": 4, "agility": 3, "passing": 5, "armor": 10 }, "skills": ["block", "juggernaut", "mighty-blow"], "specialRules": ["badlands-brawl"] },
+    { "id": "morg-n-thorg", "name": "Morg 'n' Thorg", "cost": 380000, "stats": { "movement": 6, "strength": 6, "agility": 3, "passing": 4, "armor": 11 }, "skills": ["block", "mighty-blow", "thick-skull"], "specialRules": ["old-world-classic", "badlands-brawl", "sylvanian-spotlight", "elven-kingdoms-league", "lustrian-superleague", "underworld-challenge", "favoured-of-chaos-undivided", "favoured-of-khorne", "favoured-of-nurgle", "favoured-of-hashut"] },
+    { "id": "deeproot-strongbranch", "name": "Deeproot Strongbranch", "cost": 280000, "stats": { "movement": 2, "strength": 7, "agility": 5, "passing": 5, "armor": 11 }, "skills": ["mighty-blow", "stand-firm", "strong-arm", "thick-skull", "throw-team-mate"], "specialRules": ["old-world-classic", "halfling-thimble-cup"] },
+    { "id": "hakflem-skuttlespike", "name": "Hakflem Skuttlespike", "cost": 210000, "stats": { "movement": 9, "strength": 3, "agility": 2, "passing": 4, "armor": 8 }, "skills": ["dodge", "extra-arms", "two-heads"], "specialRules": ["underworld-challenge"] },
+    { "id": "willow-rosebark", "name": "Willow Rosebark", "cost": 150000, "stats": { "movement": 5, "strength": 4, "agility": 3, "passing": 5, "armor": 9 }, "skills": ["disturbing-presence", "sidestep"], "specialRules": ["sylvanian-spotlight", "halfling-thimble-cup"] }
   ]
 }

@@ -14,6 +14,7 @@ public partial class Main : Control
     private readonly JsonGameDataStore _store = new();
     private readonly LeagueService _leagueService = new();
     private readonly MatchService _matchService = new();
+    private readonly PreGameService _preGameService = new();
 
     private VBoxContainer _stack = null!;
     private Ruleset? _ruleset;
@@ -24,6 +25,7 @@ public partial class Main : Control
     private string? _activeMatchPath;
     private LeagueTeam? _activeHomeTeam;
     private LeagueTeam? _activeAwayTeam;
+    private Guid? _activeScheduledMatchId;
     private int _targetTeamCount = 2;
     private string _catalogStatus = "Loading rulesets...";
 
@@ -177,7 +179,7 @@ public partial class Main : Control
 
     private void ShowPreGameScreen(Guid scheduledMatchId)
     {
-        if (_activeLeague is null)
+        if (_activeLeague is null || _ruleset is null || _rosterSet is null)
         {
             return;
         }
@@ -192,24 +194,28 @@ public partial class Main : Control
 
         var screen = ShowScreen<PreGameScreen>("res://scenes/screens/pre_game_screen.tscn");
         screen.Setup(
+            ruleset: _ruleset,
+            rosterSet: _rosterSet,
             league: _activeLeague,
             scheduledMatch: scheduledMatch,
-            done: async () => await StartScheduledMatchAsync(scheduledMatch),
+            done: async inducements => await StartScheduledMatchAsync(scheduledMatch, inducements),
             back: ShowLeagueHomeScreen);
     }
 
-    private async Task StartScheduledMatchAsync(ScheduledMatch scheduledMatch)
+    private async Task StartScheduledMatchAsync(ScheduledMatch scheduledMatch, MatchInducementPlan? inducements = null)
     {
-        if (_ruleset is null || _activeLeague is null)
+        if (_ruleset is null || _rosterSet is null || _activeLeague is null)
         {
             return;
         }
 
         var homeTeam = _activeLeague.Teams.First(team => team.Id == scheduledMatch.HomeTeamId);
         var awayTeam = _activeLeague.Teams.First(team => team.Id == scheduledMatch.AwayTeamId);
-        _activeMatch = _matchService.CreateHotseatMatch(_ruleset, homeTeam, awayTeam);
-        _activeHomeTeam = homeTeam;
-        _activeAwayTeam = awayTeam;
+        var preGame = _preGameService.PrepareMatch(_ruleset, _rosterSet, homeTeam, awayTeam, inducements);
+        _activeScheduledMatchId = scheduledMatch.Id;
+        _activeMatch = _matchService.CreateHotseatMatch(_ruleset, preGame.HomeTeam, preGame.AwayTeam, preGame.Inducements.Home, preGame.Inducements.Away);
+        _activeHomeTeam = preGame.HomeTeam;
+        _activeAwayTeam = preGame.AwayTeam;
         _activeMatchPath = ProjectPath($"user://matches/{Slugify(homeTeam.Name)}-vs-{Slugify(awayTeam.Name)}-{DateTimeOffset.UtcNow:yyyyMMddHHmmss}.json");
         await SaveActiveMatchAsync(_activeMatch);
         ShowMatchScreen();
@@ -402,11 +408,19 @@ public partial class Main : Control
         return _store.SaveLeagueAsync(_activeLeaguePath, _activeLeague);
     }
 
-    private Task SaveActiveMatchAsync(MatchState match)
+    private async Task SaveActiveMatchAsync(MatchState match)
     {
         _activeMatch = match;
         _activeMatchPath ??= ProjectPath($"user://matches/active-{match.Id}.json");
-        return _store.SaveMatchAsync(_activeMatchPath, match);
+        await _store.SaveMatchAsync(_activeMatchPath, match);
+
+        if (_activeLeague is not null &&
+            _activeScheduledMatchId is Guid scheduledMatchId &&
+            match.Phase == MatchPhase.Complete)
+        {
+            _activeLeague = _leagueService.CompleteScheduledMatch(_activeLeague, scheduledMatchId, match);
+            await SaveActiveLeagueAsync();
+        }
     }
 
     private T ShowScreen<T>(string scenePath) where T : Control
