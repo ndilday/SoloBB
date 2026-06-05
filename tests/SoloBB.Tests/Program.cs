@@ -11,8 +11,10 @@ var rosterSet = fixture.RosterSet;
 smoke.StartSection("Ruleset catalog and data loading");
 Assert(ruleset.Id == "bb2020-lite", "ruleset id should load");
 Assert(rosterSet.Rosters.Count >= 20, "sample roster set should contain the expanded BB2020 team catalog");
-Assert(rosterSet.StarPlayers.Count >= 4, "sample roster set should contain star player data");
+Assert(rosterSet.StarPlayers.Count >= 6, "sample roster set should contain the expanded star player sample data");
+Assert(ruleset.Inducements.Count >= 8, "ruleset should contain the expanded inducement sample catalog");
 Assert(ruleset.Inducements.Any(inducement => inducement.Id == "bribe"), "ruleset should contain inducement data");
+Assert(rosterSet.Rosters.Any(roster => roster.RosterRestrictions.Contains("mixed-position-animosity")), "sample roster data should include roster restriction metadata");
 Assert(ruleset.Skills.Single(skill => skill.Id == "animosity").DataOnly, "unimplemented roster traits should be explicitly marked data-only");
 AssertThrowsInvalidData(
     () => new RulesetValidator().Validate(ruleset with
@@ -29,6 +31,42 @@ AssertThrowsInvalidData(
         ]
     }),
     "ruleset validation should reject skills with no behavior coverage unless marked data-only");
+AssertThrowsInvalidData(
+    () => new RulesetValidator().Validate(ruleset with
+    {
+        Skills =
+        [
+            .. ruleset.Skills.Select(skill => skill.Id == "block" ? skill with { Category = "mystery" } : skill)
+        ]
+    }),
+    "ruleset validation should reject unknown skill categories");
+AssertThrowsInvalidData(
+    () => new RulesetValidator().Validate(ruleset with
+    {
+        Inducements =
+        [
+            .. ruleset.Inducements,
+            new InducementDefinition
+            {
+                Id = "mystery-inducement",
+                Name = "Mystery Inducement",
+                Kind = "mystery",
+                Description = "Invalid metadata for validation."
+            }
+        ]
+    }),
+    "ruleset validation should reject unknown inducement kinds");
+AssertThrowsInvalidData(
+    () => new RulesetValidator().Validate(ruleset with
+    {
+        AdvancementThresholds = ruleset.AdvancementThresholds
+            .Where(pair => pair.Key != "first")
+            .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.OrdinalIgnoreCase)
+    }),
+    "ruleset validation should require all known advancement thresholds");
+AssertThrowsInvalidData(
+    () => new RulesetValidator().Validate(ruleset with { Dice = null! }),
+    "ruleset validation should reject missing dice rules with a data error");
 Assert(ruleset.Skills.Single(skill => skill.Id == "block").Effects.Contains(SkillEffect.BothDownProtection), "block skill should declare its ruleset mechanic");
 Assert(ruleset.Skills.Single(skill => skill.Id == "dauntless").Effects.Contains(SkillEffect.Dauntless), "dauntless should declare its strength challenge mechanic");
 Assert(ruleset.Skills.Single(skill => skill.Id == "dodge").Effects.Contains(SkillEffect.DodgeReroll), "dodge skill should declare its reroll mechanic");
@@ -89,6 +127,80 @@ Assert(ruleset.Skills.Count >= 75, "ruleset should include the full 2020 skill a
 Assert(ruleset.Skills.Single(skill => skill.Id == "frenzy").Compulsory, "compulsory skills should be represented in ruleset data");
 Assert(ruleset.Skills.Single(skill => skill.Id == "disturbing-presence").Category == "mutation", "skill categories should be represented in ruleset data");
 Assert(ruleset.Skills.Single(skill => skill.Id == "loner").Compulsory, "compulsory traits should be represented in ruleset data");
+AssertThrowsInvalidData(
+    () => new RosterSetValidator().Validate(rosterSet with { Rosters = [] }, ruleset),
+    "roster validation should reject roster sets with no rosters");
+AssertThrowsInvalidData(
+    () => new RosterSetValidator().Validate(rosterSet with
+    {
+        Rosters =
+        [
+            .. rosterSet.Rosters.Select(roster => roster.Id == "human"
+                ? roster with { Positions = [] }
+                : roster)
+        ]
+    }, ruleset),
+    "roster validation should reject rosters with no positions");
+AssertThrowsInvalidData(
+    () => new RosterSetValidator().Validate(rosterSet with
+    {
+        Rosters =
+        [
+            .. rosterSet.Rosters.Select(roster => roster.Id == "human"
+                ? roster with { RosterRestrictions = ["unknown-restriction"] }
+                : roster)
+        ]
+    }, ruleset),
+    "roster validation should reject unknown roster restriction metadata");
+AssertThrowsInvalidData(
+    () => new RosterSetValidator().Validate(rosterSet with
+    {
+        Rosters =
+        [
+            .. rosterSet.Rosters.Select(roster => roster.Id == "human"
+                ? roster with
+                {
+                    Positions =
+                    [
+                        .. roster.Positions.Select(position => position.Id == "lineman"
+                            ? position with { PrimarySkillCategories = ["mystery"] }
+                            : position)
+                    ]
+                }
+                : roster)
+        ]
+    }, ruleset),
+    "roster validation should reject unknown advancement skill categories");
+AssertThrowsInvalidData(
+    () => new RosterSetValidator().Validate(rosterSet with
+    {
+        Rosters =
+        [
+            .. rosterSet.Rosters.Select(roster => roster.Id == "human"
+                ? roster with
+                {
+                    Positions =
+                    [
+                        .. roster.Positions.Select(position => position.Id == "lineman"
+                            ? position with { Stats = null! }
+                            : position)
+                    ]
+                }
+                : roster)
+        ]
+    }, ruleset),
+    "roster validation should reject positions with missing stats");
+AssertThrowsInvalidData(
+    () => new RosterSetValidator().Validate(rosterSet with
+    {
+        StarPlayers =
+        [
+            .. rosterSet.StarPlayers.Select(star => star.Id == "griff-oberwald"
+                ? star with { SpecialRules = ["unknown-special-rule"] }
+                : star)
+        ]
+    }, ruleset),
+    "roster validation should reject star player eligibility rules that no roster defines");
 
 smoke.StartSection("League creation, roster validation, and persistence");
 var leagueService = new LeagueService();
@@ -2866,6 +2978,130 @@ AssertThrows(
         new(4, 0)),
     "movement should reject offensive team during defensive turn");
 
+smoke.StartSection("Scenario regression and seeded playtests");
+var scenarioDriveService = new MatchService(new FixedDiceRoller(d6: [3, 3, 3, 3, 1, 6, 6], d8: [5]));
+var scenarioDriveMatch = scenarioDriveService.CreateHotseatMatch(ruleset, loadedLeague.Teams[0], awayLeague.Teams[0]);
+scenarioDriveMatch = SetupTeam(scenarioDriveService, scenarioDriveMatch, ruleset, awayLeague.Teams[0], [
+    new(20, 5),
+    new(13, 4),
+    new(13, 5),
+    new(13, 6),
+    new(20, 4),
+    new(20, 6),
+    new(20, 7),
+    new(20, 8),
+    new(20, 9),
+    new(20, 10),
+    new(20, 11)
+]);
+scenarioDriveMatch = scenarioDriveService.AdvancePhase(scenarioDriveMatch, ruleset);
+scenarioDriveMatch = SetupTeam(scenarioDriveService, scenarioDriveMatch, ruleset, loadedLeague.Teams[0], [
+    new(12, 0),
+    new(12, 4),
+    new(12, 5),
+    new(12, 6),
+    new(1, 4),
+    new(1, 5),
+    new(1, 6),
+    new(1, 7),
+    new(1, 8),
+    new(1, 9),
+    new(1, 10)
+]);
+scenarioDriveMatch = scenarioDriveService.AdvancePhase(scenarioDriveMatch, ruleset);
+scenarioDriveMatch = scenarioDriveService.ResolveKickoff(scenarioDriveMatch, ruleset, loadedLeague.Teams[0], new(ruleset.PitchWidth / 2, 0), awayLeague.Teams[0]);
+Assert(scenarioDriveMatch.Ball.CarrierPlayerId == playerToPlace.Id, "scenario drive should start with a touchback to the Human ball carrier");
+scenarioDriveMatch = scenarioDriveService.MovePlayer(scenarioDriveMatch, ruleset, loadedLeague.Teams[0], playerToPlace.Id, new(20, 0));
+AssertMatchInvariants(scenarioDriveMatch, ruleset, "scenario drive after first Human carry");
+scenarioDriveMatch = scenarioDriveService.AdvanceTurn(scenarioDriveMatch, ruleset);
+scenarioDriveMatch = scenarioDriveService.AdvanceTurn(scenarioDriveMatch, ruleset);
+scenarioDriveMatch = scenarioDriveService.MovePlayer(scenarioDriveMatch, ruleset, loadedLeague.Teams[0], playerToPlace.Id, new(ruleset.PitchWidth - 1, 0));
+Assert(scenarioDriveMatch.HomeScore == 1 && scenarioDriveMatch.Drive == 2 && scenarioDriveMatch.Phase == MatchPhase.DefenseSetup, "scenario drive should run from kickoff through a Human touchdown and next-drive setup");
+Assert(scenarioDriveMatch.PlayerAwards.Any(award => award.Kind == MatchPlayerAwardKind.Touchdown && award.PlayerId == playerToPlace.Id), "scenario drive should award touchdown SPP to the scorer");
+AssertMatchInvariants(scenarioDriveMatch, ruleset, "scenario drive after touchdown reset");
+
+var humanBlitzer = loadedLeague.Teams[0].Players[8];
+var humanCatcher = loadedLeague.Teams[0].Players[7];
+var humanThrower = loadedLeague.Teams[0].Players[6];
+var humanOrcBlockMatch = offensiveTurnMatch with
+{
+    Placements = offensiveTurnMatch.Placements
+        .Select(placement => placement.PlayerId == humanBlitzer.Id
+            ? placement with { Square = new PitchSquare(1, 1), State = PlayerPitchState.Standing }
+            : placement.PlayerId == awayPlayerToPlace.Id
+                ? placement with { Square = new PitchSquare(2, 1), State = PlayerPitchState.Standing }
+                : placement.PlayerId == playerToPlace.Id
+                    ? placement with { Square = new PitchSquare(0, 0), State = PlayerPitchState.Standing }
+                    : placement)
+        .ToArray()
+};
+var humanOrcBlockService = new MatchService(new FixedDiceRoller(d6: [6, 1, 1]));
+var humanOrcPendingPush = humanOrcBlockService.BlockPlayer(humanOrcBlockMatch, ruleset, loadedLeague.Teams[0], humanBlitzer.Id, awayLeague.Teams[0], awayPlayerToPlace.Id);
+var humanOrcBlockResult = humanOrcBlockService.ChoosePushSquare(humanOrcPendingPush, ruleset, loadedLeague.Teams[0], awayLeague.Teams[0], new PitchSquare(3, 1));
+Assert(humanOrcBlockResult.Placements.Single(placement => placement.PlayerId == awayPlayerToPlace.Id).State == PlayerPitchState.Prone, "Human blitzer should knock down an Orc lineman in a common block pattern");
+Assert(humanOrcBlockResult.Activations.Single(activation => activation.PlayerId == humanBlitzer.Id).Action == PlayerTurnAction.Block, "Human vs Orc block pattern should record the blocker action");
+
+var humanOrcPassMatch = offensiveTurnMatch with
+{
+    Ball = new BallState { CarrierPlayerId = humanThrower.Id },
+    Placements = offensiveTurnMatch.Placements
+        .Select(placement => placement.PlayerId == humanThrower.Id
+            ? placement with { Square = new PitchSquare(1, 1), State = PlayerPitchState.Standing }
+            : placement.PlayerId == humanCatcher.Id
+                ? placement with { Square = new PitchSquare(5, 1), State = PlayerPitchState.Standing }
+                : placement.PlayerId == playerToPlace.Id
+                    ? placement with { Square = new PitchSquare(0, 0), State = PlayerPitchState.Standing }
+                    : placement.PlayerId == awayPlayerToPlace.Id
+                        ? placement with { Square = new PitchSquare(8, 8), State = PlayerPitchState.Standing }
+                        : placement)
+        .ToArray()
+};
+var humanOrcPassService = new MatchService(new FixedDiceRoller(d6: [4, 4]));
+var humanOrcPassResult = humanOrcPassService.PassBall(humanOrcPassMatch, ruleset, loadedLeague.Teams[0], humanThrower.Id, humanCatcher.Id, awayLeague.Teams[0]);
+Assert(humanOrcPassResult.Ball.CarrierPlayerId == humanCatcher.Id, "Human thrower to catcher pattern should complete against Orc opposition");
+Assert(humanOrcPassResult.PlayerAwards.Any(award => award.Kind == MatchPlayerAwardKind.Completion && award.PlayerId == humanThrower.Id), "Human thrower should receive completion SPP in the pass pattern");
+AssertMatchInvariants(humanOrcPassResult, ruleset, "Human vs Orc pass pattern");
+
+for (var seed = 1; seed <= 12; seed++)
+{
+    var seededService = new MatchService(new FixedDiceRoller(d6: [3, 3, 3, 3, 1, 6, 6], d8: [5]));
+    var seededMatch = seededService.CreateHotseatMatch(ruleset, loadedLeague.Teams[0], awayLeague.Teams[0]);
+    var seededDefense = SetupTeam(seededService, seededMatch, ruleset, awayLeague.Teams[0], [
+        new(20, 5),
+        new(13, 4),
+        new(13, 5),
+        new(13, 6),
+        new(20, 4),
+        new(20, 6),
+        new(20, 7),
+        new(20, 8),
+        new(20, 9),
+        new(20, 10),
+        new(20, 11)
+    ]);
+    var seededOffense = seededService.AdvancePhase(seededDefense, ruleset);
+    seededOffense = SetupTeam(seededService, seededOffense, ruleset, loadedLeague.Teams[0], [
+        new(12, seed % 3),
+        new(12, 4),
+        new(12, 5),
+        new(12, 6),
+        new(1, 4),
+        new(1, 5),
+        new(1, 6),
+        new(1, 7),
+        new(1, 8),
+        new(1, 9),
+        new(1, 10)
+    ]);
+    var seededKickoff = seededService.AdvancePhase(seededOffense, ruleset);
+    var seededTurn = seededService.ResolveKickoff(seededKickoff, ruleset, loadedLeague.Teams[0], new(ruleset.PitchWidth / 2, seed % 3), awayLeague.Teams[0]);
+    var seededCarryTarget = new PitchSquare(14 + (seed % 5), seed % 3);
+    seededTurn = seededService.MovePlayer(seededTurn, ruleset, loadedLeague.Teams[0], playerToPlace.Id, seededCarryTarget);
+    AssertMatchInvariants(seededTurn, ruleset, $"seeded playtest {seed} after carry");
+    var seededDefenseTurn = seededService.AdvanceTurn(seededTurn, ruleset);
+    AssertMatchInvariants(seededDefenseTurn, ruleset, $"seeded playtest {seed} after turn handoff");
+}
+
 smoke.PrintSummary();
 Console.WriteLine("SoloBB smoke checks passed.");
 
@@ -2914,6 +3150,43 @@ static MatchState SetupTeam(MatchService matchService, MatchState match, Ruleset
     }
 
     return next;
+}
+
+static void AssertMatchInvariants(MatchState match, Ruleset ruleset, string context)
+{
+    Assert(!(match.Ball.CarrierPlayerId is not null && match.Ball.Square is not null), $"{context}: ball cannot have both a carrier and a square");
+    if (match.Ball.Square is PitchSquare ballSquare)
+    {
+        Assert(IsOnPitch(ruleset, ballSquare), $"{context}: loose ball must stay on the pitch");
+    }
+
+    var occupiedSquares = match.Placements
+        .Where(placement => placement.Square is not null && placement.State is PlayerPitchState.Standing or PlayerPitchState.Prone or PlayerPitchState.Stunned)
+        .Select(placement => placement.Square!)
+        .ToArray();
+    Assert(occupiedSquares.All(square => IsOnPitch(ruleset, square)), $"{context}: all occupied player squares must stay on the pitch");
+    Assert(occupiedSquares.Distinct().Count() == occupiedSquares.Length, $"{context}: player squares must not overlap");
+
+    if (match.Ball.CarrierPlayerId is Guid carrierId)
+    {
+        Assert(match.Placements.Any(placement =>
+            placement.PlayerId == carrierId &&
+            placement.Square is not null &&
+            placement.State == PlayerPitchState.Standing), $"{context}: ball carrier must be a standing player on the pitch");
+    }
+
+    if (match.Phase is not MatchPhase.Complete)
+    {
+        Assert(match.ActiveTeamId == match.HomeTeamId || match.ActiveTeamId == match.AwayTeamId, $"{context}: active team must belong to the match");
+    }
+
+    Assert(match.HomeScore >= 0 && match.AwayScore >= 0, $"{context}: scores cannot be negative");
+    Assert(match.HomeTurn >= 1 && match.AwayTurn >= 1, $"{context}: turn counters cannot drop below one");
+}
+
+static bool IsOnPitch(Ruleset ruleset, PitchSquare square)
+{
+    return square.X >= 0 && square.X < ruleset.PitchWidth && square.Y >= 0 && square.Y < ruleset.PitchHeight;
 }
 
 public sealed record SmokeFixture(
