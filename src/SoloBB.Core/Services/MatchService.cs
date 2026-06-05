@@ -357,7 +357,7 @@ public sealed class MatchService
         }
 
         var player = FindTeamPlayer(team, playerId);
-        if (!PlayerHasSkillEffect(ruleset, player, SkillEffect.Leap))
+        if (!PlayerHasHookedEffect(ruleset, player, GameEventKind.MoveStep, GameEventStage.BeforeEvent, SkillEffect.Leap))
         {
             throw new InvalidOperationException($"{player.Name} does not have Leap.");
         }
@@ -381,7 +381,7 @@ public sealed class MatchService
         }
 
         var tackleZones = CountOpposingTackleZones(match, team.Id, playerId, destination);
-        var veryLongLegsModifier = PlayerHasSkillEffect(ruleset, player, SkillEffect.VeryLongLegs) ? -1 : 0;
+        var veryLongLegsModifier = PlayerHasHookedEffect(ruleset, player, GameEventKind.DodgeRoll, GameEventStage.ModifyTarget, SkillEffect.VeryLongLegs) ? -1 : 0;
         var target = Math.Clamp(player.Stats.Agility + 1 + Math.Max(0, tackleZones + veryLongLegsModifier), 2, 6);
         var roll = _dice.RollD6();
         var leapedAction = BeginPlayerAction(match, ruleset, team, player, PlayerTurnAction.Move, goForItsUsed: 0);
@@ -476,7 +476,7 @@ public sealed class MatchService
         }
 
         var activatedMatch = handOffAction.Match;
-        var handOffTackleZones = PlayerHasSkillEffect(ruleset, receiver, SkillEffect.NervesOfSteel)
+        var handOffTackleZones = PlayerHasHookedEffect(ruleset, receiver, GameEventKind.CatchRoll, GameEventStage.ModifyTarget, SkillEffect.NervesOfSteel)
             ? 0
             : CountOpposingTackleZones(match, team.Id, receiver.Id, receiverPlacement.Square!);
         var disturbingPresence = DisturbingPresenceModifier(match, ruleset, opposingTeam, receiverPlacement.Square!);
@@ -531,7 +531,7 @@ public sealed class MatchService
         }
 
         var player = FindTeamPlayer(team, playerId);
-        if (!PlayerHasSkillEffect(ruleset, player, SkillEffect.Fumblerooskie))
+        if (!PlayerHasHookedEffect(ruleset, player, GameEventKind.MoveStep, GameEventStage.AfterEvent, SkillEffect.Fumblerooskie))
         {
             throw new InvalidOperationException($"{player.Name} does not have Fumblerooskie.");
         }
@@ -570,7 +570,7 @@ public sealed class MatchService
         LeagueTeam? opposingTeam = null)
     {
         var player = FindTeamPlayer(team, playerId);
-        if (!PlayerHasSkillEffect(ruleset, player, SkillEffect.OnTheBall))
+        if (!PlayerHasHookedEffect(ruleset, player, GameEventKind.MoveStep, GameEventStage.BeforeEvent, SkillEffect.OnTheBall))
         {
             throw new InvalidOperationException($"{player.Name} does not have On the Ball.");
         }
@@ -662,7 +662,7 @@ public sealed class MatchService
         LeagueTeam? opposingTeam = null)
     {
         var player = FindTeamPlayer(team, playerId);
-        if (!PlayerHasSkillEffect(ruleset, player, SkillEffect.RunningPass))
+        if (!PlayerHasHookedEffect(ruleset, player, GameEventKind.PassRoll, GameEventStage.AfterEvent, SkillEffect.RunningPass))
         {
             throw new InvalidOperationException($"{player.Name} does not have Running Pass.");
         }
@@ -777,14 +777,15 @@ public sealed class MatchService
 
         var passerPlayer = FindTeamPlayer(team, passerPlayerId);
         var passerPlacement = FindStandingPlacement(match, passerPlayerId, team.Id, "passer");
-        if (isDumpOff && !PlayerHasSkillEffect(ruleset, passerPlayer, SkillEffect.DumpOff))
+        if (isDumpOff &&
+            !PlayerHasHookedEffect(ruleset, passerPlayer, GameEventKind.PassRoll, GameEventStage.BeforeEvent, SkillEffect.DumpOff))
         {
             throw new InvalidOperationException($"{passerPlayer.Name} does not have Dump-Off.");
         }
 
         if (isHailMary)
         {
-            if (!PlayerHasSkillEffect(ruleset, passerPlayer, SkillEffect.HailMaryPass))
+            if (!PlayerHasHookedEffect(ruleset, passerPlayer, GameEventKind.PassRoll, GameEventStage.BeforeEvent, SkillEffect.HailMaryPass))
             {
                 throw new InvalidOperationException($"{passerPlayer.Name} does not have Hail Mary Pass.");
             }
@@ -821,7 +822,7 @@ public sealed class MatchService
             throw new InvalidOperationException("Dump-Off can only make a Quick Pass.");
         }
 
-        var passerTackleZones = PlayerHasSkillEffect(ruleset, passerPlayer, SkillEffect.NervesOfSteel)
+        var passerTackleZones = PlayerHasHookedEffect(ruleset, passerPlayer, GameEventKind.PassRoll, GameEventStage.ModifyTarget, SkillEffect.NervesOfSteel)
             ? 0
             : CountOpposingTackleZones(match, team.Id, passerPlayerId, passerPlacement.Square!);
         var passerDisturbingPresence = DisturbingPresenceModifier(match, ruleset, defendingTeam, passerPlacement.Square!);
@@ -1011,12 +1012,12 @@ public sealed class MatchService
         var interceptor = FindTeamPlayer(defendingTeam, interceptorPlacement.PlayerId);
         var interceptionRoll = _dice.RollD6();
         var interceptorSquare = interceptorPlacement.Square!;
-        var interceptionTackleZones = PlayerHasSkillEffect(ruleset, interceptor, SkillEffect.NervesOfSteel)
+        var interceptionTackleZones = PlayerHasHookedEffect(ruleset, interceptor, GameEventKind.InterceptionRoll, GameEventStage.ModifyTarget, SkillEffect.NervesOfSteel)
             ? 0
             : CountOpposingTackleZones(match, defendingTeam.Id, interceptor.Id, interceptorSquare);
         var cloudBursterApplies = useCloudBurster &&
-            PlayerHasSkillEffect(ruleset, passer, SkillEffect.CloudBurster) &&
-            !PlayerHasSkillEffect(ruleset, interceptor, SkillEffect.VeryLongLegs) &&
+            PlayerHasHookedEffect(ruleset, passer, GameEventKind.InterceptionRoll, GameEventStage.AfterRoll, SkillEffect.CloudBurster) &&
+            !PlayerHasHookedEffect(ruleset, interceptor, GameEventKind.InterceptionRoll, GameEventStage.AfterRoll, SkillEffect.VeryLongLegs) &&
             IsLongPass(passRangeName);
         var interceptionDisturbingPresence = DisturbingPresenceModifier(match, ruleset, passingTeam, interceptorSquare);
         var interceptionTarget = InterceptionTarget(ruleset, interceptor, match.Weather, interceptionTackleZones, interceptionDisturbingPresence);
@@ -1108,7 +1109,7 @@ public sealed class MatchService
         }
 
         var receiver = FindTeamPlayer(team, receiverPlacement.PlayerId);
-        var catchTackleZones = PlayerHasSkillEffect(ruleset, receiver, SkillEffect.NervesOfSteel)
+        var catchTackleZones = PlayerHasHookedEffect(ruleset, receiver, GameEventKind.CatchRoll, GameEventStage.ModifyTarget, SkillEffect.NervesOfSteel)
             ? 0
             : CountOpposingTackleZones(match, team.Id, receiver.Id, receiverPlacement.Square!);
         var catchDisturbingPresence = DisturbingPresenceModifier(match, ruleset, opposingTeam, receiverPlacement.Square!);
@@ -1639,7 +1640,8 @@ public sealed class MatchService
 
         var attackerPlacement = match.Placements.FirstOrDefault(placement => placement.PlayerId == attackerPlayerId)
             ?? throw new InvalidOperationException("Attacker is not part of this match.");
-        if (attackerPlacement.State == PlayerPitchState.Prone && PlayerHasSkillEffect(ruleset, attacker, SkillEffect.JumpUp))
+        if (attackerPlacement.State == PlayerPitchState.Prone &&
+            PlayerHasHookedEffect(ruleset, attacker, GameEventKind.BlockRoll, GameEventStage.BeforeEvent, SkillEffect.JumpUp))
         {
             var defenderPlacement = FindStandingPlacement(match, defenderPlayerId, defenderTeam.Id, "defender");
             if (attackerPlacement.Square is null || !IsAdjacent(attackerPlacement.Square, defenderPlacement.Square!))
@@ -1723,7 +1725,7 @@ public sealed class MatchService
         }
 
         var attacker = FindTeamPlayer(attackerTeam, attackerPlayerId);
-        if (!PlayerHasSkillEffect(ruleset, attacker, SkillEffect.MultipleBlock))
+        if (!PlayerHasHookedEffect(ruleset, attacker, GameEventKind.BlockRoll, GameEventStage.BeforeEvent, SkillEffect.MultipleBlock))
         {
             throw new InvalidOperationException($"{attacker.Name} does not have Multiple Block.");
         }
@@ -2175,7 +2177,7 @@ public sealed class MatchService
         EnsureNoPendingChoices(match);
 
         var fouler = FindTeamPlayer(foulingTeam, foulerPlayerId);
-        if (!PlayerHasSkillEffect(ruleset, fouler, SkillEffect.PileDriver))
+        if (!PlayerHasHookedEffect(ruleset, fouler, GameEventKind.Push, GameEventStage.AfterEvent, SkillEffect.PileDriver))
         {
             throw new InvalidOperationException($"{fouler.Name} does not have Pile Driver.");
         }
@@ -2371,7 +2373,7 @@ public sealed class MatchService
         LeagueTeam opposingTeam)
     {
         var actor = FindTeamPlayer(team, playerId);
-        if (!PlayerHasSkillId(actor, "ball-and-chain"))
+        if (!PlayerHasHookedEffect(ruleset, actor, GameEventKind.MoveStep, GameEventStage.BeforeEvent, SkillEffect.BallAndChain))
         {
             throw new InvalidOperationException($"{actor.Name} does not have Ball and Chain.");
         }
@@ -2439,7 +2441,7 @@ public sealed class MatchService
         LeagueTeam opposingTeam)
     {
         var bomber = FindTeamPlayer(throwingTeam, bomberPlayerId);
-        if (!PlayerHasSkillId(bomber, "bombardier"))
+        if (!PlayerHasHookedEffect(ruleset, bomber, GameEventKind.PassRoll, GameEventStage.BeforeEvent, SkillEffect.Bombardier))
         {
             throw new InvalidOperationException($"{bomber.Name} does not have Bombardier.");
         }
@@ -2532,7 +2534,7 @@ public sealed class MatchService
         }
 
         var nextMatch = action.Match;
-        if (PlayerHasSkillId(context.Actor, "always-hungry"))
+        if (PlayerHasHookedEffect(ruleset, context.Actor, GameEventKind.PassRoll, GameEventStage.BeforeEvent, SkillEffect.AlwaysHungry))
         {
             var hungryRoll = _dice.RollD6();
             if (hungryRoll == 1)
@@ -2574,7 +2576,7 @@ public sealed class MatchService
         }
 
         var passRange = ResolvePassRange(context.ActorPlacement.Square!, targetSquare);
-        var throwModifier = PlayerHasSkillEffect(ruleset, context.Actor, SkillEffect.StrongArm) ? -1 : 0;
+        var throwModifier = PlayerHasHookedEffect(ruleset, context.Actor, GameEventKind.PassRoll, GameEventStage.ModifyTarget, SkillEffect.StrongArm) ? -1 : 0;
         var passTarget = Math.Clamp(PassingTarget(ruleset, context.Actor, passRange, nextMatch.Weather) + throwModifier + 1, 2, 6);
         var passRoll = _dice.RollD6();
         var accurate = RollSucceeds(passRoll, passTarget, ruleset.Dice);
@@ -2650,13 +2652,13 @@ public sealed class MatchService
         bool allowSneakyGitMove)
     {
         var armorRoll = Roll2D6Detailed();
-        var hasDirtyPlayer = PlayerHasSkillEffect(ruleset, fouler, SkillEffect.DirtyPlayer);
-        var hasSneakyGit = PlayerHasSkillEffect(ruleset, fouler, SkillEffect.SneakyGit);
+        var hasDirtyPlayer = PlayerHasHookedEffect(ruleset, fouler, GameEventKind.ArmorRoll, GameEventStage.AfterRoll, SkillEffect.DirtyPlayer);
+        var hasSneakyGit = PlayerHasHookedEffect(ruleset, fouler, GameEventKind.ArmorRoll, GameEventStage.AfterRoll, SkillEffect.SneakyGit);
         var victimSquare = victimPlacement.Square
             ?? throw new InvalidOperationException("Victim must be on the pitch.");
         var armorTotalWithoutSkill = armorRoll.Total + attackAssists - defenseAssists;
         var dirtyPlayerArmorBonus = hasDirtyPlayer &&
-            !PlayerHasSkillEffect(ruleset, victim, SkillEffect.IronHardSkin) &&
+            !PlayerHasHookedEffect(ruleset, victim, GameEventKind.ArmorRoll, GameEventStage.BeforeResolve, SkillEffect.IronHardSkin) &&
             armorTotalWithoutSkill <= victim.Stats.Armor &&
             armorTotalWithoutSkill + 1 > victim.Stats.Armor
                 ? 1
@@ -3066,13 +3068,13 @@ public sealed class MatchService
         }
 
         var actor = FindTeamPlayer(team, actorPlayerId);
-        if (!PlayerHasSkillId(actor, requiredSkillId))
+        if (!PlayerHasLaunchActionEffect(ruleset, actor, requiredSkillId))
         {
             throw new InvalidOperationException($"{actor.Name} does not have {actionName}.");
         }
 
         var launched = FindTeamPlayer(team, launchedPlayerId);
-        if (!PlayerHasSkillId(launched, "right-stuff"))
+        if (!PlayerHasHookedEffect(ruleset, launched, GameEventKind.PassRoll, GameEventStage.BeforeEvent, SkillEffect.RightStuff))
         {
             throw new InvalidOperationException($"{launched.Name} does not have Right Stuff.");
         }
@@ -3099,7 +3101,7 @@ public sealed class MatchService
 
     private PitchSquare ScatterLaunchedPlayer(Ruleset ruleset, PitchSquare targetSquare, Player launchedPlayer, int inaccurateDistance)
     {
-        if (!PlayerHasSkillId(launchedPlayer, "swoop"))
+        if (!PlayerHasHookedEffect(ruleset, launchedPlayer, GameEventKind.BallScatter, GameEventStage.BeforeResolve, SkillEffect.Swoop))
         {
             return ScatterFrom(ruleset, targetSquare, inaccurateDistance);
         }
@@ -3341,10 +3343,10 @@ public sealed class MatchService
             throw new InvalidOperationException("Movement paths cannot pass through occupied squares.");
         }
 
-        var movementAllowance = isStandingUp && !PlayerHasSkillEffect(ruleset, player, SkillEffect.JumpUp)
+        var movementAllowance = isStandingUp && !PlayerHasHookedEffect(ruleset, player, GameEventKind.MoveStep, GameEventStage.BeforeEvent, SkillEffect.JumpUp)
             ? Math.Max(0, player.Stats.Movement - 3)
             : player.Stats.Movement;
-        var maxGoForIts = PlayerHasSkillEffect(ruleset, player, SkillEffect.Sprint)
+        var maxGoForIts = PlayerHasHookedEffect(ruleset, player, GameEventKind.MoveStep, GameEventStage.BeforeEvent, SkillEffect.Sprint)
             ? SprintGoForItsPerActivation
             : MaxGoForItsPerActivation;
         var goForItsUsed = Math.Max(0, path.Length - movementAllowance);
@@ -3561,7 +3563,7 @@ public sealed class MatchService
         var rolls = Enumerable.Range(0, strength.Dice).Select(_ => _dice.RollD6()).ToArray();
         var attackerAction = GetActivation(match, attacker.Id, attackerTeam.Id)?.Action ?? PlayerTurnAction.Block;
         if (attackerAction == PlayerTurnAction.Block &&
-            PlayerHasSkillEffect(ruleset, attacker, SkillEffect.Brawler) &&
+            PlayerHasHookedEffect(ruleset, attacker, GameEventKind.BlockRoll, GameEventStage.AfterRoll, SkillEffect.Brawler) &&
             rolls.Contains(2))
         {
             var brawlerRoll = _dice.RollD6();
@@ -3632,7 +3634,9 @@ public sealed class MatchService
         var strengthText = $"ST {strength.AttackerStrength}-{strength.DefenderStrength}, {strength.Dice} die{(strength.Dice == 1 ? "" : "s")}";
         var attackerAction = GetActivation(match, attacker.Id, attackerTeam.Id)?.Action ?? PlayerTurnAction.Block;
 
-        if (roll == 2 && attackerAction == PlayerTurnAction.Blitz && PlayerHasSkillEffect(ruleset, attacker, SkillEffect.Juggernaut))
+        if (roll == 2 &&
+            attackerAction == PlayerTurnAction.Blitz &&
+            PlayerHasHookedEffect(ruleset, attacker, GameEventKind.BlockRoll, GameEventStage.BeforeResolve, SkillEffect.Juggernaut))
         {
             return ResolvePushAfterBlock(
                 match,
@@ -3665,8 +3669,8 @@ public sealed class MatchService
 
         if (roll == 2)
         {
-            var attackerHasWrestle = PlayerHasSkillEffect(ruleset, attacker, SkillEffect.Wrestle);
-            var defenderHasWrestle = PlayerHasSkillEffect(ruleset, defender, SkillEffect.Wrestle);
+            var attackerHasWrestle = PlayerHasHookedEffect(ruleset, attacker, GameEventKind.BlockRoll, GameEventStage.BeforeResolve, SkillEffect.Wrestle);
+            var defenderHasWrestle = PlayerHasHookedEffect(ruleset, defender, GameEventKind.BlockRoll, GameEventStage.BeforeResolve, SkillEffect.Wrestle);
             if (attackerHasWrestle || defenderHasWrestle)
             {
                 var ball = match.Ball;
@@ -3703,8 +3707,8 @@ public sealed class MatchService
                     : wrestledMatch;
             }
 
-            var attackerHasBlock = PlayerHasSkillEffect(ruleset, attacker, SkillEffect.BothDownProtection);
-            var defenderHasBlock = PlayerHasSkillEffect(ruleset, defender, SkillEffect.BothDownProtection);
+            var attackerHasBlock = PlayerHasHookedEffect(ruleset, attacker, GameEventKind.BlockRoll, GameEventStage.BeforeResolve, SkillEffect.BothDownProtection);
+            var defenderHasBlock = PlayerHasHookedEffect(ruleset, defender, GameEventKind.BlockRoll, GameEventStage.BeforeResolve, SkillEffect.BothDownProtection);
             var nextMatch = match;
         if (!defenderHasBlock)
         {
@@ -3777,7 +3781,8 @@ public sealed class MatchService
     {
         var attackerAction = GetActivation(match, attacker.Id, attackerPlacement.TeamId)?.Action ?? PlayerTurnAction.Block;
         var legalSquares = LegalPushSquares(match, ruleset, attackerPlacement.Square!, defenderPlacement.Square!, attacker, defender, attackerAction);
-        if (!suppressStandFirm && PlayerHasSkillEffect(ruleset, defender, SkillEffect.StandFirm))
+        if (!suppressStandFirm &&
+            PlayerHasHookedEffect(ruleset, defender, GameEventKind.Push, GameEventStage.BeforeResolve, SkillEffect.StandFirm))
         {
             return match with
             {
@@ -3885,7 +3890,7 @@ public sealed class MatchService
             return countedMatch;
         }
 
-        if (PlayerHasSkillEffect(ruleset, defender, SkillEffect.Fend))
+        if (PlayerHasHookedEffect(ruleset, defender, GameEventKind.Push, GameEventStage.AfterEvent, SkillEffect.Fend))
         {
             return countedMatch with
             {
@@ -3899,7 +3904,7 @@ public sealed class MatchService
 
         var mustFrenzy = !knockDefenderDown &&
             blocksMadeBeforePush == 0 &&
-            PlayerHasSkillEffect(ruleset, attacker, SkillEffect.Frenzy);
+            PlayerHasHookedEffect(ruleset, attacker, GameEventKind.Push, GameEventStage.AfterEvent, SkillEffect.Frenzy);
         if (mustFrenzy)
         {
             var followedMatch = MoveAttackerToFollowUpSquare(countedMatch, attacker, followUpSquare);
@@ -3997,8 +4002,9 @@ public sealed class MatchService
         var attackerAssists = CountAssists(match, ruleset, attackerTeam, defenderTeam, defenderPlacement.PlayerId, defenderPlacement.Square!, attackerPlacement.PlayerId);
         var defenderAssists = CountAssists(match, ruleset, defenderTeam, attackerTeam, attackerPlacement.PlayerId, attackerPlacement.Square!, defenderPlacement.PlayerId);
         var attackerAction = GetActivation(match, attacker.Id, attackerTeam.Id)?.Action ?? PlayerTurnAction.Block;
-        var attackerBaseStrength = attacker.Stats.Strength + (attackerAction == PlayerTurnAction.Blitz && PlayerHasSkillEffect(ruleset, attacker, SkillEffect.Horns) ? 1 : 0);
-        if (attackerBaseStrength < defender.Stats.Strength && PlayerHasSkillEffect(ruleset, attacker, SkillEffect.Dauntless))
+        var attackerBaseStrength = attacker.Stats.Strength + (attackerAction == PlayerTurnAction.Blitz && PlayerHasHookedEffect(ruleset, attacker, GameEventKind.BlockRoll, GameEventStage.BeforeRoll, SkillEffect.Horns) ? 1 : 0);
+        if (attackerBaseStrength < defender.Stats.Strength &&
+            PlayerHasHookedEffect(ruleset, attacker, GameEventKind.BlockRoll, GameEventStage.BeforeRoll, SkillEffect.Dauntless))
         {
             var dauntlessRoll = _dice.RollD6();
             if (dauntlessRoll + attackerBaseStrength > defender.Stats.Strength)
@@ -4024,9 +4030,9 @@ public sealed class MatchService
             placement.Square is PitchSquare square &&
             IsAdjacent(square, targetSquare) &&
             (!IsMarkedByOpponent(match, assistingTeam.Id, placement.PlayerId, square, opposedPlayerId) ||
-                (PlayerHasSkillEffect(ruleset, FindTeamPlayer(assistingTeam, placement.PlayerId), SkillEffect.GuardAssist) &&
+                (PlayerHasHookedEffect(ruleset, FindTeamPlayer(assistingTeam, placement.PlayerId), GameEventKind.BlockRoll, GameEventStage.ModifyTarget, SkillEffect.GuardAssist) &&
                     match.ActiveTeamId != opposingTeam.Id &&
-                    !IsMarkedByOpponentWithSkillEffect(match, ruleset, assistingTeam.Id, opposingTeam, placement.PlayerId, square, opposedPlayerId, SkillEffect.Defensive))));
+                    !IsMarkedByOpponentWithHookedEffect(match, ruleset, assistingTeam.Id, opposingTeam, placement.PlayerId, square, opposedPlayerId, GameEventKind.BlockRoll, GameEventStage.ModifyTarget, SkillEffect.Defensive))));
     }
 
     private int CountFoulAssists(
@@ -4081,10 +4087,10 @@ public sealed class MatchService
             HasActiveTackleZone(placement) &&
             placement.Square is PitchSquare opponentSquare &&
             IsAdjacent(opponentSquare, square) &&
-            !PlayerHasSkillId(FindTeamPlayer(opposingTeam, placement.PlayerId), "titchy"));
+            !PlayerHasHookedEffect(ruleset, FindTeamPlayer(opposingTeam, placement.PlayerId), GameEventKind.MoveStep, GameEventStage.ModifyTarget, SkillEffect.Titchy));
     }
 
-    private static bool IsMarkedByOpponentWithSkillEffect(
+    private static bool IsMarkedByOpponentWithHookedEffect(
         MatchState match,
         Ruleset ruleset,
         Guid teamId,
@@ -4092,6 +4098,8 @@ public sealed class MatchService
         Guid playerId,
         PitchSquare square,
         Guid ignoredOpponentId,
+        GameEventKind eventKind,
+        GameEventStage stage,
         SkillEffect effect)
     {
         return match.Placements.Any(placement =>
@@ -4101,7 +4109,7 @@ public sealed class MatchService
             HasActiveTackleZone(placement) &&
             placement.Square is PitchSquare opponentSquare &&
             IsAdjacent(opponentSquare, square) &&
-            PlayerHasSkillEffect(ruleset, FindTeamPlayer(opposingTeam, placement.PlayerId), effect));
+            PlayerHasHookedEffect(ruleset, FindTeamPlayer(opposingTeam, placement.PlayerId), eventKind, stage, effect));
     }
 
     private static int ResolveBlockDice(int attackerStrength, int defenderStrength)
@@ -4493,7 +4501,7 @@ public sealed class MatchService
                 if (divingCatchPlacement is not null)
                 {
                     var divingReceiver = FindTeamPlayer(originalTeam, divingCatchPlacement.PlayerId);
-                    var divingTackleZones = PlayerHasSkillEffect(ruleset, divingReceiver, SkillEffect.NervesOfSteel)
+                    var divingTackleZones = PlayerHasHookedEffect(ruleset, divingReceiver, GameEventKind.CatchRoll, GameEventStage.ModifyTarget, SkillEffect.NervesOfSteel)
                         ? 0
                         : CountOpposingTackleZones(match, originalTeam.Id, divingReceiver.Id, square);
                     var divingDisturbingPresence = DisturbingPresenceModifier(match, ruleset, opposingTeam, square);
@@ -4542,7 +4550,7 @@ public sealed class MatchService
         }
 
         var receiver = FindTeamPlayer(originalTeam, receiverPlacement.PlayerId);
-        var receiverTackleZones = PlayerHasSkillEffect(ruleset, receiver, SkillEffect.NervesOfSteel)
+        var receiverTackleZones = PlayerHasHookedEffect(ruleset, receiver, GameEventKind.CatchRoll, GameEventStage.ModifyTarget, SkillEffect.NervesOfSteel)
             ? 0
             : CountOpposingTackleZones(match, originalTeam.Id, receiver.Id, receiverPlacement.Square!);
         var receiverDisturbingPresence = DisturbingPresenceModifier(match, ruleset, opposingTeam, receiverPlacement.Square!);
@@ -4713,18 +4721,19 @@ public sealed class MatchService
             return new ActionStart(match, Prevented: false);
         }
 
-        if (PlayerHasSkillId(player, "bone-head"))
+        if (PlayerHasHookedSkillId(ruleset, player, GameEventKind.ActionStart, GameEventStage.BeforeEvent, "bone-head"))
         {
             return ResolveReliabilityTrait(match, team, player, action, "Bone-head", target: 2, loseTackleZonesOnFailure: true);
         }
 
-        if (PlayerHasSkillId(player, "really-stupid"))
+        if (PlayerHasHookedSkillId(ruleset, player, GameEventKind.ActionStart, GameEventStage.BeforeEvent, "really-stupid"))
         {
             var hasHelper = HasAdjacentStandingTeammate(match, team.Id, player.Id);
             return ResolveReliabilityTrait(match, team, player, action, "Really Stupid", target: hasHelper ? 2 : 4, loseTackleZonesOnFailure: true);
         }
 
-        if (PlayerHasSkillId(player, "take-root") && FindPlacement(match, player.Id)?.Rooted != true)
+        if (PlayerHasHookedSkillId(ruleset, player, GameEventKind.ActionStart, GameEventStage.BeforeEvent, "take-root") &&
+            FindPlacement(match, player.Id)?.Rooted != true)
         {
             var roll = _dice.RollD6();
             if (roll == 1)
@@ -4765,19 +4774,19 @@ public sealed class MatchService
             }, Prevented: false);
         }
 
-        if (PlayerHasSkillId(player, "animal-savagery"))
+        if (PlayerHasHookedSkillId(ruleset, player, GameEventKind.ActionStart, GameEventStage.BeforeEvent, "animal-savagery"))
         {
             var target = action is PlayerTurnAction.Block or PlayerTurnAction.Blitz ? 2 : 4;
             return ResolveAggressionTrait(match, ruleset, team, player, action, "Animal Savagery", target, loseTackleZonesOnFailure: true);
         }
 
-        if (PlayerHasSkillId(player, "unchannelled-fury"))
+        if (PlayerHasHookedSkillId(ruleset, player, GameEventKind.ActionStart, GameEventStage.BeforeEvent, "unchannelled-fury"))
         {
             var target = action is PlayerTurnAction.Block or PlayerTurnAction.Blitz ? 2 : 4;
             return ResolveReliabilityTrait(match, team, player, action, "Unchannelled Fury", target, loseTackleZonesOnFailure: false);
         }
 
-        if (PlayerHasSkillId(player, "bloodlust"))
+        if (PlayerHasHookedSkillId(ruleset, player, GameEventKind.ActionStart, GameEventStage.BeforeEvent, "bloodlust"))
         {
             return ResolveAggressionTrait(match, ruleset, team, player, action, "Bloodlust", target: 2, loseTackleZonesOnFailure: false);
         }
@@ -5130,7 +5139,7 @@ public sealed class MatchService
         int movementAllowance,
         Guid? blitzDefenderPlayerId = null)
     {
-        if (PlayerHasSkillId(player, "no-hands"))
+        if (PlayerHasHookedSkillId(ruleset, player, GameEventKind.PickupRoll, GameEventStage.BeforeRoll, "no-hands"))
         {
             return ResolveFailedPickup(match with
             {
@@ -5208,7 +5217,8 @@ public sealed class MatchService
             return ResolveDeclinedMovementReroll(baseMatch, ruleset, team, player, pending);
         }
 
-        if (useTeamReroll && PlayerHasSkillId(player, "loner"))
+        if (useTeamReroll &&
+            SkillHookResolver.PlayerHasHookedEffect(ruleset, player, PendingRerollEventKind(pending.Kind), GameEventStage.AfterRoll, SkillEffect.Loner))
         {
             var lonerRoll = _dice.RollD6();
             if (lonerRoll < 4)
@@ -5475,10 +5485,14 @@ public sealed class MatchService
             var dodgeStart = stepIndex == 0
                 ? match.Placements.First(placement => placement.PlayerId == player.Id).Square!
                 : path[stepIndex - 1];
-            if (opposingTeam is not null && IsAdjacentToOpponentWithSkillEffect(match, ruleset, opposingTeam, player.Id, dodgeStart, SkillEffect.CancelDodgeReroll))
+            if (opposingTeam is not null &&
+                IsAdjacentToOpponentWithHookedEffect(match, ruleset, opposingTeam, player.Id, dodgeStart, GameEventKind.DodgeRoll, GameEventStage.AfterRoll, SkillEffect.CancelDodgeReroll))
             {
                 skillRerolls = skillRerolls
-                    .Where(skillId => !SkillHasEffect(ruleset, skillId, SkillEffect.DodgeReroll))
+                    .Where(skillId => !SkillCatalog
+                        .GetSkillsForHook(ruleset, player, GameEventKind.DodgeRoll, GameEventStage.AfterRoll)
+                        .Any(skill => string.Equals(skill.Id, skillId, StringComparison.OrdinalIgnoreCase) &&
+                            skill.Effects.Contains(SkillEffect.DodgeReroll)))
                     .ToArray();
             }
         }
@@ -6055,18 +6069,18 @@ public sealed class MatchService
 
     private static IReadOnlyList<string> AvailableSkillRerolls(Ruleset ruleset, Player player, PendingRerollKind kind)
     {
-        var effect = kind switch
+        var (eventKind, effect) = kind switch
         {
-            PendingRerollKind.Dodge => SkillEffect.DodgeReroll,
-            PendingRerollKind.Pickup => SkillEffect.PickupReroll,
-            PendingRerollKind.GoForIt => SkillEffect.GoForItReroll,
+            PendingRerollKind.Dodge => (GameEventKind.DodgeRoll, SkillEffect.DodgeReroll),
+            PendingRerollKind.Pickup => (GameEventKind.PickupRoll, SkillEffect.PickupReroll),
+            PendingRerollKind.GoForIt => (GameEventKind.GoForItRoll, SkillEffect.GoForItReroll),
             _ => throw new InvalidOperationException("Unknown reroll kind.")
         };
 
-        var rerolls = player.Skills
-            .Where(skill => SkillHasEffect(ruleset, skill, effect))
+        var rerolls = SkillHookResolver
+            .SkillIdsForHookedEffect(ruleset, player, eventKind, GameEventStage.AfterRoll, effect)
             .ToArray();
-        if (PlayerHasSkillEffect(ruleset, player, SkillEffect.Pro))
+        if (SkillHookResolver.PlayerHasHookedEffect(ruleset, player, eventKind, GameEventStage.AfterRoll, SkillEffect.Pro))
         {
             rerolls = [.. rerolls, "pro"];
         }
@@ -6083,8 +6097,8 @@ public sealed class MatchService
         Player defender,
         PlayerTurnAction attackerAction)
     {
-        var attackerCanUseGrab = PlayerHasSkillEffect(ruleset, attacker, SkillEffect.Grab) &&
-            !PlayerHasSkillEffect(ruleset, attacker, SkillEffect.Frenzy);
+        var attackerCanUseGrab = PlayerHasHookedEffect(ruleset, attacker, GameEventKind.Push, GameEventStage.BeforeResolve, SkillEffect.Grab) &&
+            !PlayerHasHookedEffect(ruleset, attacker, GameEventKind.Push, GameEventStage.AfterEvent, SkillEffect.Frenzy);
         if (attackerCanUseGrab && attackerAction == PlayerTurnAction.Block)
         {
             var grabSquares = AdjacentSquares(defenderSquare)
@@ -6099,7 +6113,8 @@ public sealed class MatchService
                 : LegalPushSquares(match, ruleset, attackerSquare, defenderSquare, defender.Id);
         }
 
-        if (attackerCanUseGrab || !PlayerHasSkillEffect(ruleset, defender, SkillEffect.SideStep))
+        if (attackerCanUseGrab ||
+            !PlayerHasHookedEffect(ruleset, defender, GameEventKind.Push, GameEventStage.BeforeResolve, SkillEffect.SideStep))
         {
             return LegalPushSquares(match, ruleset, attackerSquare, defenderSquare, defender.Id);
         }
@@ -6115,14 +6130,52 @@ public sealed class MatchService
             : LegalPushSquares(match, ruleset, attackerSquare, defenderSquare, defender.Id);
     }
 
-    private static bool PlayerHasSkillEffect(Ruleset ruleset, Player player, SkillEffect effect)
+    private static bool PlayerHasHookedEffect(
+        Ruleset ruleset,
+        Player player,
+        GameEventKind eventKind,
+        GameEventStage stage,
+        SkillEffect effect)
     {
-        return player.Skills.Any(skill => SkillHasEffect(ruleset, skill, effect));
+        return SkillHookResolver.PlayerHasHookedEffect(ruleset, player, eventKind, stage, effect);
+    }
+
+    private static bool PlayerHasHookedSkillId(
+        Ruleset ruleset,
+        Player player,
+        GameEventKind eventKind,
+        GameEventStage stage,
+        string skillId)
+    {
+        return SkillHookResolver.PlayerHasHookedSkillId(ruleset, player, eventKind, stage, skillId);
+    }
+
+    private static bool PlayerHasLaunchActionEffect(Ruleset ruleset, Player player, string requiredSkillId)
+    {
+        var requiredEffect = requiredSkillId switch
+        {
+            "throw-team-mate" => SkillEffect.ThrowTeamMate,
+            "kick-team-mate" => SkillEffect.KickTeamMate,
+            _ => throw new InvalidOperationException($"Unknown launch skill '{requiredSkillId}'.")
+        };
+
+        return PlayerHasHookedEffect(ruleset, player, GameEventKind.PassRoll, GameEventStage.BeforeEvent, requiredEffect);
+    }
+
+    private static GameEventKind PendingRerollEventKind(PendingRerollKind kind)
+    {
+        return kind switch
+        {
+            PendingRerollKind.Dodge => GameEventKind.DodgeRoll,
+            PendingRerollKind.Pickup => GameEventKind.PickupRoll,
+            PendingRerollKind.GoForIt => GameEventKind.GoForItRoll,
+            _ => throw new InvalidOperationException("Unknown reroll kind.")
+        };
     }
 
     private static bool PlayerHasSkillId(Player player, string skillId)
     {
-        return player.Skills.Any(skill => string.Equals(skill, skillId, StringComparison.OrdinalIgnoreCase));
+        return SkillCatalog.PlayerHasSkillId(player, skillId);
     }
 
     private static bool HasAdjacentStandingTeammate(MatchState match, Guid teamId, Guid playerId)
@@ -6141,12 +6194,14 @@ public sealed class MatchService
             IsAdjacent(square, teammateSquare));
     }
 
-    private static bool IsAdjacentToOpponentWithSkillEffect(
+    private static bool IsAdjacentToOpponentWithHookedEffect(
         MatchState match,
         Ruleset ruleset,
         LeagueTeam opposingTeam,
         Guid playerId,
         PitchSquare square,
+        GameEventKind eventKind,
+        GameEventStage stage,
         SkillEffect effect)
     {
         return match.Placements.Any(placement =>
@@ -6155,7 +6210,7 @@ public sealed class MatchService
             placement.State == PlayerPitchState.Standing &&
             placement.Square is PitchSquare opponentSquare &&
             IsAdjacent(opponentSquare, square) &&
-            PlayerHasSkillEffect(ruleset, FindTeamPlayer(opposingTeam, placement.PlayerId), effect));
+            PlayerHasHookedEffect(ruleset, FindTeamPlayer(opposingTeam, placement.PlayerId), eventKind, stage, effect));
     }
 
     private static bool ArmBarApplies(
@@ -6167,8 +6222,8 @@ public sealed class MatchService
         PitchSquare destination)
     {
         return opposingTeam is not null &&
-            (IsAdjacentToOpponentWithSkillEffect(match, ruleset, opposingTeam, playerId, currentSquare, SkillEffect.ArmBar) ||
-                IsAdjacentToOpponentWithSkillEffect(match, ruleset, opposingTeam, playerId, destination, SkillEffect.ArmBar));
+            (IsAdjacentToOpponentWithHookedEffect(match, ruleset, opposingTeam, playerId, currentSquare, GameEventKind.DodgeRoll, GameEventStage.BeforeResolve, SkillEffect.ArmBar) ||
+                IsAdjacentToOpponentWithHookedEffect(match, ruleset, opposingTeam, playerId, destination, GameEventKind.DodgeRoll, GameEventStage.BeforeResolve, SkillEffect.ArmBar));
     }
 
     private static int PrehensileTailModifier(
@@ -6179,7 +6234,7 @@ public sealed class MatchService
         PitchSquare currentSquare)
     {
         return opposingTeam is not null &&
-            IsAdjacentToOpponentWithSkillEffect(match, ruleset, opposingTeam, playerId, currentSquare, SkillEffect.PrehensileTail)
+            IsAdjacentToOpponentWithHookedEffect(match, ruleset, opposingTeam, playerId, currentSquare, GameEventKind.DodgeRoll, GameEventStage.ModifyTarget, SkillEffect.PrehensileTail)
                 ? 1
                 : 0;
     }
@@ -6196,7 +6251,9 @@ public sealed class MatchService
             placement.State is PlayerPitchState.Standing or PlayerPitchState.Prone or PlayerPitchState.Stunned &&
             placement.Square is PitchSquare disturbingSquare &&
             Math.Max(Math.Abs(disturbingSquare.X - square.X), Math.Abs(disturbingSquare.Y - square.Y)) <= 3 &&
-            PlayerHasSkillEffect(ruleset, FindTeamPlayer(opposingTeam, placement.PlayerId), SkillEffect.DisturbingPresence));
+            (PlayerHasHookedEffect(ruleset, FindTeamPlayer(opposingTeam, placement.PlayerId), GameEventKind.PassRoll, GameEventStage.ModifyTarget, SkillEffect.DisturbingPresence) ||
+                PlayerHasHookedEffect(ruleset, FindTeamPlayer(opposingTeam, placement.PlayerId), GameEventKind.CatchRoll, GameEventStage.ModifyTarget, SkillEffect.DisturbingPresence) ||
+                PlayerHasHookedEffect(ruleset, FindTeamPlayer(opposingTeam, placement.PlayerId), GameEventKind.InterceptionRoll, GameEventStage.ModifyTarget, SkillEffect.DisturbingPresence)));
     }
 
     private TentaclesResolution ApplyTentacles(
@@ -6217,7 +6274,7 @@ public sealed class MatchService
                 placement.State == PlayerPitchState.Standing &&
                 placement.Square is PitchSquare square &&
                 IsAdjacent(square, currentSquare) &&
-                PlayerHasSkillEffect(ruleset, FindTeamPlayer(opposingTeam, placement.PlayerId), SkillEffect.Tentacles))
+                PlayerHasHookedEffect(ruleset, FindTeamPlayer(opposingTeam, placement.PlayerId), GameEventKind.MoveStep, GameEventStage.BeforeResolve, SkillEffect.Tentacles))
             .FirstOrDefault();
 
         if (tentaclePlacement is null)
@@ -6254,14 +6311,14 @@ public sealed class MatchService
     {
         return defenderHasBall &&
             !knockDown &&
-            PlayerHasSkillEffect(ruleset, attacker, SkillEffect.StripBall) &&
-            !PlayerHasSkillEffect(ruleset, defender, SkillEffect.PickupReroll) &&
-            !PlayerHasSkillEffect(ruleset, defender, SkillEffect.MonstrousMouth);
+            PlayerHasHookedEffect(ruleset, attacker, GameEventKind.Push, GameEventStage.BeforeResolve, SkillEffect.StripBall) &&
+            !PlayerHasHookedEffect(ruleset, defender, GameEventKind.PickupRoll, GameEventStage.AfterRoll, SkillEffect.PickupReroll) &&
+            !PlayerHasHookedEffect(ruleset, defender, GameEventKind.CatchRoll, GameEventStage.AfterRoll, SkillEffect.MonstrousMouth);
     }
 
     private FoulAppearanceResolution ResolveFoulAppearance(MatchState match, Ruleset ruleset, Player attacker, Player defender)
     {
-        if (!PlayerHasSkillEffect(ruleset, defender, SkillEffect.FoulAppearance))
+        if (!PlayerHasHookedEffect(ruleset, defender, GameEventKind.BlockRoll, GameEventStage.BeforeEvent, SkillEffect.FoulAppearance))
         {
             return new FoulAppearanceResolution(match, false);
         }
@@ -6295,12 +6352,12 @@ public sealed class MatchService
             placement.TeamId == kickingTeam.Id &&
             placement.State == PlayerPitchState.Standing &&
             placement.Square is not null &&
-            PlayerHasSkillEffect(ruleset, FindTeamPlayer(kickingTeam, placement.PlayerId), SkillEffect.Kick));
+            PlayerHasHookedEffect(ruleset, FindTeamPlayer(kickingTeam, placement.PlayerId), GameEventKind.BallScatter, GameEventStage.BeforeEvent, SkillEffect.Kick));
     }
 
     private static bool HasLeaderPlayer(Ruleset ruleset, LeagueTeam team)
     {
-        return team.Players.Any(player => PlayerHasSkillEffect(ruleset, player, SkillEffect.Leader));
+        return team.Players.Any(player => PlayerHasHookedEffect(ruleset, player, GameEventKind.ActionStart, GameEventStage.BeforeEvent, SkillEffect.Leader));
     }
 
     private static bool HasLeaderOnPitch(MatchState match, Ruleset ruleset, LeagueTeam team)
@@ -6308,7 +6365,7 @@ public sealed class MatchService
         return match.Placements.Any(placement =>
             placement.TeamId == team.Id &&
             placement.State is PlayerPitchState.Standing or PlayerPitchState.Prone or PlayerPitchState.Stunned &&
-            PlayerHasSkillEffect(ruleset, FindTeamPlayer(team, placement.PlayerId), SkillEffect.Leader));
+            PlayerHasHookedEffect(ruleset, FindTeamPlayer(team, placement.PlayerId), GameEventKind.ActionStart, GameEventStage.BeforeEvent, SkillEffect.Leader));
     }
 
     private MatchState ApplyShadowing(
@@ -6330,7 +6387,7 @@ public sealed class MatchService
             placement.Square is PitchSquare shadowerSquare &&
             IsAdjacent(shadowerSquare, fromSquare) &&
             !IsAdjacent(shadowerSquare, toSquare) &&
-            PlayerHasSkillEffect(ruleset, FindTeamPlayer(opposingTeam, placement.PlayerId), SkillEffect.Shadowing));
+            PlayerHasHookedEffect(ruleset, FindTeamPlayer(opposingTeam, placement.PlayerId), GameEventKind.MoveStep, GameEventStage.AfterEvent, SkillEffect.Shadowing));
         if (shadowerPlacement is null || match.Placements.Any(placement => placement.PlayerId != shadowerPlacement.PlayerId && placement.Square == fromSquare && OccupiesPitch(placement.State)))
         {
             return match;
@@ -6368,19 +6425,12 @@ public sealed class MatchService
 
     private static int BreakTackleBonus(Ruleset ruleset, Player player, bool breakTackleUsed)
     {
-        if (breakTackleUsed || !PlayerHasSkillEffect(ruleset, player, SkillEffect.BreakTackle))
+        if (breakTackleUsed || !PlayerHasHookedEffect(ruleset, player, GameEventKind.DodgeRoll, GameEventStage.ModifyTarget, SkillEffect.BreakTackle))
         {
             return 0;
         }
 
         return player.Stats.Strength >= 5 ? 2 : 1;
-    }
-
-    private static bool SkillHasEffect(Ruleset ruleset, string skillId, SkillEffect effect)
-    {
-        return ruleset.Skills.Any(skill =>
-            string.Equals(skill.Id, skillId, StringComparison.OrdinalIgnoreCase) &&
-            skill.Effects.Contains(effect));
     }
 
     private static string FormatRerollKind(PendingRerollKind kind)
@@ -6834,14 +6884,15 @@ public sealed class MatchService
     private InjuryResolution ResolveBlockInjury(Ruleset ruleset, Player attacker, Player defender)
     {
         var armorRoll = Roll2D6();
-        var hasMightyBlow = PlayerHasSkillEffect(ruleset, attacker, SkillEffect.MightyBlow);
-        var hasIronHardSkin = PlayerHasSkillEffect(ruleset, defender, SkillEffect.IronHardSkin);
-        var clawsBreaksArmor = PlayerHasSkillEffect(ruleset, attacker, SkillEffect.Claws) &&
+        var hasMightyBlowArmor = PlayerHasHookedEffect(ruleset, attacker, GameEventKind.ArmorRoll, GameEventStage.AfterRoll, SkillEffect.MightyBlow);
+        var hasMightyBlowInjury = PlayerHasHookedEffect(ruleset, attacker, GameEventKind.InjuryRoll, GameEventStage.AfterRoll, SkillEffect.MightyBlow);
+        var hasIronHardSkin = PlayerHasHookedEffect(ruleset, defender, GameEventKind.ArmorRoll, GameEventStage.BeforeResolve, SkillEffect.IronHardSkin);
+        var clawsBreaksArmor = PlayerHasHookedEffect(ruleset, attacker, GameEventKind.ArmorRoll, GameEventStage.BeforeResolve, SkillEffect.Claws) &&
             !hasIronHardSkin &&
             armorRoll >= 8;
         if (armorRoll <= defender.Stats.Armor && !clawsBreaksArmor)
         {
-            if (hasIronHardSkin || !hasMightyBlow || armorRoll + 1 <= defender.Stats.Armor)
+            if (hasIronHardSkin || !hasMightyBlowArmor || armorRoll + 1 <= defender.Stats.Armor)
             {
                 return new InjuryResolution(PlayerPitchState.Prone);
             }
@@ -6850,7 +6901,7 @@ public sealed class MatchService
         }
 
         var injuryRoll = Roll2D6();
-        return ResolveInjury(ruleset, defender, hasMightyBlow ? injuryRoll + 1 : injuryRoll);
+        return ResolveInjury(ruleset, defender, hasMightyBlowInjury ? injuryRoll + 1 : injuryRoll);
     }
 
     private InjuryResolution ResolveInjury(int injuryRoll)
@@ -6869,7 +6920,8 @@ public sealed class MatchService
 
     private InjuryResolution ResolveInjury(Ruleset ruleset, Player player, int injuryRoll)
     {
-        if (injuryRoll == 8 && PlayerHasSkillEffect(ruleset, player, SkillEffect.ThickSkull))
+        if (injuryRoll == 8 &&
+            PlayerHasHookedEffect(ruleset, player, GameEventKind.InjuryRoll, GameEventStage.BeforeResolve, SkillEffect.ThickSkull))
         {
             return new InjuryResolution(PlayerPitchState.Stunned);
         }
@@ -6880,7 +6932,7 @@ public sealed class MatchService
         }
 
         var casualtyRoll = RollD16();
-        if (PlayerHasSkillId(player, "decay"))
+        if (PlayerHasHookedSkillId(ruleset, player, GameEventKind.InjuryRoll, GameEventStage.AfterRoll, "decay"))
         {
             var decayRoll = RollD16();
             casualtyRoll = CasualtySeverity(ResolveCasualty(decayRoll)) > CasualtySeverity(ResolveCasualty(casualtyRoll))
@@ -6889,7 +6941,8 @@ public sealed class MatchService
         }
 
         var casualtyResult = ResolveCasualty(casualtyRoll);
-        if (PlayerHasSkillId(player, "regeneration") && _dice.RollD6() >= 4)
+        if (PlayerHasHookedSkillId(ruleset, player, GameEventKind.InjuryRoll, GameEventStage.AfterRoll, "regeneration") &&
+            _dice.RollD6() >= 4)
         {
             return new InjuryResolution(PlayerPitchState.Reserve);
         }
@@ -6901,7 +6954,7 @@ public sealed class MatchService
 
     private static PitchSquare[] SafePairOfHandsSquares(MatchState match, Ruleset ruleset, Player player, PitchSquare source)
     {
-        if (!PlayerHasSkillEffect(ruleset, player, SkillEffect.SafePairOfHands))
+        if (!PlayerHasHookedEffect(ruleset, player, GameEventKind.BallScatter, GameEventStage.BeforeEvent, SkillEffect.SafePairOfHands))
         {
             return [];
         }
@@ -7083,13 +7136,13 @@ public sealed class MatchService
     private static int CatchTarget(Ruleset ruleset, Player player, WeatherCondition weather, int opposingTackleZones = 0, int disturbingPresence = 0)
     {
         var weatherModifier = weather == WeatherCondition.PouringRain ? 1 : 0;
-        var extraArmsModifier = PlayerHasSkillEffect(ruleset, player, SkillEffect.ExtraArms) ? -1 : 0;
+        var extraArmsModifier = PlayerHasHookedEffect(ruleset, player, GameEventKind.CatchRoll, GameEventStage.ModifyTarget, SkillEffect.ExtraArms) ? -1 : 0;
         return Math.Clamp(player.Stats.Agility + weatherModifier + opposingTackleZones + disturbingPresence + extraArmsModifier, 2, 6);
     }
 
     private CatchAttempt RollCatch(Ruleset ruleset, Player player, int target)
     {
-        if (PlayerHasSkillId(player, "no-hands"))
+        if (PlayerHasHookedSkillId(ruleset, player, GameEventKind.CatchRoll, GameEventStage.BeforeRoll, "no-hands"))
         {
             return new CatchAttempt(0, null, false);
         }
@@ -7100,8 +7153,8 @@ public sealed class MatchService
             return new CatchAttempt(roll, null, true);
         }
 
-        if (!PlayerHasSkillEffect(ruleset, player, SkillEffect.CatchReroll) &&
-            !PlayerHasSkillEffect(ruleset, player, SkillEffect.MonstrousMouth))
+        if (!PlayerHasHookedEffect(ruleset, player, GameEventKind.CatchRoll, GameEventStage.AfterRoll, SkillEffect.CatchReroll) &&
+            !PlayerHasHookedEffect(ruleset, player, GameEventKind.CatchRoll, GameEventStage.AfterRoll, SkillEffect.MonstrousMouth))
         {
             return new CatchAttempt(roll, null, false);
         }
@@ -7129,14 +7182,14 @@ public sealed class MatchService
         var finalRoll = roll;
         if (usePassSkillReroll &&
             !RollSucceeds(roll, target, ruleset.Dice) &&
-            PlayerHasSkillEffect(ruleset, player, SkillEffect.PassReroll))
+            PlayerHasHookedEffect(ruleset, player, GameEventKind.PassRoll, GameEventStage.AfterRoll, SkillEffect.PassReroll))
         {
             reroll = _dice.RollD6();
             finalRoll = reroll.Value;
         }
 
         var fumbled = finalRoll == 1;
-        var safePassPreventedFumble = fumbled && PlayerHasSkillEffect(ruleset, player, SkillEffect.SafePass);
+        var safePassPreventedFumble = fumbled && PlayerHasHookedEffect(ruleset, player, GameEventKind.PassRoll, GameEventStage.AfterRoll, SkillEffect.SafePass);
 
         return new PassAttempt(
             roll,
@@ -7160,17 +7213,18 @@ public sealed class MatchService
 
     private static int DodgeTarget(Ruleset ruleset, Player player, int opposingTackleZones, int skillBonus = 0)
     {
-        var twoHeadsBonus = PlayerHasSkillEffect(ruleset, player, SkillEffect.TwoHeads) ? 1 : 0;
-        var titchyBonus = PlayerHasSkillId(player, "titchy") ? 1 : 0;
-        var effectiveTackleZones = PlayerHasSkillId(player, "stunty") ? 0 : opposingTackleZones;
+        var twoHeadsBonus = PlayerHasHookedEffect(ruleset, player, GameEventKind.DodgeRoll, GameEventStage.ModifyTarget, SkillEffect.TwoHeads) ? 1 : 0;
+        var titchyBonus = PlayerHasHookedEffect(ruleset, player, GameEventKind.DodgeRoll, GameEventStage.ModifyTarget, SkillEffect.Titchy) ? 1 : 0;
+        var effectiveTackleZones = PlayerHasHookedEffect(ruleset, player, GameEventKind.DodgeRoll, GameEventStage.ModifyTarget, SkillEffect.Stunty) ? 0 : opposingTackleZones;
         return Math.Clamp(player.Stats.Agility - 1 + effectiveTackleZones - skillBonus - twoHeadsBonus - titchyBonus, 2, 6);
     }
 
     private static int PickupTarget(Ruleset ruleset, Player player, int opposingTackleZones, WeatherCondition weather)
     {
-        var markedModifier = PlayerHasSkillEffect(ruleset, player, SkillEffect.BigHand) ? 0 : opposingTackleZones;
-        var weatherModifier = weather == WeatherCondition.PouringRain && !PlayerHasSkillEffect(ruleset, player, SkillEffect.BigHand) ? 1 : 0;
-        var extraArmsModifier = PlayerHasSkillEffect(ruleset, player, SkillEffect.ExtraArms) ? -1 : 0;
+        var hasBigHand = PlayerHasHookedEffect(ruleset, player, GameEventKind.PickupRoll, GameEventStage.ModifyTarget, SkillEffect.BigHand);
+        var markedModifier = hasBigHand ? 0 : opposingTackleZones;
+        var weatherModifier = weather == WeatherCondition.PouringRain && !hasBigHand ? 1 : 0;
+        var extraArmsModifier = PlayerHasHookedEffect(ruleset, player, GameEventKind.PickupRoll, GameEventStage.ModifyTarget, SkillEffect.ExtraArms) ? -1 : 0;
         return Math.Clamp(player.Stats.Agility - 1 + markedModifier + weatherModifier + extraArmsModifier, 2, 6);
     }
 
@@ -7203,14 +7257,14 @@ public sealed class MatchService
             HasActiveTackleZone(placement) &&
             placement.Square is PitchSquare opponentSquare &&
             IsAdjacent(opponentSquare, square) &&
-            !PlayerHasSkillId(FindTeamPlayer(opposingTeam, placement.PlayerId), "titchy"));
+            !PlayerHasHookedEffect(ruleset, FindTeamPlayer(opposingTeam, placement.PlayerId), GameEventKind.MoveStep, GameEventStage.ModifyTarget, SkillEffect.Titchy));
     }
 
     private static int InterceptionTarget(Ruleset ruleset, Player player, WeatherCondition weather, int opposingTackleZones = 0, int disturbingPresence = 0)
     {
         var weatherModifier = weather == WeatherCondition.PouringRain ? 1 : 0;
-        var extraArmsModifier = PlayerHasSkillEffect(ruleset, player, SkillEffect.ExtraArms) ? -1 : 0;
-        var veryLongLegsModifier = PlayerHasSkillEffect(ruleset, player, SkillEffect.VeryLongLegs) ? -2 : 0;
+        var extraArmsModifier = PlayerHasHookedEffect(ruleset, player, GameEventKind.InterceptionRoll, GameEventStage.ModifyTarget, SkillEffect.ExtraArms) ? -1 : 0;
+        var veryLongLegsModifier = PlayerHasHookedEffect(ruleset, player, GameEventKind.InterceptionRoll, GameEventStage.ModifyTarget, SkillEffect.VeryLongLegs) ? -2 : 0;
         return Math.Clamp(player.Stats.Agility + 2 + weatherModifier + opposingTackleZones + disturbingPresence + extraArmsModifier + veryLongLegsModifier, 2, 6);
     }
 
@@ -7232,7 +7286,7 @@ public sealed class MatchService
                 Placement = placement,
                 Player = FindTeamPlayer(team, placement.PlayerId)
             })
-            .FirstOrDefault(candidate => PlayerHasSkillEffect(ruleset, candidate.Player, SkillEffect.DivingCatch))
+            .FirstOrDefault(candidate => PlayerHasHookedEffect(ruleset, candidate.Player, GameEventKind.CatchRoll, GameEventStage.BeforeEvent, SkillEffect.DivingCatch))
             ?.Placement;
     }
 
@@ -7254,7 +7308,7 @@ public sealed class MatchService
             placement.Square is PitchSquare square &&
             IsAdjacent(square, currentSquare) &&
             !IsAdjacent(square, nextSquare) &&
-            PlayerHasSkillEffect(ruleset, FindTeamPlayer(opposingTeam, placement.PlayerId), SkillEffect.DivingTackle));
+            PlayerHasHookedEffect(ruleset, FindTeamPlayer(opposingTeam, placement.PlayerId), GameEventKind.DodgeRoll, GameEventStage.AfterRoll, SkillEffect.DivingTackle));
     }
 
     private static MatchState ApplyDivingTackle(MatchState match, PlayerPlacement tackler, PitchSquare dodgerSquare, string tacklerName)
@@ -7278,11 +7332,11 @@ public sealed class MatchService
     {
         var weatherModifier = weather is WeatherCondition.VerySunny or WeatherCondition.Blizzard ? 1 : 0;
         var skillModifier = 0;
-        if (PlayerHasSkillEffect(ruleset, player, SkillEffect.Accurate) && passRange.Name is "quick" or "short")
+        if (PlayerHasHookedEffect(ruleset, player, GameEventKind.PassRoll, GameEventStage.ModifyTarget, SkillEffect.Accurate) && passRange.Name is "quick" or "short")
         {
             skillModifier--;
         }
-        else if (PlayerHasSkillEffect(ruleset, player, SkillEffect.Cannoneer) && IsLongPass(passRange.Name))
+        else if (PlayerHasHookedEffect(ruleset, player, GameEventKind.PassRoll, GameEventStage.ModifyTarget, SkillEffect.Cannoneer) && IsLongPass(passRange.Name))
         {
             skillModifier--;
         }

@@ -36,33 +36,14 @@ public sealed class RulesetValidator
 
     private static readonly ISet<string> KnownBehaviorSkillIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
-        "animal-savagery",
-        "always-hungry",
-        "ball-and-chain",
-        "bombardier",
-        "bone-head",
-        "bloodlust",
         "breathe-fire",
         "chainsaw",
-        "decay",
         "hypnotic-gaze",
-        "kick-team-mate",
-        "loner",
-        "no-hands",
         "pick-me-up",
         "plague-ridden",
         "projectile-vomit",
-        "really-stupid",
-        "regeneration",
-        "right-stuff",
         "secret-weapon",
-        "stab",
-        "stunty",
-        "swoop",
-        "take-root",
-        "titchy",
-        "throw-team-mate",
-        "unchannelled-fury"
+        "stab"
     };
 
     public void Validate(Ruleset ruleset)
@@ -127,9 +108,18 @@ public sealed class RulesetValidator
                 throw new InvalidDataException($"Skill '{skill.Id}' references unknown category '{skill.Category}'.");
             }
 
-            if (skill.Effects.Count == 0 && !KnownBehaviorSkillIds.Contains(skill.Id) && !skill.DataOnly)
+            if (skill.Effects.Count == 0 && skill.Hooks.Count == 0 && !KnownBehaviorSkillIds.Contains(skill.Id) && !skill.DataOnly)
             {
                 throw new InvalidDataException($"Skill '{skill.Id}' has no known behavior coverage and must be marked dataOnly.");
+            }
+
+            var duplicateHook = skill.Hooks
+                .GroupBy(hook => new { hook.Event, hook.Stage })
+                .FirstOrDefault(group => group.Count() > 1);
+
+            if (duplicateHook is not null)
+            {
+                throw new InvalidDataException($"Skill '{skill.Id}' declares duplicate hook '{duplicateHook.Key.Event}.{duplicateHook.Key.Stage}'.");
             }
         }
 

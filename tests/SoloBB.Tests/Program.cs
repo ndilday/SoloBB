@@ -68,61 +68,129 @@ AssertThrowsInvalidData(
     () => new RulesetValidator().Validate(ruleset with { Dice = null! }),
     "ruleset validation should reject missing dice rules with a data error");
 Assert(ruleset.Skills.Single(skill => skill.Id == "block").Effects.Contains(SkillEffect.BothDownProtection), "block skill should declare its ruleset mechanic");
+Assert(HasHook(ruleset, "block", GameEventKind.BlockRoll, GameEventStage.BeforeResolve), "block skill should declare its block resolution hook");
 Assert(ruleset.Skills.Single(skill => skill.Id == "dauntless").Effects.Contains(SkillEffect.Dauntless), "dauntless should declare its strength challenge mechanic");
+Assert(HasHook(ruleset, "dauntless", GameEventKind.BlockRoll, GameEventStage.BeforeRoll), "dauntless should declare its block roll hook");
 Assert(ruleset.Skills.Single(skill => skill.Id == "dodge").Effects.Contains(SkillEffect.DodgeReroll), "dodge skill should declare its reroll mechanic");
+Assert(HasHook(ruleset, "dodge", GameEventKind.DodgeRoll, GameEventStage.AfterRoll), "dodge skill should declare its dodge roll hook");
 Assert(ruleset.Skills.Single(skill => skill.Id == "tackle").Effects.Contains(SkillEffect.CancelDodgeReroll), "tackle skill should declare its dodge-cancel mechanic");
+Assert(HasHook(ruleset, "tackle", GameEventKind.DodgeRoll, GameEventStage.AfterRoll), "tackle skill should declare its opposing dodge roll hook");
 Assert(ruleset.Skills.Single(skill => skill.Id == "guard").Effects.Contains(SkillEffect.GuardAssist), "guard skill should declare its assist mechanic");
+Assert(HasHook(ruleset, "guard", GameEventKind.BlockRoll, GameEventStage.ModifyTarget), "guard should declare its block assist hook");
 Assert(ruleset.Skills.Single(skill => skill.Id == "frenzy").Effects.Contains(SkillEffect.Frenzy), "frenzy should declare its forced-block mechanic");
+Assert(HasHook(ruleset, "frenzy", GameEventKind.Push, GameEventStage.AfterEvent), "frenzy should declare its post-push hook");
 Assert(ruleset.Skills.Single(skill => skill.Id == "fend").Effects.Contains(SkillEffect.Fend), "fend should declare its follow-up prevention mechanic");
+Assert(HasHook(ruleset, "fend", GameEventKind.Push, GameEventStage.AfterEvent), "fend should declare its post-push hook");
 Assert(ruleset.Skills.Single(skill => skill.Id == "wrestle").Effects.Contains(SkillEffect.Wrestle), "wrestle should declare its both-down mechanic");
+Assert(HasHook(ruleset, "wrestle", GameEventKind.BlockRoll, GameEventStage.BeforeResolve), "wrestle should declare its block resolution hook");
 Assert(ruleset.Skills.Single(skill => skill.Id == "kick").Effects.Contains(SkillEffect.Kick), "kick should declare its kickoff scatter mechanic");
+Assert(HasHook(ruleset, "kick", GameEventKind.BallScatter, GameEventStage.BeforeEvent), "kick should declare its ball scatter hook");
 Assert(ruleset.Skills.Single(skill => skill.Id == "pro").Effects.Contains(SkillEffect.Pro), "pro should declare its conditional reroll mechanic");
+Assert(HasHook(ruleset, "pro", GameEventKind.DodgeRoll, GameEventStage.AfterRoll), "pro should declare its dodge reroll hook");
 Assert(ruleset.Skills.Single(skill => skill.Id == "shadowing").Effects.Contains(SkillEffect.Shadowing), "shadowing should declare its follow mechanic");
+Assert(HasHook(ruleset, "shadowing", GameEventKind.MoveStep, GameEventStage.AfterEvent), "shadowing should declare its movement hook");
 Assert(ruleset.Skills.Single(skill => skill.Id == "strip-ball").Effects.Contains(SkillEffect.StripBall), "strip ball should declare its ball-loosening mechanic");
+Assert(HasHook(ruleset, "strip-ball", GameEventKind.Push, GameEventStage.BeforeResolve), "strip ball should declare its push resolution hook");
 Assert(ruleset.Skills.Single(skill => skill.Id == "mighty-blow").Effects.Contains(SkillEffect.MightyBlow), "mighty blow should declare its injury-pressure mechanic");
+Assert(HasHook(ruleset, "mighty-blow", GameEventKind.ArmorRoll, GameEventStage.AfterRoll), "mighty blow should declare its armor roll hook");
+Assert(HasHook(ruleset, "mighty-blow", GameEventKind.InjuryRoll, GameEventStage.AfterRoll), "mighty blow should declare its injury roll hook");
 Assert(ruleset.Skills.Single(skill => skill.Id == "stand-firm").Effects.Contains(SkillEffect.StandFirm), "stand firm should declare its push-prevention mechanic");
+Assert(HasHook(ruleset, "stand-firm", GameEventKind.Push, GameEventStage.BeforeResolve), "stand firm should declare its push resolution hook");
 Assert(ruleset.Skills.Single(skill => skill.Id == "dirty-player").Effects.Contains(SkillEffect.DirtyPlayer), "dirty player should declare its foul-pressure mechanic");
+Assert(HasHook(ruleset, "dirty-player", GameEventKind.ArmorRoll, GameEventStage.AfterRoll), "dirty player should declare its armor roll hook");
 Assert(ruleset.Skills.Single(skill => skill.Id == "thick-skull").Effects.Contains(SkillEffect.ThickSkull), "thick skull should declare its knockout-resistance mechanic");
+Assert(HasHook(ruleset, "thick-skull", GameEventKind.InjuryRoll, GameEventStage.BeforeResolve), "thick skull should declare its injury resolution hook");
 Assert(ruleset.Skills.Single(skill => skill.Id == "diving-catch").Effects.Contains(SkillEffect.DivingCatch), "diving catch should declare its catch-zone mechanic");
+Assert(HasHook(ruleset, "diving-catch", GameEventKind.CatchRoll, GameEventStage.BeforeEvent), "diving catch should declare its catch roll hook");
 Assert(ruleset.Skills.Single(skill => skill.Id == "diving-tackle").Effects.Contains(SkillEffect.DivingTackle), "diving tackle should declare its dodge-pressure mechanic");
 Assert(ruleset.Skills.Single(skill => skill.Id == "defensive").Effects.Contains(SkillEffect.Defensive), "defensive should declare its guard-cancel mechanic");
 Assert(ruleset.Skills.Single(skill => skill.Id == "jump-up").Effects.Contains(SkillEffect.JumpUp), "jump up should declare its stand-up movement mechanic");
+Assert(HasHook(ruleset, "jump-up", GameEventKind.MoveStep, GameEventStage.BeforeEvent), "jump up should declare its movement hook");
+Assert(HasHook(ruleset, "jump-up", GameEventKind.BlockRoll, GameEventStage.BeforeEvent), "jump up should declare its block hook");
 Assert(ruleset.Skills.Single(skill => skill.Id == "leap").Effects.Contains(SkillEffect.Leap), "leap should declare its special movement mechanic");
+Assert(HasHook(ruleset, "leap", GameEventKind.MoveStep, GameEventStage.BeforeEvent), "leap should declare its movement hook");
 Assert(ruleset.Skills.Single(skill => skill.Id == "safe-pair-of-hands").Effects.Contains(SkillEffect.SafePairOfHands), "safe pair of hands should declare its ball-placement mechanic");
+Assert(HasHook(ruleset, "safe-pair-of-hands", GameEventKind.BallScatter, GameEventStage.BeforeEvent), "safe pair of hands should declare its ball scatter hook");
 Assert(ruleset.Skills.Single(skill => skill.Id == "sidestep").Effects.Contains(SkillEffect.SideStep), "sidestep should declare its push-choice mechanic");
 Assert(ruleset.Skills.Single(skill => skill.Id == "sneaky-git").Effects.Contains(SkillEffect.SneakyGit), "sneaky git should declare its foul-sendoff mechanic");
+Assert(HasHook(ruleset, "sneaky-git", GameEventKind.ArmorRoll, GameEventStage.AfterRoll), "sneaky git should declare its armor roll hook");
 Assert(ruleset.Skills.Single(skill => skill.Id == "sprint").Effects.Contains(SkillEffect.Sprint), "sprint should declare its extra go-for-it mechanic");
+Assert(HasHook(ruleset, "sprint", GameEventKind.MoveStep, GameEventStage.BeforeEvent), "sprint should declare its movement hook");
 Assert(ruleset.Skills.Single(skill => skill.Id == "arm-bar").Effects.Contains(SkillEffect.ArmBar), "arm bar should declare its failed-movement injury mechanic");
 Assert(ruleset.Skills.Single(skill => skill.Id == "brawler").Effects.Contains(SkillEffect.Brawler), "brawler should declare its both-down reroll mechanic");
+Assert(HasHook(ruleset, "brawler", GameEventKind.BlockRoll, GameEventStage.AfterRoll), "brawler should declare its block after-roll hook");
 Assert(ruleset.Skills.Single(skill => skill.Id == "break-tackle").Effects.Contains(SkillEffect.BreakTackle), "break tackle should declare its dodge modifier mechanic");
+Assert(HasHook(ruleset, "break-tackle", GameEventKind.DodgeRoll, GameEventStage.ModifyTarget), "break tackle should declare its dodge target hook");
 Assert(ruleset.Skills.Single(skill => skill.Id == "grab").Effects.Contains(SkillEffect.Grab), "grab should declare its push-control mechanic");
+Assert(HasHook(ruleset, "grab", GameEventKind.Push, GameEventStage.BeforeResolve), "grab should declare its push resolution hook");
 Assert(ruleset.Skills.Single(skill => skill.Id == "juggernaut").Effects.Contains(SkillEffect.Juggernaut), "juggernaut should declare its blitz block mechanic");
+Assert(HasHook(ruleset, "juggernaut", GameEventKind.BlockRoll, GameEventStage.BeforeResolve), "juggernaut should declare its block resolution hook");
 Assert(ruleset.Skills.Single(skill => skill.Id == "multiple-block").Effects.Contains(SkillEffect.MultipleBlock), "multiple block should declare its multi-block mechanic");
+Assert(HasHook(ruleset, "multiple-block", GameEventKind.BlockRoll, GameEventStage.BeforeEvent), "multiple block should declare its block hook");
 Assert(ruleset.Skills.Single(skill => skill.Id == "pile-driver").Effects.Contains(SkillEffect.PileDriver), "pile driver should declare its follow-up foul mechanic");
+Assert(HasHook(ruleset, "pile-driver", GameEventKind.Push, GameEventStage.AfterEvent), "pile driver should declare its post-push hook");
 Assert(ruleset.Skills.Single(skill => skill.Id == "strong-arm").Effects.Contains(SkillEffect.StrongArm), "strong arm should declare its throw-team-mate mechanic");
+Assert(HasHook(ruleset, "strong-arm", GameEventKind.PassRoll, GameEventStage.ModifyTarget), "strong arm should declare its pass target hook");
 Assert(ruleset.Skills.Single(skill => skill.Id == "accurate").Effects.Contains(SkillEffect.Accurate), "accurate should declare its short-pass mechanic");
+Assert(HasHook(ruleset, "accurate", GameEventKind.PassRoll, GameEventStage.ModifyTarget), "accurate should declare its pass target hook");
 Assert(ruleset.Skills.Single(skill => skill.Id == "cannoneer").Effects.Contains(SkillEffect.Cannoneer), "cannoneer should declare its long-pass mechanic");
 Assert(ruleset.Skills.Single(skill => skill.Id == "cloud-burster").Effects.Contains(SkillEffect.CloudBurster), "cloud burster should declare its interference mechanic");
+Assert(HasHook(ruleset, "cloud-burster", GameEventKind.InterceptionRoll, GameEventStage.AfterRoll), "cloud burster should declare its interception hook");
 Assert(ruleset.Skills.Single(skill => skill.Id == "dump-off").Effects.Contains(SkillEffect.DumpOff), "dump-off should declare its block-interrupt mechanic");
+Assert(HasHook(ruleset, "dump-off", GameEventKind.PassRoll, GameEventStage.BeforeEvent), "dump-off should declare its pass hook");
 Assert(ruleset.Skills.Single(skill => skill.Id == "fumblerooskie").Effects.Contains(SkillEffect.Fumblerooskie), "fumblerooskie should declare its ball-drop mechanic");
+Assert(HasHook(ruleset, "fumblerooskie", GameEventKind.MoveStep, GameEventStage.AfterEvent), "fumblerooskie should declare its movement hook");
 Assert(ruleset.Skills.Single(skill => skill.Id == "hail-mary-pass").Effects.Contains(SkillEffect.HailMaryPass), "hail mary pass should declare its special pass mechanic");
+Assert(HasHook(ruleset, "hail-mary-pass", GameEventKind.PassRoll, GameEventStage.BeforeEvent), "hail mary pass should declare its pass hook");
 Assert(ruleset.Skills.Single(skill => skill.Id == "leader").Effects.Contains(SkillEffect.Leader), "leader should declare its leader-reroll mechanic");
+Assert(HasHook(ruleset, "leader", GameEventKind.ActionStart, GameEventStage.BeforeEvent), "leader should declare its action hook");
 Assert(ruleset.Skills.Single(skill => skill.Id == "nerves-of-steel").Effects.Contains(SkillEffect.NervesOfSteel), "nerves of steel should declare its tackle-zone ignore mechanic");
+Assert(HasHook(ruleset, "nerves-of-steel", GameEventKind.PassRoll, GameEventStage.ModifyTarget), "nerves of steel should declare its pass target hook");
+Assert(HasHook(ruleset, "nerves-of-steel", GameEventKind.CatchRoll, GameEventStage.ModifyTarget), "nerves of steel should declare its catch target hook");
 Assert(ruleset.Skills.Single(skill => skill.Id == "on-the-ball").Effects.Contains(SkillEffect.OnTheBall), "on the ball should declare its reposition mechanic");
+Assert(HasHook(ruleset, "on-the-ball", GameEventKind.MoveStep, GameEventStage.BeforeEvent), "on the ball should declare its movement hook");
 Assert(ruleset.Skills.Single(skill => skill.Id == "running-pass").Effects.Contains(SkillEffect.RunningPass), "running pass should declare its continue-moving mechanic");
+Assert(HasHook(ruleset, "running-pass", GameEventKind.PassRoll, GameEventStage.AfterEvent), "running pass should declare its pass continuation hook");
 Assert(ruleset.Skills.Single(skill => skill.Id == "safe-pass").Effects.Contains(SkillEffect.SafePass), "safe pass should declare its fumble-prevention mechanic");
+Assert(HasHook(ruleset, "safe-pass", GameEventKind.PassRoll, GameEventStage.AfterRoll), "safe pass should declare its pass roll hook");
 Assert(ruleset.Skills.Single(skill => skill.Id == "big-hand").Effects.Contains(SkillEffect.BigHand), "big hand should declare its pickup mechanic");
 Assert(ruleset.Skills.Single(skill => skill.Id == "claws").Effects.Contains(SkillEffect.Claws), "claws should declare its armor mechanic");
+Assert(HasHook(ruleset, "claws", GameEventKind.ArmorRoll, GameEventStage.BeforeResolve), "claws should declare its armor resolution hook");
 Assert(ruleset.Skills.Single(skill => skill.Id == "disturbing-presence").Effects.Contains(SkillEffect.DisturbingPresence), "disturbing presence should declare its pass pressure mechanic");
+Assert(HasHook(ruleset, "disturbing-presence", GameEventKind.PassRoll, GameEventStage.ModifyTarget), "disturbing presence should declare its pass target hook");
 Assert(ruleset.Skills.Single(skill => skill.Id == "extra-arms").Effects.Contains(SkillEffect.ExtraArms), "extra arms should declare its ball handling mechanic");
+Assert(HasHook(ruleset, "extra-arms", GameEventKind.PickupRoll, GameEventStage.ModifyTarget), "extra arms should declare its pickup target hook");
 Assert(ruleset.Skills.Single(skill => skill.Id == "foul-appearance").Effects.Contains(SkillEffect.FoulAppearance), "foul appearance should declare its targeting mechanic");
+Assert(HasHook(ruleset, "foul-appearance", GameEventKind.BlockRoll, GameEventStage.BeforeEvent), "foul appearance should declare its block hook");
 Assert(ruleset.Skills.Single(skill => skill.Id == "horns").Effects.Contains(SkillEffect.Horns), "horns should declare its blitz strength mechanic");
+Assert(HasHook(ruleset, "horns", GameEventKind.BlockRoll, GameEventStage.BeforeRoll), "horns should declare its block roll hook");
 Assert(ruleset.Skills.Single(skill => skill.Id == "iron-hard-skin").Effects.Contains(SkillEffect.IronHardSkin), "iron hard skin should declare its armor protection mechanic");
+Assert(HasHook(ruleset, "iron-hard-skin", GameEventKind.ArmorRoll, GameEventStage.BeforeResolve), "iron hard skin should declare its armor resolution hook");
 Assert(ruleset.Skills.Single(skill => skill.Id == "monstrous-mouth").Effects.Contains(SkillEffect.MonstrousMouth), "monstrous mouth should declare its catch mechanic");
 Assert(ruleset.Skills.Single(skill => skill.Id == "prehensile-tail").Effects.Contains(SkillEffect.PrehensileTail), "prehensile tail should declare its movement pressure mechanic");
 Assert(ruleset.Skills.Single(skill => skill.Id == "tentacles").Effects.Contains(SkillEffect.Tentacles), "tentacles should declare its hold mechanic");
+Assert(HasHook(ruleset, "tentacles", GameEventKind.MoveStep, GameEventStage.BeforeResolve), "tentacles should declare its movement hook");
 Assert(ruleset.Skills.Single(skill => skill.Id == "two-heads").Effects.Contains(SkillEffect.TwoHeads), "two heads should declare its dodge mechanic");
 Assert(ruleset.Skills.Single(skill => skill.Id == "very-long-legs").Effects.Contains(SkillEffect.VeryLongLegs), "very long legs should declare its leap and interference mechanic");
+Assert(HasHook(ruleset, "very-long-legs", GameEventKind.InterceptionRoll, GameEventStage.ModifyTarget), "very long legs should declare its interception target hook");
+Assert(ruleset.Skills.Single(skill => skill.Id == "always-hungry").Effects.Contains(SkillEffect.AlwaysHungry), "always hungry should declare its throw-team-mate mechanic");
+Assert(HasHook(ruleset, "always-hungry", GameEventKind.PassRoll, GameEventStage.BeforeEvent), "always hungry should declare its launch hook");
+Assert(ruleset.Skills.Single(skill => skill.Id == "ball-and-chain").Effects.Contains(SkillEffect.BallAndChain), "ball and chain should declare its random movement mechanic");
+Assert(HasHook(ruleset, "ball-and-chain", GameEventKind.MoveStep, GameEventStage.BeforeEvent), "ball and chain should declare its movement hook");
+Assert(ruleset.Skills.Single(skill => skill.Id == "bombardier").Effects.Contains(SkillEffect.Bombardier), "bombardier should declare its bomb throw mechanic");
+Assert(HasHook(ruleset, "bombardier", GameEventKind.PassRoll, GameEventStage.BeforeEvent), "bombardier should declare its pass hook");
+Assert(ruleset.Skills.Single(skill => skill.Id == "kick-team-mate").Effects.Contains(SkillEffect.KickTeamMate), "kick team-mate should declare its launch mechanic");
+Assert(ruleset.Skills.Single(skill => skill.Id == "loner").Effects.Contains(SkillEffect.Loner), "loner should declare its reroll restriction mechanic");
+Assert(HasHook(ruleset, "loner", GameEventKind.DodgeRoll, GameEventStage.AfterRoll), "loner should declare its reroll hook");
+Assert(ruleset.Skills.Single(skill => skill.Id == "right-stuff").Effects.Contains(SkillEffect.RightStuff), "right stuff should declare its launch eligibility mechanic");
+Assert(HasHook(ruleset, "right-stuff", GameEventKind.PassRoll, GameEventStage.BeforeEvent), "right stuff should declare its launch hook");
+Assert(ruleset.Skills.Single(skill => skill.Id == "stunty").Effects.Contains(SkillEffect.Stunty), "stunty should declare its dodge and injury mechanic");
+Assert(HasHook(ruleset, "stunty", GameEventKind.DodgeRoll, GameEventStage.ModifyTarget), "stunty should declare its dodge hook");
+Assert(ruleset.Skills.Single(skill => skill.Id == "swoop").Effects.Contains(SkillEffect.Swoop), "swoop should declare its launch scatter mechanic");
+Assert(ruleset.Skills.Single(skill => skill.Id == "titchy").Effects.Contains(SkillEffect.Titchy), "titchy should declare its dodge and tackle-zone mechanic");
+Assert(ruleset.Skills.Single(skill => skill.Id == "throw-team-mate").Effects.Contains(SkillEffect.ThrowTeamMate), "throw team-mate should declare its launch mechanic");
+Assert(HasHook(ruleset, "decay", GameEventKind.InjuryRoll, GameEventStage.AfterRoll), "decay should declare its injury after-roll hook");
+Assert(HasHook(ruleset, "regeneration", GameEventKind.InjuryRoll, GameEventStage.AfterRoll), "regeneration should declare its injury after-roll hook");
 Assert(ruleset.Skills.Count >= 75, "ruleset should include the full 2020 skill and trait catalog");
 Assert(ruleset.Skills.Single(skill => skill.Id == "frenzy").Compulsory, "compulsory skills should be represented in ruleset data");
 Assert(ruleset.Skills.Single(skill => skill.Id == "disturbing-presence").Category == "mutation", "skill categories should be represented in ruleset data");
@@ -3139,6 +3207,14 @@ static void AssertThrowsInvalidData(Action action, string message)
     }
 
     throw new InvalidOperationException(message);
+}
+
+static bool HasHook(Ruleset ruleset, string skillId, GameEventKind eventKind, GameEventStage stage)
+{
+    return ruleset.Skills
+        .Single(skill => skill.Id == skillId)
+        .Hooks
+        .Any(hook => hook.Event == eventKind && hook.Stage == stage);
 }
 
 static MatchState SetupTeam(MatchService matchService, MatchState match, Ruleset ruleset, LeagueTeam team, IReadOnlyList<PitchSquare> squares)

@@ -35,6 +35,7 @@ public sealed record SkillDefinition
     public bool DataOnly { get; init; }
     public SkillTiming Timing { get; init; } = SkillTiming.Passive;
     public IReadOnlyList<SkillEffect> Effects { get; init; } = [];
+    public IReadOnlyList<SkillHookDefinition> Hooks { get; init; } = [];
     public string Description { get; init; } = "";
 }
 
@@ -117,5 +118,15 @@ public enum SkillEffect
     PrehensileTail,
     Tentacles,
     TwoHeads,
-    VeryLongLegs
+    VeryLongLegs,
+    AlwaysHungry,
+    BallAndChain,
+    Bombardier,
+    KickTeamMate,
+    Loner,
+    RightStuff,
+    Stunty,
+    Swoop,
+    Titchy,
+    ThrowTeamMate
 }
