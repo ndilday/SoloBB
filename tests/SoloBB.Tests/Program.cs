@@ -84,7 +84,7 @@ Assert(HasHook(ruleset, "fend", GameEventKind.Push, GameEventStage.AfterEvent), 
 Assert(ruleset.Skills.Single(skill => skill.Id == "wrestle").Effects.Contains(SkillEffect.Wrestle), "wrestle should declare its both-down mechanic");
 Assert(HasHook(ruleset, "wrestle", GameEventKind.BlockRoll, GameEventStage.BeforeResolve), "wrestle should declare its block resolution hook");
 Assert(ruleset.Skills.Single(skill => skill.Id == "kick").Effects.Contains(SkillEffect.Kick), "kick should declare its kickoff scatter mechanic");
-Assert(HasHook(ruleset, "kick", GameEventKind.BallScatter, GameEventStage.BeforeEvent), "kick should declare its ball scatter hook");
+Assert(HasHook(ruleset, "kick", GameEventKind.Kickoff, GameEventStage.BeforeEvent), "kick should declare its kickoff hook");
 Assert(ruleset.Skills.Single(skill => skill.Id == "pro").Effects.Contains(SkillEffect.Pro), "pro should declare its conditional reroll mechanic");
 Assert(HasHook(ruleset, "pro", GameEventKind.DodgeRoll, GameEventStage.AfterRoll), "pro should declare its dodge reroll hook");
 Assert(ruleset.Skills.Single(skill => skill.Id == "shadowing").Effects.Contains(SkillEffect.Shadowing), "shadowing should declare its follow mechanic");
@@ -174,21 +174,40 @@ Assert(ruleset.Skills.Single(skill => skill.Id == "two-heads").Effects.Contains(
 Assert(ruleset.Skills.Single(skill => skill.Id == "very-long-legs").Effects.Contains(SkillEffect.VeryLongLegs), "very long legs should declare its leap and interference mechanic");
 Assert(HasHook(ruleset, "very-long-legs", GameEventKind.InterceptionRoll, GameEventStage.ModifyTarget), "very long legs should declare its interception target hook");
 Assert(ruleset.Skills.Single(skill => skill.Id == "always-hungry").Effects.Contains(SkillEffect.AlwaysHungry), "always hungry should declare its throw-team-mate mechanic");
-Assert(HasHook(ruleset, "always-hungry", GameEventKind.PassRoll, GameEventStage.BeforeEvent), "always hungry should declare its launch hook");
+Assert(HasHook(ruleset, "always-hungry", GameEventKind.ThrowTeamMate, GameEventStage.BeforeEvent), "always hungry should declare its throw-team-mate hook");
 Assert(ruleset.Skills.Single(skill => skill.Id == "ball-and-chain").Effects.Contains(SkillEffect.BallAndChain), "ball and chain should declare its random movement mechanic");
 Assert(HasHook(ruleset, "ball-and-chain", GameEventKind.MoveStep, GameEventStage.BeforeEvent), "ball and chain should declare its movement hook");
 Assert(ruleset.Skills.Single(skill => skill.Id == "bombardier").Effects.Contains(SkillEffect.Bombardier), "bombardier should declare its bomb throw mechanic");
-Assert(HasHook(ruleset, "bombardier", GameEventKind.PassRoll, GameEventStage.BeforeEvent), "bombardier should declare its pass hook");
+Assert(HasHook(ruleset, "bombardier", GameEventKind.BombThrow, GameEventStage.BeforeEvent), "bombardier should declare its bomb throw hook");
+Assert(ruleset.Skills.Single(skill => skill.Id == "breathe-fire").Effects.Contains(SkillEffect.BreatheFire), "breathe fire should declare its special action mechanic");
+Assert(HasHook(ruleset, "breathe-fire", GameEventKind.SpecialAction, GameEventStage.BeforeEvent), "breathe fire should declare its special action hook");
+Assert(ruleset.Skills.Single(skill => skill.Id == "chainsaw").Effects.Contains(SkillEffect.Chainsaw), "chainsaw should declare its special action mechanic");
+Assert(HasHook(ruleset, "chainsaw", GameEventKind.SpecialAction, GameEventStage.BeforeEvent), "chainsaw should declare its special action hook");
+Assert(ruleset.Skills.Single(skill => skill.Id == "hypnotic-gaze").Effects.Contains(SkillEffect.HypnoticGaze), "hypnotic gaze should declare its special action mechanic");
+Assert(HasHook(ruleset, "hypnotic-gaze", GameEventKind.SpecialAction, GameEventStage.BeforeEvent), "hypnotic gaze should declare its special action hook");
 Assert(ruleset.Skills.Single(skill => skill.Id == "kick-team-mate").Effects.Contains(SkillEffect.KickTeamMate), "kick team-mate should declare its launch mechanic");
+Assert(HasHook(ruleset, "kick-team-mate", GameEventKind.KickTeamMate, GameEventStage.BeforeEvent), "kick team-mate should declare its launch hook");
 Assert(ruleset.Skills.Single(skill => skill.Id == "loner").Effects.Contains(SkillEffect.Loner), "loner should declare its reroll restriction mechanic");
 Assert(HasHook(ruleset, "loner", GameEventKind.DodgeRoll, GameEventStage.AfterRoll), "loner should declare its reroll hook");
+Assert(ruleset.Skills.Single(skill => skill.Id == "pick-me-up").Effects.Contains(SkillEffect.PickMeUp), "pick-me-up should declare its recovery mechanic");
+Assert(HasHook(ruleset, "pick-me-up", GameEventKind.DriveEnd, GameEventStage.AfterEvent), "pick-me-up should declare its drive end hook");
+Assert(ruleset.Skills.Single(skill => skill.Id == "plague-ridden").Effects.Contains(SkillEffect.PlagueRidden), "plague ridden should declare its post-match mechanic");
+Assert(HasHook(ruleset, "plague-ridden", GameEventKind.PostMatch, GameEventStage.AfterEvent), "plague ridden should declare its post-match hook");
+Assert(ruleset.Skills.Single(skill => skill.Id == "projectile-vomit").Effects.Contains(SkillEffect.ProjectileVomit), "projectile vomit should declare its special action mechanic");
+Assert(HasHook(ruleset, "projectile-vomit", GameEventKind.SpecialAction, GameEventStage.BeforeEvent), "projectile vomit should declare its special action hook");
 Assert(ruleset.Skills.Single(skill => skill.Id == "right-stuff").Effects.Contains(SkillEffect.RightStuff), "right stuff should declare its launch eligibility mechanic");
-Assert(HasHook(ruleset, "right-stuff", GameEventKind.PassRoll, GameEventStage.BeforeEvent), "right stuff should declare its launch hook");
+Assert(HasHook(ruleset, "right-stuff", GameEventKind.ThrowTeamMate, GameEventStage.BeforeEvent), "right stuff should declare its throw-team-mate hook");
+Assert(HasHook(ruleset, "right-stuff", GameEventKind.KickTeamMate, GameEventStage.BeforeEvent), "right stuff should declare its kick-team-mate hook");
+Assert(ruleset.Skills.Single(skill => skill.Id == "secret-weapon").Effects.Contains(SkillEffect.SecretWeapon), "secret weapon should declare its send-off mechanic");
+Assert(HasHook(ruleset, "secret-weapon", GameEventKind.DriveEnd, GameEventStage.BeforeResolve), "secret weapon should declare its drive end hook");
+Assert(ruleset.Skills.Single(skill => skill.Id == "stab").Effects.Contains(SkillEffect.Stab), "stab should declare its special action mechanic");
+Assert(HasHook(ruleset, "stab", GameEventKind.SpecialAction, GameEventStage.BeforeEvent), "stab should declare its special action hook");
 Assert(ruleset.Skills.Single(skill => skill.Id == "stunty").Effects.Contains(SkillEffect.Stunty), "stunty should declare its dodge and injury mechanic");
 Assert(HasHook(ruleset, "stunty", GameEventKind.DodgeRoll, GameEventStage.ModifyTarget), "stunty should declare its dodge hook");
 Assert(ruleset.Skills.Single(skill => skill.Id == "swoop").Effects.Contains(SkillEffect.Swoop), "swoop should declare its launch scatter mechanic");
 Assert(ruleset.Skills.Single(skill => skill.Id == "titchy").Effects.Contains(SkillEffect.Titchy), "titchy should declare its dodge and tackle-zone mechanic");
 Assert(ruleset.Skills.Single(skill => skill.Id == "throw-team-mate").Effects.Contains(SkillEffect.ThrowTeamMate), "throw team-mate should declare its launch mechanic");
+Assert(HasHook(ruleset, "throw-team-mate", GameEventKind.ThrowTeamMate, GameEventStage.BeforeEvent), "throw team-mate should declare its launch hook");
 Assert(HasHook(ruleset, "decay", GameEventKind.InjuryRoll, GameEventStage.AfterRoll), "decay should declare its injury after-roll hook");
 Assert(HasHook(ruleset, "regeneration", GameEventKind.InjuryRoll, GameEventStage.AfterRoll), "regeneration should declare its injury after-roll hook");
 Assert(ruleset.Skills.Count >= 75, "ruleset should include the full 2020 skill and trait catalog");
@@ -511,7 +530,7 @@ var completedCampaignMatch = new MatchState
     ]
 };
 
-var afterFirstCampaignMatch = leagueService.CompleteScheduledMatch(scheduledLeague, firstCampaignMatch.Id, completedCampaignMatch);
+var afterFirstCampaignMatch = leagueService.CompleteScheduledMatch(scheduledLeague, ruleset, firstCampaignMatch.Id, completedCampaignMatch);
 var firstCampaignResult = afterFirstCampaignMatch.Seasons.Single().Schedule.Single(match => match.Id == firstCampaignMatch.Id).Result
     ?? throw new InvalidOperationException("Completed campaign match should have a result.");
 var updatedCampaignHome = afterFirstCampaignMatch.Teams.Single(team => team.Id == campaignHomeTeam.Id);
@@ -566,7 +585,7 @@ var completedSecondCampaignMatch = new MatchState
     HomeScore = 0,
     AwayScore = 0
 };
-var afterWeekComplete = leagueService.CompleteScheduledMatch(afterFirstCampaignMatch, secondCampaignMatch.Id, completedSecondCampaignMatch);
+var afterWeekComplete = leagueService.CompleteScheduledMatch(afterFirstCampaignMatch, ruleset, secondCampaignMatch.Id, completedSecondCampaignMatch);
 Assert(afterWeekComplete.Seasons.Single().CurrentWeek == 2, "league week should advance after all current-week games have results");
 
 smoke.StartSection("Match creation, setup, and persistence");
@@ -1901,7 +1920,7 @@ var postMatchCasualties = offensiveTurnMatch with
                 : placement)
         .ToArray()
 };
-var updatedCasualtyLeague = leagueService.ApplyMatchCasualties(postMatchCasualtyLeague, postMatchCasualties);
+var updatedCasualtyLeague = leagueService.ApplyMatchCasualties(postMatchCasualtyLeague, ruleset, postMatchCasualties);
 var injuredRosterPlayer = updatedCasualtyLeague.Teams.Single(team => team.Id == plagueTeam.Id).Players.Single(player => player.Id == playerToPlace.Id);
 var deadRosterPlayer = updatedCasualtyLeague.Teams.Single(team => team.Id == awayLeague.Teams[0].Id).Players.Single(player => player.Id == awayPlayerToPlace.Id);
 Assert(injuredRosterPlayer.Status == PlayerStatus.MissNextGame, "lasting injuries should mark players as missing the next game");

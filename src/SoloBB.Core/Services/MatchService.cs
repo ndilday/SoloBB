@@ -74,13 +74,13 @@ public sealed class MatchService
             Placements = CreateInitialPlacements(homeTeam, awayTeam),
             SecretWeaponPlayerIds =
             [
-                .. homeTeam.Players.Where(player => PlayerHasSkillId(player, "secret-weapon")).Select(player => player.Id),
-                .. awayTeam.Players.Where(player => PlayerHasSkillId(player, "secret-weapon")).Select(player => player.Id)
+                .. homeTeam.Players.Where(player => PlayerHasHookedEffect(ruleset, player, GameEventKind.DriveEnd, GameEventStage.BeforeResolve, SkillEffect.SecretWeapon)).Select(player => player.Id),
+                .. awayTeam.Players.Where(player => PlayerHasHookedEffect(ruleset, player, GameEventKind.DriveEnd, GameEventStage.BeforeResolve, SkillEffect.SecretWeapon)).Select(player => player.Id)
             ],
             PickMeUpPlayerIds =
             [
-                .. homeTeam.Players.Where(player => PlayerHasSkillId(player, "pick-me-up")).Select(player => player.Id),
-                .. awayTeam.Players.Where(player => PlayerHasSkillId(player, "pick-me-up")).Select(player => player.Id)
+                .. homeTeam.Players.Where(player => PlayerHasHookedEffect(ruleset, player, GameEventKind.DriveEnd, GameEventStage.AfterEvent, SkillEffect.PickMeUp)).Select(player => player.Id),
+                .. awayTeam.Players.Where(player => PlayerHasHookedEffect(ruleset, player, GameEventKind.DriveEnd, GameEventStage.AfterEvent, SkillEffect.PickMeUp)).Select(player => player.Id)
             ],
             Log =
             [
@@ -2441,7 +2441,7 @@ public sealed class MatchService
         LeagueTeam opposingTeam)
     {
         var bomber = FindTeamPlayer(throwingTeam, bomberPlayerId);
-        if (!PlayerHasHookedEffect(ruleset, bomber, GameEventKind.PassRoll, GameEventStage.BeforeEvent, SkillEffect.Bombardier))
+        if (!PlayerHasHookedEffect(ruleset, bomber, GameEventKind.BombThrow, GameEventStage.BeforeEvent, SkillEffect.Bombardier))
         {
             throw new InvalidOperationException($"{bomber.Name} does not have Bombardier.");
         }
@@ -2534,7 +2534,7 @@ public sealed class MatchService
         }
 
         var nextMatch = action.Match;
-        if (PlayerHasHookedEffect(ruleset, context.Actor, GameEventKind.PassRoll, GameEventStage.BeforeEvent, SkillEffect.AlwaysHungry))
+        if (PlayerHasHookedEffect(ruleset, context.Actor, GameEventKind.ThrowTeamMate, GameEventStage.BeforeEvent, SkillEffect.AlwaysHungry))
         {
             var hungryRoll = _dice.RollD6();
             if (hungryRoll == 1)
@@ -2899,7 +2899,7 @@ public sealed class MatchService
         }
 
         var actor = FindTeamPlayer(actorTeam, actorPlayerId);
-        if (!PlayerHasSkillId(actor, skillId))
+        if (!PlayerHasSpecialActionEffect(ruleset, actor, skillId))
         {
             throw new InvalidOperationException($"{actor.Name} does not have {actionName}.");
         }
@@ -3074,7 +3074,8 @@ public sealed class MatchService
         }
 
         var launched = FindTeamPlayer(team, launchedPlayerId);
-        if (!PlayerHasHookedEffect(ruleset, launched, GameEventKind.PassRoll, GameEventStage.BeforeEvent, SkillEffect.RightStuff))
+        var launchEventKind = LaunchEventKind(requiredSkillId);
+        if (!PlayerHasHookedEffect(ruleset, launched, launchEventKind, GameEventStage.BeforeEvent, SkillEffect.RightStuff))
         {
             throw new InvalidOperationException($"{launched.Name} does not have Right Stuff.");
         }
@@ -6159,7 +6160,32 @@ public sealed class MatchService
             _ => throw new InvalidOperationException($"Unknown launch skill '{requiredSkillId}'.")
         };
 
-        return PlayerHasHookedEffect(ruleset, player, GameEventKind.PassRoll, GameEventStage.BeforeEvent, requiredEffect);
+        return PlayerHasHookedEffect(ruleset, player, LaunchEventKind(requiredSkillId), GameEventStage.BeforeEvent, requiredEffect);
+    }
+
+    private static bool PlayerHasSpecialActionEffect(Ruleset ruleset, Player player, string skillId)
+    {
+        var requiredEffect = skillId switch
+        {
+            "breathe-fire" => SkillEffect.BreatheFire,
+            "chainsaw" => SkillEffect.Chainsaw,
+            "hypnotic-gaze" => SkillEffect.HypnoticGaze,
+            "projectile-vomit" => SkillEffect.ProjectileVomit,
+            "stab" => SkillEffect.Stab,
+            _ => throw new InvalidOperationException($"Unknown special action skill '{skillId}'.")
+        };
+
+        return PlayerHasHookedEffect(ruleset, player, GameEventKind.SpecialAction, GameEventStage.BeforeEvent, requiredEffect);
+    }
+
+    private static GameEventKind LaunchEventKind(string requiredSkillId)
+    {
+        return requiredSkillId switch
+        {
+            "throw-team-mate" => GameEventKind.ThrowTeamMate,
+            "kick-team-mate" => GameEventKind.KickTeamMate,
+            _ => throw new InvalidOperationException($"Unknown launch skill '{requiredSkillId}'.")
+        };
     }
 
     private static GameEventKind PendingRerollEventKind(PendingRerollKind kind)
@@ -6352,7 +6378,7 @@ public sealed class MatchService
             placement.TeamId == kickingTeam.Id &&
             placement.State == PlayerPitchState.Standing &&
             placement.Square is not null &&
-            PlayerHasHookedEffect(ruleset, FindTeamPlayer(kickingTeam, placement.PlayerId), GameEventKind.BallScatter, GameEventStage.BeforeEvent, SkillEffect.Kick));
+            PlayerHasHookedEffect(ruleset, FindTeamPlayer(kickingTeam, placement.PlayerId), GameEventKind.Kickoff, GameEventStage.BeforeEvent, SkillEffect.Kick));
     }
 
     private static bool HasLeaderPlayer(Ruleset ruleset, LeagueTeam team)

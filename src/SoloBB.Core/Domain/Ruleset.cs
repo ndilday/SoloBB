@@ -128,5 +128,13 @@ public enum SkillEffect
     Stunty,
     Swoop,
     Titchy,
-    ThrowTeamMate
+    ThrowTeamMate,
+    BreatheFire,
+    Chainsaw,
+    HypnoticGaze,
+    PickMeUp,
+    PlagueRidden,
+    ProjectileVomit,
+    SecretWeapon,
+    Stab
 }

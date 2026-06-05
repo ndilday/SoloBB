@@ -415,10 +415,11 @@ public partial class Main : Control
         await _store.SaveMatchAsync(_activeMatchPath, match);
 
         if (_activeLeague is not null &&
+            _ruleset is not null &&
             _activeScheduledMatchId is Guid scheduledMatchId &&
             match.Phase == MatchPhase.Complete)
         {
-            _activeLeague = _leagueService.CompleteScheduledMatch(_activeLeague, scheduledMatchId, match);
+            _activeLeague = _leagueService.CompleteScheduledMatch(_activeLeague, _ruleset, scheduledMatchId, match);
             await SaveActiveLeagueAsync();
         }
     }

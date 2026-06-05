@@ -12,9 +12,14 @@ public enum GameEventKind
     InterceptionRoll,
     BlockRoll,
     Push,
+    ThrowTeamMate,
+    KickTeamMate,
+    BombThrow,
+    SpecialAction,
     ArmorRoll,
     InjuryRoll,
     BallScatter,
+    Kickoff,
     DriveEnd,
     PostMatch
 }

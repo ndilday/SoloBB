@@ -34,18 +34,6 @@ public sealed class RulesetValidator
         "fourth"
     };
 
-    private static readonly ISet<string> KnownBehaviorSkillIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-    {
-        "breathe-fire",
-        "chainsaw",
-        "hypnotic-gaze",
-        "pick-me-up",
-        "plague-ridden",
-        "projectile-vomit",
-        "secret-weapon",
-        "stab"
-    };
-
     public void Validate(Ruleset ruleset)
     {
         RequireText(ruleset.Id, "Ruleset id is required.");
@@ -108,7 +96,7 @@ public sealed class RulesetValidator
                 throw new InvalidDataException($"Skill '{skill.Id}' references unknown category '{skill.Category}'.");
             }
 
-            if (skill.Effects.Count == 0 && skill.Hooks.Count == 0 && !KnownBehaviorSkillIds.Contains(skill.Id) && !skill.DataOnly)
+            if (skill.Effects.Count == 0 && skill.Hooks.Count == 0 && !skill.DataOnly)
             {
                 throw new InvalidDataException($"Skill '{skill.Id}' has no known behavior coverage and must be marked dataOnly.");
             }

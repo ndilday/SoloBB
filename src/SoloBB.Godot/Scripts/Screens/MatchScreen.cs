@@ -182,6 +182,11 @@ public partial class MatchScreen : VBoxContainer
             var enabled = !_throwTeamMateMode;
             ClearPreview();
             _throwTeamMateMode = enabled;
+            if (enabled)
+            {
+                _kickTeamMateMode = false;
+            }
+
             RefreshPitch();
         };
         footer.AddChild(_throwTeamMateModeButton);
@@ -192,6 +197,11 @@ public partial class MatchScreen : VBoxContainer
             var enabled = !_kickTeamMateMode;
             ClearPreview();
             _kickTeamMateMode = enabled;
+            if (enabled)
+            {
+                _throwTeamMateMode = false;
+            }
+
             RefreshPitch();
         };
         footer.AddChild(_kickTeamMateModeButton);
@@ -2429,7 +2439,7 @@ public partial class MatchScreen : VBoxContainer
         var actor = FindPlayer(actorId);
         var actorPlacement = _match.Placements.FirstOrDefault(placement => placement.PlayerId == actorId);
         return actor is not null &&
-            HasSkill(actor, skillId) &&
+            PlayerHasLaunchActionEffect(actor, skillId) &&
             actorPlacement?.TeamId == _match.ActiveTeamId &&
             actorPlacement.Square is not null &&
             actorPlacement.State == PlayerPitchState.Standing;
@@ -2446,7 +2456,7 @@ public partial class MatchScreen : VBoxContainer
             launchedPlacement.Square is PitchSquare launchedSquare &&
             launchedPlacement.State == PlayerPitchState.Standing &&
             launched is not null &&
-            HasSkill(launched, "right-stuff") &&
+            PlayerHasLaunchEligibilityEffect(launched, LaunchSkillIdForMode()) &&
             IsAdjacent(actorSquare, launchedSquare);
     }
 
@@ -3423,9 +3433,46 @@ public partial class MatchScreen : VBoxContainer
         return _homeTeam.Players.Concat(_awayTeam.Players).FirstOrDefault(player => player.Id == playerId);
     }
 
-    private static bool HasSkill(Player player, string skillId)
+    private bool PlayerHasLaunchActionEffect(Player player, string skillId)
     {
-        return player.Skills.Any(skill => string.Equals(skill, skillId, StringComparison.OrdinalIgnoreCase));
+        var requiredEffect = skillId switch
+        {
+            "throw-team-mate" => SkillEffect.ThrowTeamMate,
+            "kick-team-mate" => SkillEffect.KickTeamMate,
+            _ => throw new InvalidOperationException($"Unknown launch skill '{skillId}'.")
+        };
+
+        return SkillHookResolver.PlayerHasHookedEffect(
+            _ruleset,
+            player,
+            LaunchEventKind(skillId),
+            GameEventStage.BeforeEvent,
+            requiredEffect);
+    }
+
+    private bool PlayerHasLaunchEligibilityEffect(Player player, string skillId)
+    {
+        return SkillHookResolver.PlayerHasHookedEffect(
+            _ruleset,
+            player,
+            LaunchEventKind(skillId),
+            GameEventStage.BeforeEvent,
+            SkillEffect.RightStuff);
+    }
+
+    private string LaunchSkillIdForMode()
+    {
+        return _kickTeamMateMode ? "kick-team-mate" : "throw-team-mate";
+    }
+
+    private static GameEventKind LaunchEventKind(string skillId)
+    {
+        return skillId switch
+        {
+            "throw-team-mate" => GameEventKind.ThrowTeamMate,
+            "kick-team-mate" => GameEventKind.KickTeamMate,
+            _ => throw new InvalidOperationException($"Unknown launch skill '{skillId}'.")
+        };
     }
 
     private string PlayerMarker(Guid playerId)

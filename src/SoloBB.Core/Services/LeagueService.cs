@@ -174,7 +174,7 @@ public sealed class LeagueService
         };
     }
 
-    public League ApplyMatchCasualties(League league, MatchState match)
+    public League ApplyMatchCasualties(League league, Ruleset ruleset, MatchState match)
     {
         var casualtyPlacements = match.Placements
             .Where(placement => placement.Casualty is not null || placement.State == PlayerPitchState.Dead)
@@ -188,16 +188,22 @@ public sealed class LeagueService
             .Select(team => ApplyTeamCasualties(team, casualtyPlacements.Where(placement => placement.TeamId == team.Id).ToArray()))
             .ToArray();
 
-        teams = ApplyPlagueRidden(teams, casualtyPlacements);
+        teams = ApplyPlagueRidden(ruleset, teams, casualtyPlacements);
 
         return league with { Teams = teams };
     }
 
-    public League CompleteScheduledMatch(League league, Guid scheduledMatchId, MatchState match)
+    public League CompleteScheduledMatch(League league, Ruleset ruleset, Guid scheduledMatchId, MatchState match)
     {
         if (match.Phase != MatchPhase.Complete)
         {
             throw new InvalidOperationException("Only completed matches can be applied to a league.");
+        }
+
+        if (!string.Equals(league.RulesetId, ruleset.Id, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(match.RulesetId, ruleset.Id, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("Completed match ruleset does not match the league ruleset.");
         }
 
         var season = league.Seasons.FirstOrDefault(current => current.Schedule.Any(scheduled => scheduled.Id == scheduledMatchId))
@@ -243,7 +249,7 @@ public sealed class LeagueService
                 .ToArray()
         };
 
-        var afterCasualties = ApplyMatchCasualties(ReleaseMissNextGamePlayers(withResult, match), match);
+        var afterCasualties = ApplyMatchCasualties(ReleaseMissNextGamePlayers(withResult, match), ruleset, match);
         var updatedTeams = afterCasualties.Teams
             .Select(team => team.Id == match.HomeTeamId
                 ? ApplyPostMatchTeamUpdates(team, awards, homeWinnings, match.HomeTreasurySpent, match.HomeScore, match.AwayScore)
@@ -641,7 +647,7 @@ public sealed class LeagueService
         };
     }
 
-    private static LeagueTeam[] ApplyPlagueRidden(IReadOnlyList<LeagueTeam> teams, IReadOnlyList<PlayerPlacement> casualties)
+    private static LeagueTeam[] ApplyPlagueRidden(Ruleset ruleset, IReadOnlyList<LeagueTeam> teams, IReadOnlyList<PlayerPlacement> casualties)
     {
         var nextTeams = teams.ToArray();
         foreach (var deadPlacement in casualties.Where(placement => (placement.Casualty?.Result ?? (placement.State == PlayerPitchState.Dead ? CasualtyResult.Dead : CasualtyResult.BadlyHurt)) == CasualtyResult.Dead))
@@ -658,7 +664,12 @@ public sealed class LeagueService
                 var team = nextTeams[index];
                 if (team.Id == deadPlacement.TeamId ||
                     team.Players.Count >= MaximumRosterPlayers ||
-                    !team.Players.Any(player => player.Skills.Any(skill => string.Equals(skill, "plague-ridden", StringComparison.OrdinalIgnoreCase))))
+                    !team.Players.Any(player => SkillHookResolver.PlayerHasHookedEffect(
+                        ruleset,
+                        player,
+                        GameEventKind.PostMatch,
+                        GameEventStage.AfterEvent,
+                        SkillEffect.PlagueRidden)))
                 {
                     continue;
                 }
