@@ -113,6 +113,7 @@ public sealed record PlayerTurnActivation
     public int Half { get; init; }
     public int Turn { get; init; }
     public int GoForItsUsed { get; init; }
+    public int MovementSquaresUsed { get; init; }
     public PlayerTurnAction Action { get; init; } = PlayerTurnAction.Move;
     public bool DeclaredOnly { get; init; }
     public int BlocksMade { get; init; }

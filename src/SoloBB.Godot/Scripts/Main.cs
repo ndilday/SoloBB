@@ -16,7 +16,9 @@ public partial class Main : Control
     private readonly MatchService _matchService = new();
     private readonly PreGameService _preGameService = new();
 
-    private VBoxContainer _stack = null!;
+    private ScrollContainer _shellScroll = null!;
+    private VBoxContainer _scrollStack = null!;
+    private VBoxContainer _matchStack = null!;
     private Ruleset? _ruleset;
     private RosterSet? _rosterSet;
     private League? _activeLeague;
@@ -31,7 +33,11 @@ public partial class Main : Control
 
     public override void _Ready()
     {
-        _stack = GetNode<VBoxContainer>("Panel/Margin/Scroll/Stack");
+        _shellScroll = GetNode<ScrollContainer>("Panel/Margin/Scroll");
+        _scrollStack = GetNode<VBoxContainer>("Panel/Margin/Scroll/Stack");
+        _matchStack = GetNode<VBoxContainer>("Panel/Margin/MatchStack");
+        _scrollStack.SizeFlagsVertical = SizeFlags.ExpandFill;
+        _matchStack.SizeFlagsVertical = SizeFlags.ExpandFill;
         ShowMainMenu();
         _ = LoadCatalogAsync();
     }
@@ -61,7 +67,12 @@ public partial class Main : Control
         }
     }
 
-    private Control? CurrentScreen => _stack.GetChildCount() > 0 ? _stack.GetChild<Control>(0) : null;
+    private Control? CurrentScreen =>
+        _matchStack.Visible && _matchStack.GetChildCount() > 0
+            ? _matchStack.GetChild<Control>(0)
+            : _scrollStack.GetChildCount() > 0
+                ? _scrollStack.GetChild<Control>(0)
+                : null;
 
     private void ShowMainMenu()
     {
@@ -426,18 +437,32 @@ public partial class Main : Control
 
     private T ShowScreen<T>(string scenePath) where T : Control
     {
-        foreach (var child in _stack.GetChildren())
-        {
-            _stack.RemoveChild(child);
-            child.QueueFree();
-        }
-
         var scene = GD.Load<PackedScene>(scenePath);
         var screen = scene.Instantiate<T>();
+        var isMatchScreen = screen is MatchScreen;
+        ClearScreenHost(_scrollStack);
+        ClearScreenHost(_matchStack);
+
+        _shellScroll.Visible = !isMatchScreen;
+        _matchStack.Visible = isMatchScreen;
+        _shellScroll.VerticalScrollMode = ScrollContainer.ScrollMode.Auto;
+        _shellScroll.HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled;
+        _shellScroll.ScrollVertical = 0;
+        _shellScroll.ScrollHorizontal = 0;
+
         screen.SizeFlagsHorizontal = SizeFlags.ExpandFill;
         screen.SizeFlagsVertical = SizeFlags.ExpandFill;
-        _stack.AddChild(screen);
+        (isMatchScreen ? _matchStack : _scrollStack).AddChild(screen);
         return screen;
+    }
+
+    private static void ClearScreenHost(Node host)
+    {
+        foreach (var child in host.GetChildren())
+        {
+            host.RemoveChild(child);
+            child.QueueFree();
+        }
     }
 
     private static string Slugify(string value)

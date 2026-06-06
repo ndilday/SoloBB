@@ -840,6 +840,24 @@ var pickupMatch = pickupService.MovePlayer(
 Assert(pickupMatch.Ball.CarrierPlayerId == playerToPlace.Id, "moving over a loose ball should pick it up on a successful roll");
 Assert(pickupMatch.Placements.Single(placement => placement.PlayerId == playerToPlace.Id).Square == new PitchSquare(3, 0), "successful pickup should allow movement to continue");
 
+var incrementalPickupService = new MatchService(new FixedDiceRoller(d6: [2]));
+var pickupStepMatch = incrementalPickupService.MovePlayer(
+    offensiveTurnMatch with { Ball = new BallState { Square = new PitchSquare(2, 0) } },
+    ruleset,
+    loadedLeague.Teams[0],
+    playerToPlace.Id,
+    new(2, 0));
+var continuedAfterPickupMatch = incrementalPickupService.MovePlayer(
+    pickupStepMatch,
+    ruleset,
+    loadedLeague.Teams[0],
+    playerToPlace.Id,
+    new(3, 0));
+Assert(continuedAfterPickupMatch.Ball.CarrierPlayerId == playerToPlace.Id, "successful pickup in an incremental move should keep the ball carried");
+Assert(continuedAfterPickupMatch.Placements.Single(placement => placement.PlayerId == playerToPlace.Id).Square == new PitchSquare(3, 0), "player should be able to keep moving after an incremental pickup");
+Assert(continuedAfterPickupMatch.Activations.Count(activation => activation.PlayerId == playerToPlace.Id) == 1, "continuing movement after pickup should not create a second activation");
+Assert(continuedAfterPickupMatch.Activations.Single(activation => activation.PlayerId == playerToPlace.Id).MovementSquaresUsed == 3, "continued movement should track total movement spent");
+
 var rainPickupService = new MatchService(new FixedDiceRoller(d6: [2]));
 var rainPickupMatch = rainPickupService.MovePlayer(
     offensiveTurnMatch with
@@ -1949,6 +1967,14 @@ blitzMatch = blitzService.ChoosePushSquare(blitzMatch, ruleset, loadedLeague.Tea
 Assert(blitzMatch.Placements.Single(placement => placement.PlayerId == playerToPlace.Id).Square == new PitchSquare(2, 1), "blitz should move the attacker");
 Assert(blitzMatch.Placements.Single(placement => placement.PlayerId == awayPlayerToPlace.Id).State == PlayerPitchState.Prone, "blitz should resolve the block");
 
+var declaredBlitzService = new MatchService(new FixedDiceRoller(d6: [6, 1, 1]));
+var declaredBlitz = declaredBlitzService.DeclarePlayerAction(blitzReadyMatch, loadedLeague.Teams[0], playerToPlace.Id, PlayerTurnAction.Blitz);
+var declaredBlitzMoved = declaredBlitzService.MovePlayerAsBlitz(declaredBlitz, ruleset, loadedLeague.Teams[0], playerToPlace.Id, new(2, 1), awayLeague.Teams[0]);
+var declaredBlitzResolved = declaredBlitzService.BlitzPlayer(declaredBlitzMoved, ruleset, loadedLeague.Teams[0], playerToPlace.Id, new(2, 1), awayLeague.Teams[0], awayPlayerToPlace.Id);
+
+Assert(declaredBlitzMoved.Activations.Single(activation => activation.PlayerId == playerToPlace.Id).Action == PlayerTurnAction.Blitz, "declared blitz movement should keep the blitz activation");
+Assert(declaredBlitzResolved.PendingPush?.KnockDefenderDown == true, "declared blitz should allow a later adjacent block from the current square");
+
 var failedMoveBlitzMatch = blitzReadyMatch with
 {
     Placements = blitzReadyMatch.Placements
@@ -3032,8 +3058,8 @@ AssertThrows(
     "blitz should be limited to once per turn");
 
 AssertThrows(
-    () => matchService.MovePlayer(movedMatch, ruleset, loadedLeague.Teams[0], playerToPlace.Id, new(4, 0)),
-    "movement should reject a second activation in the same turn");
+    () => matchService.MovePlayer(movedMatch, ruleset, loadedLeague.Teams[0], playerToPlace.Id, new(10, 0)),
+    "continued movement should reject destinations beyond remaining movement plus go-for-it allowance");
 
 AssertThrows(
     () => matchService.MovePlayer(offensiveTurnMatch, ruleset, loadedLeague.Teams[0], playerToPlace.Id, new(10, 0)),

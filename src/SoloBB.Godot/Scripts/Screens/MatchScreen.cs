@@ -29,6 +29,7 @@ public partial class MatchScreen : VBoxContainer
     private Label _selectedLabel = null!;
     private VBoxContainer _eventLogList = null!;
     private VBoxContainer _rosterList = null!;
+    private Control _pitchViewport = null!;
     private GridContainer _pitchGrid = null!;
     private HBoxContainer _blockDiceBox = null!;
     private HBoxContainer _interceptionChoiceBox = null!;
@@ -38,12 +39,14 @@ public partial class MatchScreen : VBoxContainer
     private HBoxContainer _divingTackleChoiceBox = null!;
     private HBoxContainer _sendOffChoiceBox = null!;
     private Button _passModeButton = null!;
+    private Button _blitzModeButton = null!;
     private Button _throwTeamMateModeButton = null!;
     private Button _kickTeamMateModeButton = null!;
     private Button _doneButton = null!;
     private Texture2D? _humanSpriteSheet;
     private Texture2D? _orcSpriteSheet;
     private Texture2D? _pitchObjectSheet;
+    private Texture2D? _blockDiceSheet;
     private Texture2D? _pitchTileSheet;
     private Texture2D? _pitchFieldSheet;
     private Texture2D? _pitchMarkingSheet;
@@ -66,9 +69,20 @@ public partial class MatchScreen : VBoxContainer
     private PitchSquare? _previewLaunchTargetSquare;
     private PitchSquare? _animationBallSquare;
     private bool _passMode;
+    private bool _blitzMode;
     private bool _throwTeamMateMode;
     private bool _kickTeamMateMode;
+    private bool _isPitchDragging;
+    private float _pitchZoom = 1.0f;
+    private Vector2 _pitchPan = Vector2.Zero;
     private Func<MatchState, Task> _saveMatch = _ => Task.CompletedTask;
+
+    private const float BasePitchSquareSize = 32.0f;
+    private const float PitchSquareOverlap = 1.0f;
+    private const float MinPitchZoom = 0.75f;
+    private const float MaxPitchZoom = 2.5f;
+    private const float PitchZoomStep = 1.12f;
+    private const float KeyboardPanStep = 42.0f;
 
     private static readonly Color ScreenBackground = new("161817");
     private static readonly Color PanelBackground = new("1f3a35");
@@ -121,8 +135,12 @@ public partial class MatchScreen : VBoxContainer
         _previewLaunchTargetSquare = null;
         _animationBallSquare = null;
         _passMode = false;
+        _blitzMode = false;
         _throwTeamMateMode = false;
         _kickTeamMateMode = false;
+        _isPitchDragging = false;
+        _pitchZoom = 1.0f;
+        _pitchPan = Vector2.Zero;
         LoadSpriteAssets();
 
         AddThemeConstantOverride("separation", 6);
@@ -215,6 +233,10 @@ public partial class MatchScreen : VBoxContainer
         };
         footer.AddChild(_passModeButton);
 
+        _blitzModeButton = ActionButton("Blitz");
+        _blitzModeButton.Pressed += async () => await DeclareBlitzModeAsync();
+        footer.AddChild(_blitzModeButton);
+
         _throwTeamMateModeButton = ActionButton("TTM");
         _throwTeamMateModeButton.Pressed += () =>
         {
@@ -255,6 +277,50 @@ public partial class MatchScreen : VBoxContainer
 
         RefreshRoster();
         RefreshPitch();
+        CallDeferred(nameof(CenterPitch));
+    }
+
+    public override void _Input(InputEvent @event)
+    {
+        if (@event is InputEventKey { Pressed: true, Echo: false } keyEvent && HandlePitchKey(keyEvent.Keycode))
+        {
+            GetViewport().SetInputAsHandled();
+            return;
+        }
+
+        if (_pitchViewport is null || !IsInstanceValid(_pitchViewport) || !_pitchViewport.GetGlobalRect().HasPoint(GetGlobalMousePosition()))
+        {
+            if (@event is InputEventMouseButton { ButtonIndex: MouseButton.Middle, Pressed: false })
+            {
+                _isPitchDragging = false;
+            }
+
+            return;
+        }
+
+        if (@event is InputEventMouseButton mouseButton)
+        {
+            if (mouseButton.ButtonIndex == MouseButton.Middle)
+            {
+                _isPitchDragging = mouseButton.Pressed;
+                GetViewport().SetInputAsHandled();
+                return;
+            }
+
+            if (mouseButton.Pressed && mouseButton.ButtonIndex is MouseButton.WheelUp or MouseButton.WheelDown)
+            {
+                ZoomPitch(mouseButton.ButtonIndex == MouseButton.WheelUp ? PitchZoomStep : 1.0f / PitchZoomStep, mouseButton.GlobalPosition);
+                GetViewport().SetInputAsHandled();
+                return;
+            }
+        }
+
+        if (@event is InputEventMouseMotion mouseMotion && _isPitchDragging)
+        {
+            PanPitch(mouseMotion.Relative);
+            GetViewport().SetInputAsHandled();
+            return;
+        }
     }
 
     private Control BuildMatchHud()
@@ -305,7 +371,11 @@ public partial class MatchScreen : VBoxContainer
         };
         panel.AddThemeStyleboxOverride("panel", FlatStyle(PanelBackground, border: new Color("506358"), borderWidth: 2));
 
-        var stack = new VBoxContainer();
+        var stack = new VBoxContainer
+        {
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            SizeFlagsVertical = SizeFlags.ExpandFill
+        };
         stack.AddThemeConstantOverride("separation", 5);
         panel.AddChild(stack);
 
@@ -350,18 +420,142 @@ public partial class MatchScreen : VBoxContainer
         stack.AddThemeConstantOverride("separation", 4);
         panel.AddChild(stack);
 
+        _pitchViewport = new Control
+        {
+            ClipContents = true,
+            FocusMode = FocusModeEnum.All,
+            MouseFilter = MouseFilterEnum.Stop,
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            SizeFlagsVertical = SizeFlags.ExpandFill
+        };
+        _pitchViewport.Resized += ApplyPitchTransform;
+        stack.AddChild(_pitchViewport);
+
         _pitchGrid = new GridContainer
         {
             Columns = _ruleset.PitchWidth,
-            SizeFlagsHorizontal = SizeFlags.ShrinkCenter,
-            SizeFlagsVertical = SizeFlags.ShrinkCenter
+            SizeFlagsHorizontal = SizeFlags.ShrinkBegin,
+            SizeFlagsVertical = SizeFlags.ShrinkBegin,
+            PivotOffset = Vector2.Zero,
+            TextureFilter = TextureFilterEnum.Nearest
         };
-        _pitchGrid.AddThemeConstantOverride("h_separation", 0);
-        _pitchGrid.AddThemeConstantOverride("v_separation", 0);
-        stack.AddChild(_pitchGrid);
+        _pitchGrid.AddThemeConstantOverride("h_separation", -1);
+        _pitchGrid.AddThemeConstantOverride("v_separation", -1);
+        _pitchViewport.AddChild(_pitchGrid);
         BuildPitchGrid();
+        CenterPitch();
 
         return panel;
+    }
+
+    private bool HandlePitchKey(Key key)
+    {
+        if (key is Key.Plus or Key.Equal or Key.KpAdd)
+        {
+            ZoomPitch(PitchZoomStep, PitchViewportCenterGlobalPosition());
+            return true;
+        }
+
+        if (key is Key.Minus or Key.KpSubtract)
+        {
+            ZoomPitch(1.0f / PitchZoomStep, PitchViewportCenterGlobalPosition());
+            return true;
+        }
+
+        var panDelta = key switch
+        {
+            Key.W => new Vector2(0, KeyboardPanStep),
+            Key.A => new Vector2(KeyboardPanStep, 0),
+            Key.S => new Vector2(0, -KeyboardPanStep),
+            Key.D => new Vector2(-KeyboardPanStep, 0),
+            _ => Vector2.Zero
+        };
+
+        if (panDelta == Vector2.Zero)
+        {
+            return false;
+        }
+
+        PanPitch(panDelta);
+        return true;
+    }
+
+    private void CenterPitch()
+    {
+        var baseSize = BasePitchSize();
+        var viewportSize = _pitchViewport?.Size ?? Vector2.Zero;
+        if (baseSize == Vector2.Zero || viewportSize == Vector2.Zero)
+        {
+            return;
+        }
+
+        _pitchPan = (viewportSize - (baseSize * _pitchZoom)) / 2.0f;
+        ApplyPitchTransform();
+    }
+
+    private void PanPitch(Vector2 delta)
+    {
+        _pitchPan += delta;
+        ApplyPitchTransform();
+    }
+
+    private void ZoomPitch(float factor, Vector2 globalAnchor)
+    {
+        var nextZoom = Math.Clamp(_pitchZoom * factor, MinPitchZoom, MaxPitchZoom);
+        if (Math.Abs(nextZoom - _pitchZoom) < 0.001f)
+        {
+            return;
+        }
+
+        var localAnchor = globalAnchor - _pitchViewport.GlobalPosition;
+        var pitchPoint = (localAnchor - _pitchPan) / _pitchZoom;
+        _pitchZoom = nextZoom;
+        _pitchPan = localAnchor - (pitchPoint * _pitchZoom);
+        ApplyPitchTransform();
+    }
+
+    private void ApplyPitchTransform()
+    {
+        if (_pitchViewport is null || _pitchGrid is null)
+        {
+            return;
+        }
+
+        _pitchPan = ClampPitchPan(_pitchPan);
+        _pitchGrid.Scale = new Vector2(_pitchZoom, _pitchZoom);
+        _pitchGrid.Position = _pitchPan;
+    }
+
+    private Vector2 ClampPitchPan(Vector2 pan)
+    {
+        var viewportSize = _pitchViewport.Size;
+        var contentSize = BasePitchSize() * _pitchZoom;
+
+        return new Vector2(
+            ClampPitchAxis(pan.X, viewportSize.X, contentSize.X),
+            ClampPitchAxis(pan.Y, viewportSize.Y, contentSize.Y));
+    }
+
+    private static float ClampPitchAxis(float pan, float viewportLength, float contentLength)
+    {
+        if (contentLength <= viewportLength)
+        {
+            return (viewportLength - contentLength) / 2.0f;
+        }
+
+        return Math.Clamp(pan, viewportLength - contentLength, 0.0f);
+    }
+
+    private Vector2 BasePitchSize()
+    {
+        return new Vector2(
+            (_ruleset.PitchWidth * BasePitchSquareSize) - ((_ruleset.PitchWidth - 1) * PitchSquareOverlap),
+            (_ruleset.PitchHeight * BasePitchSquareSize) - ((_ruleset.PitchHeight - 1) * PitchSquareOverlap));
+    }
+
+    private Vector2 PitchViewportCenterGlobalPosition()
+    {
+        return _pitchViewport.GlobalPosition + (_pitchViewport.Size / 2.0f);
     }
 
     private Control BuildEventLogPanel()
@@ -424,7 +618,8 @@ public partial class MatchScreen : VBoxContainer
                     CustomMinimumSize = new Vector2(32, 32),
                     TooltipText = $"{x + 1},{y + 1}",
                     FocusMode = FocusModeEnum.None,
-                    ClipContents = true
+                    ClipContents = true,
+                    TextureFilter = TextureFilterEnum.Nearest
                 };
                 ClearPitchButtonChrome(button);
                 button.AddThemeFontSizeOverride("font_size", 10);
@@ -457,13 +652,14 @@ public partial class MatchScreen : VBoxContainer
         var layer = new TextureRect
         {
             MouseFilter = MouseFilterEnum.Ignore,
-            StretchMode = stretchMode
+            StretchMode = stretchMode,
+            TextureFilter = TextureFilterEnum.Nearest
         };
         layer.SetAnchorsPreset(LayoutPreset.FullRect);
         layer.OffsetLeft = 0;
         layer.OffsetTop = 0;
-        layer.OffsetRight = 0;
-        layer.OffsetBottom = 0;
+        layer.OffsetRight = stretchMode == TextureRect.StretchModeEnum.Scale ? 1 : 0;
+        layer.OffsetBottom = stretchMode == TextureRect.StretchModeEnum.Scale ? 1 : 0;
         return layer;
     }
 
@@ -483,6 +679,7 @@ public partial class MatchScreen : VBoxContainer
         _humanSpriteSheet = GD.Load<Texture2D>("res://assets/sprites/human_team_32.png");
         _orcSpriteSheet = GD.Load<Texture2D>("res://assets/sprites/orc_team_32.png");
         _pitchObjectSheet = GD.Load<Texture2D>("res://assets/sprites/pitch_objects_32.png");
+        _blockDiceSheet = GD.Load<Texture2D>("res://assets/sprites/block_dice_32.png");
         _pitchTileSheet = GD.Load<Texture2D>("res://assets/sprites/pitch_tiles_32.png");
         _pitchFieldSheet = GD.Load<Texture2D>("res://assets/sprites/pitch_field_base_32.png");
         _pitchMarkingSheet = GD.Load<Texture2D>("res://assets/sprites/pitch_field_markings_32.png");
@@ -561,6 +758,12 @@ public partial class MatchScreen : VBoxContainer
     {
         var column = Math.Clamp(frame, 0, 5);
         return AtlasCell(_pitchObjectSheet, $"object:stunned:{column}", column, 1);
+    }
+
+    private Texture2D? BlockDieSprite(int roll)
+    {
+        var column = Math.Clamp(roll, 1, 6) - 1;
+        return AtlasCell(_blockDiceSheet, $"block-die:{column}", column, 0);
     }
 
     private Texture2D? PitchTileTexture(PitchSquare square, bool canUse, string? pathMarker)
@@ -677,6 +880,12 @@ public partial class MatchScreen : VBoxContainer
             if (_match.PendingPush is not null)
             {
                 await ChoosePushSquareAsync(square);
+                return;
+            }
+
+            if (_match.PendingFollowUp is not null)
+            {
+                await ResolvePendingFollowUpAsync(square == _match.PendingFollowUp.FollowUpSquare);
                 return;
             }
 
@@ -884,7 +1093,10 @@ public partial class MatchScreen : VBoxContainer
         var path = _previewPath.ToArray();
         var movingTeam = ActiveTeam();
         var service = new MatchService();
-        _match = service.MovePlayer(_match, _ruleset, movingTeam, playerId, destination, OpponentTeam());
+        var isBlitzMove = CurrentTurnActivation(playerId)?.Action == PlayerTurnAction.Blitz;
+        _match = isBlitzMove
+            ? service.MovePlayerAsBlitz(_match, _ruleset, movingTeam, playerId, destination, OpponentTeam())
+            : service.MovePlayer(_match, _ruleset, movingTeam, playerId, destination, OpponentTeam());
         if (_match.ActiveTeamId == activeTeamBeforeMove && IsPlayerTurnPhase())
         {
             _selectedPlayerId = playerId;
@@ -1097,6 +1309,36 @@ public partial class MatchScreen : VBoxContainer
         var activeTeamBeforeChoice = _match.ActiveTeamId;
         var service = new MatchService();
         _match = service.ChoosePushSquare(_match, _ruleset, TeamById(pending.AttackerTeamId), TeamById(pending.DefenderTeamId), square);
+
+        if (_match.ActiveTeamId == activeTeamBeforeChoice && IsPlayerTurnPhase())
+        {
+            _selectedPlayerId = pending.AttackerPlayerId;
+            _currentActivationPlayerId = pending.AttackerPlayerId;
+        }
+        else
+        {
+            _selectedPlayerId = null;
+            _currentActivationPlayerId = null;
+        }
+
+        await AnimateBallAsync(beforeMatch, _match, logStart);
+        await _saveMatch(_match);
+        RefreshRoster();
+        RefreshPitch();
+    }
+
+    private async Task ResolvePendingFollowUpAsync(bool useFollowUp)
+    {
+        if (_match.PendingFollowUp is not PendingFollowUpChoice pending)
+        {
+            return;
+        }
+
+        var beforeMatch = _match;
+        var logStart = _match.Log.Count;
+        var activeTeamBeforeChoice = _match.ActiveTeamId;
+        var service = new MatchService();
+        _match = service.ResolvePendingFollowUp(_match, TeamById(pending.AttackerTeamId), TeamById(pending.DefenderTeamId), useFollowUp);
 
         if (_match.ActiveTeamId == activeTeamBeforeChoice && IsPlayerTurnPhase())
         {
@@ -1571,6 +1813,12 @@ public partial class MatchScreen : VBoxContainer
             var service = new MatchService();
             var beforeMatch = _match;
             var logStart = _match.Log.Count;
+            if (_match.PendingFollowUp is not null)
+            {
+                await ResolvePendingFollowUpAsync(useFollowUp: false);
+                return;
+            }
+
             if (_match.PendingKickoffEvent is PendingKickoffEventChoice pendingKickoff)
             {
                 _match = service.CompletePendingKickoffEvent(_match, _ruleset, TeamById(pendingKickoff.ReceivingTeamId));
@@ -1618,7 +1866,9 @@ public partial class MatchScreen : VBoxContainer
         }
 
         _passMode = false;
+        _blitzMode = CurrentTurnActivation(playerId)?.Action == PlayerTurnAction.Blitz;
         ClearPreview();
+        _blitzMode = CurrentTurnActivation(playerId)?.Action == PlayerTurnAction.Blitz;
         RefreshRoster();
         RefreshSelectionDisplay();
         RefreshPitch();
@@ -1660,27 +1910,30 @@ public partial class MatchScreen : VBoxContainer
             var canMove = _selectedPlayerId is Guid movingPlayerId && IsLegalMovementTarget(movingPlayerId, square);
             var canPassSquare = _selectedPlayerId is Guid passingPlayerId && IsLegalPassTargetSquare(passingPlayerId, square);
             var canPush = IsLegalPushSquare(square);
+            var canFollowUp = IsLegalFollowUpSquare(square);
             var canPlaceBall = IsLegalBallPlacementSquare(square);
             var canThrowBomb = IsLegalBombThrowSquare(square);
             var canLaunchTarget = _selectedPlayerId is Guid launchActorId &&
                 _previewLaunchedPlayerId is Guid launchedId &&
                 IsLegalLaunchTargetSquare(launchActorId, launchedId, square);
             var isPreview = _previewPath.Contains(square);
-            var pathMarker = canLaunchTarget ? "L" : canThrowBomb ? "B" : canPlaceBall ? "o" : canPush ? ">" : _previewPassTargetSquare == square ? "P" : MovementPathMarker(square);
+            var pathMarker = canLaunchTarget ? "L" : canThrowBomb ? "B" : canPlaceBall ? "o" : canFollowUp ? "F" : canPush ? ">" : _previewPassTargetSquare == square ? "P" : MovementPathMarker(square);
             button.Text = "";
             button.Icon = null;
-            SetPitchTile(square, PitchTileTexture(square, canPlace || canTargetKickoff || canMove || canPassSquare || canPush || canPlaceBall || canThrowBomb || canLaunchTarget, pathMarker));
-            SetPitchHighlight(square, PitchHighlightTexture(canPlace || canTargetKickoff || canMove || canPassSquare || canPush || canPlaceBall || canThrowBomb || canLaunchTarget, pathMarker));
+            SetPitchTile(square, PitchTileTexture(square, canPlace || canTargetKickoff || canMove || canPassSquare || canPush || canFollowUp || canPlaceBall || canThrowBomb || canLaunchTarget, pathMarker));
+            SetPitchHighlight(square, PitchHighlightTexture(canPlace || canTargetKickoff || canMove || canPassSquare || canPush || canFollowUp || canPlaceBall || canThrowBomb || canLaunchTarget, pathMarker));
             SetPitchMarking(square, PitchMarkingTexture(square));
             SetPitchPiece(square, null);
             SetPitchOverlay(square, null);
-            button.Disabled = !canPlace && !canTargetKickoff && !canMove && !canPassSquare && !canPush && !canPlaceBall && !canThrowBomb && !canLaunchTarget;
+            button.Disabled = !canPlace && !canTargetKickoff && !canMove && !canPassSquare && !canPush && !canFollowUp && !canPlaceBall && !canThrowBomb && !canLaunchTarget;
             button.TooltipText = canLaunchTarget
                 ? LaunchSquareTooltip(square)
                 : canThrowBomb
                 ? "Throw bomb here"
                 : canPlaceBall
                 ? "Place ball here"
+                : canFollowUp
+                ? "Follow up here"
                 : canPush
                 ? "Push here"
                 : canPassSquare
@@ -1688,8 +1941,8 @@ public partial class MatchScreen : VBoxContainer
                 : canPlace || canTargetKickoff || canMove
                 ? MovementTooltip(square, pathMarker)
                 : "";
-            ApplySquareStyle(button, square, isSelected: false, canUse: canPlace || canTargetKickoff || canMove || canPassSquare || canPush || canPlaceBall || canThrowBomb || canLaunchTarget, pathMarker);
-            if (isPreview || canPush || canThrowBomb || canLaunchTarget || _previewPassTargetSquare == square)
+            ApplySquareStyle(button, square, isSelected: false, canUse: canPlace || canTargetKickoff || canMove || canPassSquare || canPush || canFollowUp || canPlaceBall || canThrowBomb || canLaunchTarget, pathMarker);
+            if (isPreview || canPush || canFollowUp || canThrowBomb || canLaunchTarget || _previewPassTargetSquare == square)
             {
                 button.Text = pathMarker ?? (_previewDestination == square ? "X" : ".");
             }
@@ -1719,6 +1972,7 @@ public partial class MatchScreen : VBoxContainer
             var canPassTarget = _selectedPlayerId is Guid passerId && IsLegalPassTarget(passerId, placement.PlayerId);
             var canFoulTarget = _selectedPlayerId is Guid foulerId && IsLegalFoulTarget(foulerId, placement.PlayerId);
             var canPushTarget = IsLegalPushSquare(placement.Square!);
+            var canFollowUpTarget = IsLegalFollowUpSquare(placement.Square!);
             var canThrowBombTarget = IsLegalBombThrowSquare(placement.Square!);
             var canLaunchPlayer = _selectedPlayerId is Guid launchActorIdForPlayer &&
                 _previewLaunchedPlayerId is null &&
@@ -1727,13 +1981,13 @@ public partial class MatchScreen : VBoxContainer
             var canLaunchTargetSquare = _selectedPlayerId is Guid launchActorIdForSquare &&
                 _previewLaunchedPlayerId is Guid launchedPlayerId &&
                 IsLegalLaunchTargetSquare(launchActorIdForSquare, launchedPlayerId, placement.Square!);
-            button.Disabled = !CanSelectPlayer(placement.PlayerId) && !canBlockTarget && !canBlitzTarget && !canKickoffBlitzTarget && !canPassTarget && !canFoulTarget && !canPushTarget && !canThrowBombTarget && !canLaunchPlayer && !canLaunchTargetSquare;
+            button.Disabled = !CanSelectPlayer(placement.PlayerId) && !canBlockTarget && !canBlitzTarget && !canKickoffBlitzTarget && !canPassTarget && !canFoulTarget && !canPushTarget && !canFollowUpTarget && !canThrowBombTarget && !canLaunchPlayer && !canLaunchTargetSquare;
             ApplySquareStyle(
                 button,
                 placement.Square!,
                 isSelected,
-                canUse: canBlockTarget || canBlitzTarget || canKickoffBlitzTarget || canPassTarget || canFoulTarget || canPushTarget || canThrowBombTarget || canLaunchPlayer || canLaunchTargetSquare,
-                pathMarker: canLaunchPlayer ? "L" : canLaunchTargetSquare ? "L" : canPushTarget ? ">" : null,
+                canUse: canBlockTarget || canBlitzTarget || canKickoffBlitzTarget || canPassTarget || canFoulTarget || canPushTarget || canFollowUpTarget || canThrowBombTarget || canLaunchPlayer || canLaunchTargetSquare,
+                pathMarker: canLaunchPlayer ? "L" : canLaunchTargetSquare ? "L" : canFollowUpTarget ? "F" : canPushTarget ? ">" : null,
                 blockRole: BlockPreviewRole(placement.PlayerId),
                 passRole: PassPreviewRole(placement.PlayerId));
         }
@@ -1767,6 +2021,7 @@ public partial class MatchScreen : VBoxContainer
         _doneButton.Text = AdvanceButtonText();
         _doneButton.TooltipText = _doneButton.Disabled ? AdvanceBlockedMessage() : "Advance the current phase or turn.";
         RefreshPassModeButton();
+        RefreshBlitzModeButton();
         RefreshLaunchModeButtons();
 
         _decisionTitleLabel.Text = DecisionTitle();
@@ -1830,6 +2085,11 @@ public partial class MatchScreen : VBoxContainer
             return "Choose Push";
         }
 
+        if (_match.PendingFollowUp is not null)
+        {
+            return "Follow-Up";
+        }
+
         if (_match.PendingInterception is not null)
         {
             return "Interception";
@@ -1884,8 +2144,9 @@ public partial class MatchScreen : VBoxContainer
             _ when _match.PendingDivingTackle is PendingDivingTackleChoice pending => DivingTackleSummary(pending),
             _ when _match.PendingBallPlacement is PendingBallPlacementChoice pending => $"Choose where {FindPlayer(pending.PlayerId)?.Name ?? "player"} places the ball with {pending.Reason}.",
             _ when _match.PendingBombThrow is PendingBombThrowChoice pending => BombThrowSummary(pending),
-            _ when _match.PendingBlock is PendingBlockChoice pending => $"Choose a block die for {FindPlayer(pending.AttackerPlayerId)?.Name ?? "attacker"}'s block.",
+            _ when _match.PendingBlock is PendingBlockChoice pending => $"Choose block dice for {FindPlayer(pending.AttackerPlayerId)?.Name ?? "attacker"}'s block.",
             _ when _match.PendingPush is PendingPushChoice pending => $"Choose where {FindPlayer(pending.DefenderPlayerId)?.Name ?? "defender"} is pushed.",
+            _ when _match.PendingFollowUp is PendingFollowUpChoice pending => $"Click {pending.FollowUpSquare.X + 1},{pending.FollowUpSquare.Y + 1} to follow up, or skip the follow-up.",
             _ when _match.PendingInterception is PendingInterceptionChoice pending => $"Choose an interceptor for the {pending.PassRangeName} pass.",
             _ when _match.PendingKickoffEvent is PendingKickoffEventChoice pending => KickoffEventSummary(pending),
             MatchPhase.DefenseSetup => $"{activeTeam.Name}: place the kicking team in the legal setup area.",
@@ -1916,7 +2177,7 @@ public partial class MatchScreen : VBoxContainer
 
         if (_match.Phase is MatchPhase.DefenseSetup or MatchPhase.OffenseSetup)
         {
-            details.Add("Legal squares are softly chalked");
+            details.Add("Legal setup squares are highlighted");
         }
         else if (_match.Phase is MatchPhase.OffensivePlayerTurn or MatchPhase.DefensiveTurn)
         {
@@ -2009,6 +2270,58 @@ public partial class MatchScreen : VBoxContainer
         SetModeButtonStyle(_passModeButton, _passMode, canPass);
     }
 
+    private void RefreshBlitzModeButton()
+    {
+        var declaredBlitz = _selectedPlayerId is Guid playerId &&
+            CurrentTurnActivation(playerId)?.Action == PlayerTurnAction.Blitz;
+        var canBlitz = _selectedPlayerId is Guid blitzerId && CanEnterBlitzMode(blitzerId);
+        if (!canBlitz && !declaredBlitz)
+        {
+            _blitzMode = false;
+        }
+
+        if (declaredBlitz)
+        {
+            _blitzMode = true;
+        }
+
+        _blitzModeButton.Disabled = !canBlitz && !declaredBlitz;
+        _blitzModeButton.Text = _blitzMode ? "Blitz: On" : "Blitz";
+        _blitzModeButton.TooltipText = declaredBlitz
+            ? "This player has declared a Blitz."
+            : canBlitz ? "Declare this player's Blitz action." : "Select an unactivated player to declare a Blitz.";
+        SetModeButtonStyle(_blitzModeButton, _blitzMode, canBlitz || declaredBlitz);
+    }
+
+    private async Task DeclareBlitzModeAsync()
+    {
+        if (_selectedPlayerId is not Guid playerId || !CanEnterBlitzMode(playerId))
+        {
+            return;
+        }
+
+        try
+        {
+            var service = new MatchService();
+            _match = service.DeclarePlayerAction(_match, ActiveTeam(), playerId, PlayerTurnAction.Blitz);
+            _currentActivationPlayerId = playerId;
+            _passMode = false;
+            _throwTeamMateMode = false;
+            _kickTeamMateMode = false;
+            ClearPreview();
+            _selectedPlayerId = playerId;
+            _currentActivationPlayerId = playerId;
+            _blitzMode = true;
+            await _saveMatch(_match);
+            RefreshRoster();
+            RefreshPitch();
+        }
+        catch (Exception ex)
+        {
+            _summaryLabel.Text = $"Blitz declaration failed: {ex.Message}";
+        }
+    }
+
     private void RefreshLaunchModeButtons()
     {
         var canThrow = _selectedPlayerId is Guid throwerId && CanEnterLaunchMode(throwerId, "throw-team-mate");
@@ -2066,6 +2379,11 @@ public partial class MatchScreen : VBoxContainer
             return false;
         }
 
+        if (_match.PendingFollowUp is not null)
+        {
+            return true;
+        }
+
         if (_match.PendingKickoffEvent is not null)
         {
             return true;
@@ -2082,6 +2400,11 @@ public partial class MatchScreen : VBoxContainer
         if (_match.PendingKickoffEvent is not null)
         {
             return "Resolve Kickoff";
+        }
+
+        if (_match.PendingFollowUp is not null)
+        {
+            return "Skip Follow-Up";
         }
 
         return _match.Phase switch
@@ -2135,12 +2458,17 @@ public partial class MatchScreen : VBoxContainer
 
         if (_match.PendingBlock is not null)
         {
-            return "Choose a block die first.";
+            return "Choose block dice first.";
         }
 
         if (_match.PendingPush is not null)
         {
             return "Choose a push square first.";
+        }
+
+        if (_match.PendingFollowUp is not null)
+        {
+            return "Choose whether to follow up first.";
         }
 
         if (_match.PendingInterception is not null)
@@ -2447,7 +2775,12 @@ public partial class MatchScreen : VBoxContainer
 
     private bool HasCurrentTurnActivation(Guid playerId)
     {
-        return _match.Activations.Any(activation =>
+        return CurrentTurnActivation(playerId) is not null;
+    }
+
+    private PlayerTurnActivation? CurrentTurnActivation(Guid playerId)
+    {
+        return _match.Activations.FirstOrDefault(activation =>
             activation.PlayerId == playerId &&
             activation.TeamId == _match.ActiveTeamId &&
             activation.Half == _match.Half &&
@@ -2459,6 +2792,7 @@ public partial class MatchScreen : VBoxContainer
         if (!IsPlayerTurnPhase() ||
             _match.PendingBlock is not null ||
             _match.PendingPush is not null ||
+            _match.PendingFollowUp is not null ||
             _match.PendingSendOff is not null ||
             _match.PendingStandFirm is not null ||
             _match.PendingDivingTackle is not null ||
@@ -2482,17 +2816,28 @@ public partial class MatchScreen : VBoxContainer
 
     private bool IsLegalBlitzTarget(Guid attackerId, Guid defenderId)
     {
+        var activation = CurrentTurnActivation(attackerId);
         if (!IsPlayerTurnPhase() ||
             _match.PendingBlock is not null ||
             _match.PendingPush is not null ||
+            _match.PendingFollowUp is not null ||
             _match.PendingSendOff is not null ||
             _match.PendingStandFirm is not null ||
             _match.PendingDivingTackle is not null ||
             _match.PendingBombThrow is not null ||
             _match.PendingInterception is not null ||
             _match.PendingReroll is not null ||
-            HasCurrentTurnActivation(attackerId) ||
-            HasUsedBlitz(_match.ActiveTeamId))
+            (HasUsedBlitz(_match.ActiveTeamId) && activation?.Action != PlayerTurnAction.Blitz))
+        {
+            return false;
+        }
+
+        if (activation is not null && activation.Action != PlayerTurnAction.Blitz)
+        {
+            return false;
+        }
+
+        if (activation is null && !_blitzMode)
         {
             return false;
         }
@@ -2505,10 +2850,14 @@ public partial class MatchScreen : VBoxContainer
             attackerPlacement.Square is not PitchSquare attackerSquare ||
             defenderPlacement.Square is not PitchSquare defenderSquare ||
             attackerPlacement.State is not (PlayerPitchState.Standing or PlayerPitchState.Prone) ||
-            defenderPlacement.State != PlayerPitchState.Standing ||
-            (attackerPlacement.State == PlayerPitchState.Standing && IsAdjacent(attackerSquare, defenderSquare)))
+            defenderPlacement.State != PlayerPitchState.Standing)
         {
             return false;
+        }
+
+        if (attackerPlacement.State == PlayerPitchState.Standing && IsAdjacent(attackerSquare, defenderSquare))
+        {
+            return activation?.Action == PlayerTurnAction.Blitz || _blitzMode;
         }
 
         return FindBlitzDestination(attackerId, defenderId) is not null;
@@ -2543,6 +2892,7 @@ public partial class MatchScreen : VBoxContainer
         if (!IsPlayerTurnPhase() ||
             _match.PendingBlock is not null ||
             _match.PendingPush is not null ||
+            _match.PendingFollowUp is not null ||
             _match.PendingReroll is not null ||
             _match.PendingSendOff is not null ||
             _match.PendingDivingTackle is not null ||
@@ -2575,6 +2925,11 @@ public partial class MatchScreen : VBoxContainer
             attacker is null)
         {
             return null;
+        }
+
+        if (attackerPlacement.State == PlayerPitchState.Standing && IsAdjacent(attackerSquare, defenderSquare))
+        {
+            return attackerSquare;
         }
 
         if (attackerPlacement.State == PlayerPitchState.Prone && IsAdjacent(attackerSquare, defenderSquare))
@@ -2684,7 +3039,7 @@ public partial class MatchScreen : VBoxContainer
         var strengthLeader = preview.AttackerStrength == preview.DefenderStrength
             ? "even strength"
             : preview.AttackerStrength > preview.DefenderStrength ? "attacker stronger" : "defender stronger";
-        return $"Block preview: {preview.Dice} die{(preview.Dice == 1 ? "" : "s")}, ST {preview.AttackerStrength}-{preview.DefenderStrength} ({strengthLeader}). Click {defenderName} again to roll.";
+        return $"Block preview: {preview.Dice} block dice, ST {preview.AttackerStrength}-{preview.DefenderStrength} ({strengthLeader}). Click {defenderName} again to roll.";
     }
 
     private string BlitzPreviewSummary(Guid defenderId)
@@ -2697,7 +3052,7 @@ public partial class MatchScreen : VBoxContainer
             return $"Click {defenderName} again to confirm the blitz.";
         }
 
-        return $"Blitz preview: move to {destination.X + 1},{destination.Y + 1}, then {preview.Dice} die{(preview.Dice == 1 ? "" : "s")} block, ST {preview.AttackerStrength}-{preview.DefenderStrength}. Click {defenderName} again to blitz.";
+        return $"Blitz preview: move to {destination.X + 1},{destination.Y + 1}, then {preview.Dice} block dice, ST {preview.AttackerStrength}-{preview.DefenderStrength}. Click {defenderName} again to blitz.";
     }
 
     private string FoulPreviewSummary(Guid victimId)
@@ -2756,8 +3111,10 @@ public partial class MatchScreen : VBoxContainer
         {
             var button = new Button
             {
-                Text = roll.ToString(),
-                CustomMinimumSize = new Vector2(34, 28)
+                Text = "",
+                Icon = BlockDieSprite(roll),
+                ExpandIcon = false,
+                CustomMinimumSize = new Vector2(38, 34)
             };
             button.TooltipText = BlockDieTooltip(roll);
             button.Pressed += async () => await ChooseBlockDieAsync(roll);
@@ -2770,7 +3127,9 @@ public partial class MatchScreen : VBoxContainer
         return roll switch
         {
             <= 1 => "Attacker down",
-            <= 3 => "Push back",
+            2 => "Both down",
+            <= 4 => "Push",
+            5 => "Defender stumbles - defender down unless Dodge applies",
             _ => "Defender down"
         };
     }
@@ -2798,6 +3157,7 @@ public partial class MatchScreen : VBoxContainer
         if (!IsPlayerTurnPhase() ||
             _match.PendingBlock is not null ||
             _match.PendingPush is not null ||
+            _match.PendingFollowUp is not null ||
             _match.PendingSendOff is not null ||
             _match.PendingStandFirm is not null ||
             _match.PendingDivingTackle is not null ||
@@ -2816,11 +3176,36 @@ public partial class MatchScreen : VBoxContainer
             passerPlacement.State == PlayerPitchState.Standing;
     }
 
+    private bool CanEnterBlitzMode(Guid playerId)
+    {
+        if (!IsPlayerTurnPhase() ||
+            _match.PendingBlock is not null ||
+            _match.PendingPush is not null ||
+            _match.PendingFollowUp is not null ||
+            _match.PendingSendOff is not null ||
+            _match.PendingStandFirm is not null ||
+            _match.PendingDivingTackle is not null ||
+            _match.PendingBombThrow is not null ||
+            _match.PendingInterception is not null ||
+            _match.PendingReroll is not null ||
+            HasCurrentTurnActivation(playerId) ||
+            HasUsedBlitz(_match.ActiveTeamId))
+        {
+            return false;
+        }
+
+        var placement = _match.Placements.FirstOrDefault(current => current.PlayerId == playerId);
+        return placement?.TeamId == _match.ActiveTeamId &&
+            placement.Square is not null &&
+            placement.State is PlayerPitchState.Standing or PlayerPitchState.Prone;
+    }
+
     private bool CanEnterLaunchMode(Guid actorId, string skillId)
     {
         if (!IsPlayerTurnPhase() ||
             _match.PendingBlock is not null ||
             _match.PendingPush is not null ||
+            _match.PendingFollowUp is not null ||
             _match.PendingSendOff is not null ||
             _match.PendingStandFirm is not null ||
             _match.PendingDivingTackle is not null ||
@@ -3378,6 +3763,11 @@ public partial class MatchScreen : VBoxContainer
             return false;
         }
 
+        if (_match.PendingFollowUp is not null)
+        {
+            return false;
+        }
+
         if (_match.PendingBombThrow is not null)
         {
             return false;
@@ -3392,7 +3782,9 @@ public partial class MatchScreen : VBoxContainer
             return false;
         }
 
-        if (HasCurrentTurnActivation(playerId))
+        var activation = CurrentTurnActivation(playerId);
+        if (activation is not null &&
+            (_currentActivationPlayerId != playerId || activation.Action is not (PlayerTurnAction.Move or PlayerTurnAction.Blitz)))
         {
             return false;
         }
@@ -3412,14 +3804,21 @@ public partial class MatchScreen : VBoxContainer
         var movementAllowance = placement.State == PlayerPitchState.Prone
             ? Math.Max(0, player.Stats.Movement - 3)
             : player.Stats.Movement;
+        var movementAlreadyUsed = activation?.MovementSquaresUsed ?? 0;
+        var remainingMovement = Math.Max(0, movementAllowance + 3 - movementAlreadyUsed);
         return (path.Count > 0 || placement.State == PlayerPitchState.Prone) &&
-            path.Count <= movementAllowance + 3 &&
+            path.Count <= remainingMovement &&
             path.All(pathSquare => !_match.Placements.Any(current => current.PlayerId != playerId && current.Square == pathSquare));
     }
 
     private bool IsLegalPushSquare(PitchSquare square)
     {
         return _match.PendingPush?.LegalSquares.Contains(square) == true;
+    }
+
+    private bool IsLegalFollowUpSquare(PitchSquare square)
+    {
+        return _match.PendingFollowUp?.FollowUpSquare == square;
     }
 
     private bool IsLegalBallPlacementSquare(PitchSquare square)

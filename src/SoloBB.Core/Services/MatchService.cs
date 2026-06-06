@@ -334,6 +334,11 @@ public sealed class MatchService
         return MovePlayerCore(match, ruleset, team, playerId, destination, PlayerTurnAction.Move, opposingTeam);
     }
 
+    public MatchState MovePlayerAsBlitz(MatchState match, Ruleset ruleset, LeagueTeam team, Guid playerId, PitchSquare destination, LeagueTeam? opposingTeam = null)
+    {
+        return MovePlayerCore(match, ruleset, team, playerId, destination, PlayerTurnAction.Blitz, opposingTeam);
+    }
+
     public MatchState DeclarePlayerAction(MatchState match, LeagueTeam team, Guid playerId, PlayerTurnAction action)
     {
         var player = FindTeamPlayer(team, playerId);
@@ -2063,6 +2068,44 @@ public sealed class MatchService
             throw new InvalidOperationException("Resolve the pending push before taking another action.");
         }
 
+        var attackerPlacementBeforeMove = match.Placements.FirstOrDefault(placement => placement.PlayerId == attackerPlayerId);
+        var defenderPlacementBeforeMove = match.Placements.FirstOrDefault(placement => placement.PlayerId == defenderPlayerId);
+        var existingActivation = GetActivation(match, attackerPlayerId, attackerTeam.Id);
+        var isDeclaredOrOngoingBlitz = existingActivation?.Action == PlayerTurnAction.Blitz;
+        var isBlockingFromCurrentSquare =
+            isDeclaredOrOngoingBlitz &&
+            attackerPlacementBeforeMove?.Square == destination &&
+            attackerPlacementBeforeMove.State == PlayerPitchState.Standing &&
+            defenderPlacementBeforeMove?.Square is PitchSquare defenderSquare &&
+            defenderPlacementBeforeMove.State == PlayerPitchState.Standing &&
+            IsAdjacent(destination, defenderSquare);
+
+        if (isBlockingFromCurrentSquare)
+        {
+            var blitzAction = BeginPlayerAction(
+                match,
+                ruleset,
+                attackerTeam,
+                attacker,
+                PlayerTurnAction.Blitz,
+                existingActivation?.GoForItsUsed ?? 0,
+                existingActivation?.MovementSquaresUsed ?? 0);
+            if (blitzAction.Prevented)
+            {
+                return blitzAction.Match;
+            }
+
+            var currentAttackerPlacement = ValidateBlock(blitzAction.Match, attackerTeam, attackerPlayerId, defenderTeam, defenderPlayerId);
+            var currentDefender = FindTeamPlayer(defenderTeam, defenderPlayerId);
+            var currentFoulAppearance = ResolveFoulAppearance(blitzAction.Match, ruleset, attacker, currentDefender);
+            if (currentFoulAppearance.BlockPrevented)
+            {
+                return currentFoulAppearance.Match;
+            }
+
+            return ResolveBlock(blitzAction.Match, ruleset, attackerTeam, attacker, currentAttackerPlacement, defenderTeam, currentDefender);
+        }
+
         var movedMatch = MovePlayerCore(match, ruleset, attackerTeam, attackerPlayerId, destination, PlayerTurnAction.Blitz, defenderTeam, defenderPlayerId);
         if (movedMatch.Phase != match.Phase || movedMatch.ActiveTeamId != match.ActiveTeamId || movedMatch.PendingReroll is not null)
         {
@@ -3344,22 +3387,31 @@ public sealed class MatchService
             throw new InvalidOperationException("Movement paths cannot pass through occupied squares.");
         }
 
-        var movementAllowance = isStandingUp && !PlayerHasHookedEffect(ruleset, player, GameEventKind.MoveStep, GameEventStage.BeforeEvent, SkillEffect.JumpUp)
+        var existingActivation = GetActivation(match, player.Id, team.Id);
+        var continuesMovementActivation =
+            existingActivation is { DeclaredOnly: false } &&
+            existingActivation.Action == action &&
+            action is PlayerTurnAction.Move or PlayerTurnAction.Blitz;
+        var movementAllowance = isStandingUp && !continuesMovementActivation && !PlayerHasHookedEffect(ruleset, player, GameEventKind.MoveStep, GameEventStage.BeforeEvent, SkillEffect.JumpUp)
             ? Math.Max(0, player.Stats.Movement - 3)
             : player.Stats.Movement;
+        var priorMovementSquares = continuesMovementActivation ? existingActivation!.MovementSquaresUsed : 0;
+        var priorGoForItsUsed = continuesMovementActivation ? existingActivation!.GoForItsUsed : 0;
+        var remainingMovementAllowance = Math.Max(0, movementAllowance - priorMovementSquares);
+        var totalMovementSquares = priorMovementSquares + path.Length;
         var maxGoForIts = PlayerHasHookedEffect(ruleset, player, GameEventKind.MoveStep, GameEventStage.BeforeEvent, SkillEffect.Sprint)
             ? SprintGoForItsPerActivation
             : MaxGoForItsPerActivation;
-        var goForItsUsed = Math.Max(0, path.Length - movementAllowance);
+        var goForItsUsed = Math.Max(0, totalMovementSquares - movementAllowance);
         if (goForItsUsed > maxGoForIts)
         {
             var movementDescription = isStandingUp
                 ? $"{movementAllowance} squares after standing"
                 : $"{player.Stats.Movement} squares";
-            throw new InvalidOperationException($"{player.Name} can move {movementDescription} plus {maxGoForIts} go-for-its, not {path.Length}.");
+            throw new InvalidOperationException($"{player.Name} can move {movementDescription} plus {maxGoForIts} go-for-its, not {totalMovementSquares}.");
         }
 
-        var startedAction = BeginPlayerAction(match, ruleset, team, player, action, goForItsUsed);
+        var startedAction = BeginPlayerAction(match, ruleset, team, player, action, goForItsUsed, totalMovementSquares);
         if (startedAction.Prevented)
         {
             return startedAction.Match;
@@ -3379,7 +3431,7 @@ public sealed class MatchService
             };
         }
 
-        var goForItNumber = 0;
+        var goForItNumber = priorGoForItsUsed;
         var breakTackleUsed = false;
 
         for (var stepIndex = 0; stepIndex < path.Length; stepIndex++)
@@ -3422,7 +3474,7 @@ public sealed class MatchService
                                 Destination = destination,
                                 Path = path,
                                 StepIndex = stepIndex,
-                                MovementAllowance = movementAllowance,
+                                MovementAllowance = remainingMovementAllowance,
                                 BlitzDefenderPlayerId = blitzDefenderPlayerId,
                                 BreakTackleUsed = breakTackleUsed,
                                 ArmBarApplies = ArmBarApplies(nextMatch, ruleset, opposingTeam, playerId, currentSquare, nextSquare)
@@ -3452,7 +3504,7 @@ public sealed class MatchService
                         destination,
                         path,
                         stepIndex,
-                        movementAllowance,
+                        remainingMovementAllowance,
                         opposingTeam,
                         breakTackleUsed || usedBreakTackleThisRoll,
                         ArmBarApplies(nextMatch, ruleset, opposingTeam, playerId, currentSquare, nextSquare),
@@ -3477,7 +3529,7 @@ public sealed class MatchService
                 return nextMatch;
             }
 
-            if (stepIndex >= movementAllowance)
+            if (stepIndex >= remainingMovementAllowance)
             {
                 goForItNumber++;
                 var roll = _dice.RollD6();
@@ -3496,7 +3548,7 @@ public sealed class MatchService
                         destination,
                         path,
                         stepIndex,
-                        movementAllowance,
+                        remainingMovementAllowance,
                         opposingTeam,
                         breakTackleUsed,
                         false,
@@ -3522,7 +3574,7 @@ public sealed class MatchService
 
             if (nextMatch.Ball.CarrierPlayerId is null && nextMatch.Ball.Square == nextSquare)
             {
-                var pickupMatch = ResolvePickup(nextMatch, ruleset, team, player, nextSquare, action, destination, path, stepIndex, movementAllowance, blitzDefenderPlayerId);
+                var pickupMatch = ResolvePickup(nextMatch, ruleset, team, player, nextSquare, action, destination, path, stepIndex, remainingMovementAllowance, blitzDefenderPlayerId);
                 if (pickupMatch.Ball.CarrierPlayerId == playerId)
                 {
                     nextMatch = pickupMatch;
@@ -3586,7 +3638,7 @@ public sealed class MatchService
                 Log =
                 [
                     .. match.Log,
-                    new MatchLogEntry { Message = $"{attacker.Name} uses Brawler: one Both Down die is rerolled to {brawlerRoll}." }
+                    new MatchLogEntry { Message = $"{attacker.Name} uses Brawler: one Both Down result is rerolled to {brawlerRoll}." }
                 ]
             };
         }
@@ -3609,7 +3661,7 @@ public sealed class MatchService
                 Log =
                 [
                     .. match.Log,
-                    new MatchLogEntry { Message = $"{attacker.Name} blocks {defender.Name}: ST {strength.AttackerStrength}-{strength.DefenderStrength}, rolled {string.Join(", ", rolls)}. Choose a block die." }
+                    new MatchLogEntry { Message = $"{attacker.Name} blocks {defender.Name}: ST {strength.AttackerStrength}-{strength.DefenderStrength}, rolled {string.Join(", ", rolls)}. Choose block dice." }
                 ]
             };
         }
@@ -3632,7 +3684,7 @@ public sealed class MatchService
         bool preventFollowUp = false)
     {
         var rollText = string.Join(", ", rolls);
-        var strengthText = $"ST {strength.AttackerStrength}-{strength.DefenderStrength}, {strength.Dice} die{(strength.Dice == 1 ? "" : "s")}";
+        var strengthText = $"ST {strength.AttackerStrength}-{strength.DefenderStrength}, block dice {strength.Dice}";
         var attackerAction = GetActivation(match, attacker.Id, attackerTeam.Id)?.Action ?? PlayerTurnAction.Block;
 
         if (roll == 2 &&
@@ -4632,7 +4684,7 @@ public sealed class MatchService
             ]);
     }
 
-    private ActionStart BeginPlayerAction(MatchState match, Ruleset ruleset, LeagueTeam team, Player player, PlayerTurnAction action, int goForItsUsed)
+    private ActionStart BeginPlayerAction(MatchState match, Ruleset ruleset, LeagueTeam team, Player player, PlayerTurnAction action, int goForItsUsed, int movementSquaresUsed = 0)
     {
         var existingActivation = GetActivation(match, player.Id, team.Id);
         EnsureCanDeclarePlayerAction(match, team, player, action, allowMatchingDeclaration: true);
@@ -4654,7 +4706,7 @@ public sealed class MatchService
                         activation.TeamId == team.Id &&
                         activation.Half == match.Half &&
                         activation.Turn == match.Turn
-                            ? activation with { GoForItsUsed = goForItsUsed, DeclaredOnly = false }
+                            ? activation with { GoForItsUsed = goForItsUsed, MovementSquaresUsed = movementSquaresUsed, DeclaredOnly = false }
                             : activation)
                     .ToArray()
             }, Prevented: false);
@@ -4670,13 +4722,31 @@ public sealed class MatchService
                         activation.TeamId == team.Id &&
                         activation.Half == match.Half &&
                         activation.Turn == match.Turn
-                            ? activation with { GoForItsUsed = goForItsUsed, MayMoveAfterFoul = false }
+                            ? activation with { GoForItsUsed = goForItsUsed, MovementSquaresUsed = movementSquaresUsed, MayMoveAfterFoul = false }
                             : activation)
                     .ToArray()
             }, Prevented: false);
         }
 
-        return new ActionStart(AddActivation(match, player.Id, team.Id, action, goForItsUsed, declaredOnly: false), Prevented: false);
+        if (existingActivation is { DeclaredOnly: false } &&
+            existingActivation.Action == action &&
+            action is PlayerTurnAction.Move or PlayerTurnAction.Blitz)
+        {
+            return new ActionStart(match with
+            {
+                Activations = match.Activations
+                    .Select(activation =>
+                        activation.PlayerId == player.Id &&
+                        activation.TeamId == team.Id &&
+                        activation.Half == match.Half &&
+                        activation.Turn == match.Turn
+                            ? activation with { GoForItsUsed = goForItsUsed, MovementSquaresUsed = movementSquaresUsed }
+                            : activation)
+                    .ToArray()
+            }, Prevented: false);
+        }
+
+        return new ActionStart(AddActivation(match, player.Id, team.Id, action, goForItsUsed, declaredOnly: false, movementSquaresUsed: movementSquaresUsed), Prevented: false);
     }
 
     private static void EnsureCanDeclarePlayerAction(MatchState match, LeagueTeam team, Player player, PlayerTurnAction action, bool allowMatchingDeclaration)
@@ -4696,14 +4766,18 @@ public sealed class MatchService
         var existingActivation = GetActivation(match, player.Id, team.Id);
         var canUseSneakyGitMove = existingActivation is { Action: PlayerTurnAction.Foul, MayMoveAfterFoul: true } &&
             action == PlayerTurnAction.Move;
+        var canContinueMovementActivation = allowMatchingDeclaration &&
+            existingActivation is { DeclaredOnly: false } &&
+            existingActivation.Action == action &&
+            action is PlayerTurnAction.Move or PlayerTurnAction.Blitz;
         var matchesExistingDeclaration = existingActivation is { DeclaredOnly: true } &&
             existingActivation.Action == action;
-        if (existingActivation is not null && !canUseSneakyGitMove && (!allowMatchingDeclaration || !matchesExistingDeclaration))
+        if (existingActivation is not null && !canUseSneakyGitMove && !canContinueMovementActivation && (!allowMatchingDeclaration || !matchesExistingDeclaration))
         {
             throw new InvalidOperationException($"{player.Name} has already been activated this turn.");
         }
 
-        if (!matchesExistingDeclaration && !canUseSneakyGitMove && HasUsedTeamAction(match, team.Id, action))
+        if (!matchesExistingDeclaration && !canUseSneakyGitMove && !canContinueMovementActivation && HasUsedTeamAction(match, team.Id, action))
         {
             throw new InvalidOperationException($"{team.Name} has already used its {FormatPlayerTurnAction(action).ToLowerInvariant()} this turn.");
         }
@@ -4969,7 +5043,7 @@ public sealed class MatchService
         };
     }
 
-    private MatchState AddActivation(MatchState match, Guid playerId, Guid teamId, PlayerTurnAction action, int goForItsUsed, bool declaredOnly)
+    private MatchState AddActivation(MatchState match, Guid playerId, Guid teamId, PlayerTurnAction action, int goForItsUsed, bool declaredOnly, int movementSquaresUsed = 0)
     {
         return match with
         {
@@ -4983,6 +5057,7 @@ public sealed class MatchService
                     Half = match.Half,
                     Turn = match.Turn,
                     GoForItsUsed = goForItsUsed,
+                    MovementSquaresUsed = movementSquaresUsed,
                     Action = action,
                     DeclaredOnly = declaredOnly
                 }
