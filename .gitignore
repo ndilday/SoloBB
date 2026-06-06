@@ -8,3 +8,4 @@ obj/
 *.log
 *.uid
 /assets/sprites/*.import
+/*.import

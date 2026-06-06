@@ -34,7 +34,7 @@ public partial class TeamCreationScreen : VBoxContainer
     private TeamRoster? _selectedRoster;
     private LineEdit _teamNameEdit = null!;
     private LineEdit _coachNameEdit = null!;
-    private OptionButton _rosterOption = null!;
+    private OptionButton? _rosterOption;
     private Label _rerollCostLabel = null!;
     private SpinBox _rerollsSpin = null!;
     private SpinBox _fanFactorSpin = null!;
@@ -75,9 +75,17 @@ public partial class TeamCreationScreen : VBoxContainer
         _coachNameEdit = AddLineEdit(identityGrid, "Coach name", editingTeam?.CoachName ?? "Hotseat");
 
         identityGrid.AddChild(new Label { Text = "Roster" });
-        _rosterOption = new OptionButton();
-        _rosterOption.ItemSelected += _ => SelectRosterFromOption();
-        identityGrid.AddChild(_rosterOption);
+        if (editingTeam is null)
+        {
+            _rosterOption = new OptionButton();
+            _rosterOption.ItemSelected += _ => SelectRosterFromOption();
+            identityGrid.AddChild(_rosterOption);
+        }
+        else
+        {
+            var existingRoster = rosterSet.Rosters.FirstOrDefault(r => string.Equals(r.Id, editingTeam.RosterId, StringComparison.OrdinalIgnoreCase));
+            identityGrid.AddChild(new Label { Text = existingRoster?.Name ?? editingTeam.RosterId });
+        }
 
         var economyGrid = new GridContainer { Columns = 3 };
         AddChild(economyGrid);
@@ -122,7 +130,6 @@ public partial class TeamCreationScreen : VBoxContainer
 
         _statusLabel = new Label
         {
-            Text = "Build a roster for this league.",
             AutowrapMode = TextServer.AutowrapMode.WordSmart
         };
         AddChild(_statusLabel);
@@ -140,6 +147,17 @@ public partial class TeamCreationScreen : VBoxContainer
 
     private void PopulateRosterOptions()
     {
+        if (_rosterOption is null)
+        {
+            // Edit mode: resolve the roster directly from the editing team
+            _selectedRoster = _editingTeam is null ? null
+                : _rosterSet.Rosters.FirstOrDefault(r => string.Equals(r.Id, _editingTeam.RosterId, StringComparison.OrdinalIgnoreCase));
+            UpdateRerollCostLabel();
+            BuildPositionRows();
+            UpdateDraftSummary();
+            return;
+        }
+
         _rosterOption.Clear();
         var rosterOptions = _rosterSet.Rosters
             .Select((roster, index) => (Roster: roster, Index: index))
@@ -151,16 +169,13 @@ public partial class TeamCreationScreen : VBoxContainer
             _rosterOption.AddItem(rosterOptions[i].Roster.Name, rosterOptions[i].Index);
         }
 
-        var selectedRosterOption = _editingTeam is null
-            ? 0
-            : Math.Max(0, Array.FindIndex(rosterOptions, option => string.Equals(option.Roster.Id, _editingTeam.RosterId, StringComparison.OrdinalIgnoreCase)));
-        _rosterOption.Selected = selectedRosterOption;
+        _rosterOption.Selected = 0;
         SelectRosterFromOption();
     }
 
     private void SelectRosterFromOption()
     {
-        if (_rosterOption.Selected < 0)
+        if (_rosterOption is null || _rosterOption.Selected < 0)
         {
             return;
         }
