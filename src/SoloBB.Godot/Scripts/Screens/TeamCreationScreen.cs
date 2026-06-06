@@ -141,15 +141,20 @@ public partial class TeamCreationScreen : VBoxContainer
     private void PopulateRosterOptions()
     {
         _rosterOption.Clear();
-        for (var i = 0; i < _rosterSet.Rosters.Count; i++)
+        var rosterOptions = _rosterSet.Rosters
+            .Select((roster, index) => (Roster: roster, Index: index))
+            .OrderBy(option => option.Roster.Name, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        for (var i = 0; i < rosterOptions.Length; i++)
         {
-            _rosterOption.AddItem(_rosterSet.Rosters[i].Name, i);
+            _rosterOption.AddItem(rosterOptions[i].Roster.Name, rosterOptions[i].Index);
         }
 
-        var selectedRosterIndex = _editingTeam is null
+        var selectedRosterOption = _editingTeam is null
             ? 0
-            : Math.Max(0, _rosterSet.Rosters.ToList().FindIndex(roster => string.Equals(roster.Id, _editingTeam.RosterId, StringComparison.OrdinalIgnoreCase)));
-        _rosterOption.Selected = selectedRosterIndex;
+            : Math.Max(0, Array.FindIndex(rosterOptions, option => string.Equals(option.Roster.Id, _editingTeam.RosterId, StringComparison.OrdinalIgnoreCase)));
+        _rosterOption.Selected = selectedRosterOption;
         SelectRosterFromOption();
     }
 
@@ -160,7 +165,13 @@ public partial class TeamCreationScreen : VBoxContainer
             return;
         }
 
-        _selectedRoster = _rosterSet.Rosters[_rosterOption.Selected];
+        var rosterIndex = _rosterOption.GetItemId(_rosterOption.Selected);
+        if (rosterIndex < 0 || rosterIndex >= _rosterSet.Rosters.Count)
+        {
+            return;
+        }
+
+        _selectedRoster = _rosterSet.Rosters[rosterIndex];
         UpdateRerollCostLabel();
         BuildPositionRows();
         UpdateDraftSummary();

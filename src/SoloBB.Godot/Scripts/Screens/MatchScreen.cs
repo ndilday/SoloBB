@@ -12,6 +12,9 @@ namespace SoloBB.Godot.Scripts.Screens;
 public partial class MatchScreen : VBoxContainer
 {
     private readonly Dictionary<PitchSquare, Button> _pitchButtons = [];
+    private readonly Dictionary<PitchSquare, TextureRect> _pitchTileLayers = [];
+    private readonly Dictionary<PitchSquare, TextureRect> _pitchPieceLayers = [];
+    private readonly Dictionary<PitchSquare, TextureRect> _pitchOverlayLayers = [];
     private readonly Dictionary<Guid, Button> _rosterButtons = [];
 
     private Label _homeHudLabel = null!;
@@ -20,6 +23,7 @@ public partial class MatchScreen : VBoxContainer
     private Label _summaryLabel = null!;
     private Label _lastEventLabel = null!;
     private Label _selectedLabel = null!;
+    private VBoxContainer _eventLogList = null!;
     private VBoxContainer _rosterList = null!;
     private GridContainer _pitchGrid = null!;
     private HBoxContainer _blockDiceBox = null!;
@@ -33,6 +37,11 @@ public partial class MatchScreen : VBoxContainer
     private Button _throwTeamMateModeButton = null!;
     private Button _kickTeamMateModeButton = null!;
     private Button _doneButton = null!;
+    private Texture2D? _humanSpriteSheet;
+    private Texture2D? _orcSpriteSheet;
+    private Texture2D? _pitchObjectSheet;
+    private Texture2D? _pitchTileSheet;
+    private readonly Dictionary<string, Texture2D?> _atlasCache = [];
     private Ruleset _ruleset = null!;
     private MatchState _match = null!;
     private LeagueTeam _homeTeam = null!;
@@ -55,11 +64,11 @@ public partial class MatchScreen : VBoxContainer
     private bool _kickTeamMateMode;
     private Func<MatchState, Task> _saveMatch = _ => Task.CompletedTask;
 
-    private static readonly Color ScreenBackground = new("17211b");
-    private static readonly Color PanelBackground = new("223128");
-    private static readonly Color PitchGrass = new("3f7f46");
-    private static readonly Color LegalPitchGrass = new("5d9960");
-    private static readonly Color PreviewPathColor = new("c9b458");
+    private static readonly Color ScreenBackground = new("161817");
+    private static readonly Color PanelBackground = new("1f3a35");
+    private static readonly Color PitchGrass = new("4e8a50");
+    private static readonly Color LegalPitchGrass = new("6ca264");
+    private static readonly Color PreviewPathColor = new("d8a93a");
     private static readonly Color DodgePathColor = new("d48b3d");
     private static readonly Color GoForItPathColor = new("b84a4a");
     private static readonly Color PickupPathColor = new("6ca6d9");
@@ -70,10 +79,10 @@ public partial class MatchScreen : VBoxContainer
     private static readonly Color DefendingAssistColor = new("c98b3f");
     private static readonly Color PassTargetColor = new("4d79c7");
     private static readonly Color InterceptorColor = new("8b5fbf");
-    private static readonly Color EndZoneHome = new("274f7d");
-    private static readonly Color EndZoneAway = new("7d3b34");
-    private static readonly Color LineColor = new("f4f1df");
-    private static readonly Color SelectedColor = new("f2c14e");
+    private static readonly Color EndZoneHome = new("235b83");
+    private static readonly Color EndZoneAway = new("7c333a");
+    private static readonly Color LineColor = new("e9e1c8");
+    private static readonly Color SelectedColor = new("d8a93a");
     private static readonly Color ReadyPlayerColor = new("2b3a31");
     private static readonly Color CurrentPlayerColor = new("4b4425");
     private static readonly Color ActivatedPlayerColor = new("303236");
@@ -108,20 +117,34 @@ public partial class MatchScreen : VBoxContainer
         _passMode = false;
         _throwTeamMateMode = false;
         _kickTeamMateMode = false;
+        LoadSpriteAssets();
 
         AddThemeConstantOverride("separation", 6);
         AddThemeStyleboxOverride("panel", FlatStyle(ScreenBackground));
 
-        AddTitle("Match Setup");
         AddChild(BuildMatchHud());
 
-        _summaryLabel = new Label { AutowrapMode = TextServer.AutowrapMode.WordSmart };
-        _summaryLabel.AddThemeFontSizeOverride("font_size", 12);
-        AddChild(_summaryLabel);
+        var decisionPanel = new PanelContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        decisionPanel.AddThemeStyleboxOverride("panel", FlatStyle(new Color("24372f"), border: new Color("5b5840"), borderWidth: 2));
+        AddChild(decisionPanel);
 
-        _lastEventLabel = new Label { AutowrapMode = TextServer.AutowrapMode.WordSmart };
-        _lastEventLabel.AddThemeFontSizeOverride("font_size", 12);
-        AddChild(_lastEventLabel);
+        var decisionStack = new VBoxContainer();
+        decisionStack.AddThemeConstantOverride("separation", 5);
+        decisionPanel.AddChild(decisionStack);
+
+        decisionStack.AddChild(new Label
+        {
+            Text = "Current Decision",
+            ThemeTypeVariation = "HeaderSmall"
+        });
+
+        _summaryLabel = new Label { AutowrapMode = TextServer.AutowrapMode.WordSmart };
+        _summaryLabel.AddThemeFontSizeOverride("font_size", 13);
+        decisionStack.AddChild(_summaryLabel);
+
+        var decisionActions = new HBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        decisionActions.AddThemeConstantOverride("separation", 4);
+        decisionStack.AddChild(decisionActions);
 
         var body = new HBoxContainer
         {
@@ -133,38 +156,41 @@ public partial class MatchScreen : VBoxContainer
 
         body.AddChild(BuildRosterPanel());
         body.AddChild(BuildPitchPanel());
+        body.AddChild(BuildEventLogPanel());
 
         var footer = new HBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        footer.Alignment = BoxContainer.AlignmentMode.Center;
+        footer.AddThemeConstantOverride("separation", 6);
         AddChild(footer);
         _blockDiceBox = new HBoxContainer();
         _blockDiceBox.AddThemeConstantOverride("separation", 4);
-        footer.AddChild(_blockDiceBox);
+        decisionActions.AddChild(_blockDiceBox);
 
         _interceptionChoiceBox = new HBoxContainer();
         _interceptionChoiceBox.AddThemeConstantOverride("separation", 4);
-        footer.AddChild(_interceptionChoiceBox);
+        decisionActions.AddChild(_interceptionChoiceBox);
 
         _rerollChoiceBox = new HBoxContainer();
         _rerollChoiceBox.AddThemeConstantOverride("separation", 4);
-        footer.AddChild(_rerollChoiceBox);
+        decisionActions.AddChild(_rerollChoiceBox);
 
         _apothecaryChoiceBox = new HBoxContainer();
         _apothecaryChoiceBox.AddThemeConstantOverride("separation", 4);
-        footer.AddChild(_apothecaryChoiceBox);
+        decisionActions.AddChild(_apothecaryChoiceBox);
 
         _standFirmChoiceBox = new HBoxContainer();
         _standFirmChoiceBox.AddThemeConstantOverride("separation", 4);
-        footer.AddChild(_standFirmChoiceBox);
+        decisionActions.AddChild(_standFirmChoiceBox);
 
         _divingTackleChoiceBox = new HBoxContainer();
         _divingTackleChoiceBox.AddThemeConstantOverride("separation", 4);
-        footer.AddChild(_divingTackleChoiceBox);
+        decisionActions.AddChild(_divingTackleChoiceBox);
 
         _sendOffChoiceBox = new HBoxContainer();
         _sendOffChoiceBox.AddThemeConstantOverride("separation", 4);
-        footer.AddChild(_sendOffChoiceBox);
+        decisionActions.AddChild(_sendOffChoiceBox);
 
-        _passModeButton = new Button { Text = "Pass" };
+        _passModeButton = ActionButton("Pass");
         _passModeButton.Pressed += () =>
         {
             var enabled = !_passMode;
@@ -176,7 +202,7 @@ public partial class MatchScreen : VBoxContainer
         };
         footer.AddChild(_passModeButton);
 
-        _throwTeamMateModeButton = new Button { Text = "TTM" };
+        _throwTeamMateModeButton = ActionButton("TTM");
         _throwTeamMateModeButton.Pressed += () =>
         {
             var enabled = !_throwTeamMateMode;
@@ -191,7 +217,7 @@ public partial class MatchScreen : VBoxContainer
         };
         footer.AddChild(_throwTeamMateModeButton);
 
-        _kickTeamMateModeButton = new Button { Text = "KTM" };
+        _kickTeamMateModeButton = ActionButton("KTM");
         _kickTeamMateModeButton.Pressed += () =>
         {
             var enabled = !_kickTeamMateMode;
@@ -206,11 +232,11 @@ public partial class MatchScreen : VBoxContainer
         };
         footer.AddChild(_kickTeamMateModeButton);
 
-        _doneButton = new Button { Text = "Advance" };
+        _doneButton = ActionButton("Advance", primary: true);
         _doneButton.Pressed += async () => await CompleteCurrentStepAsync();
         footer.AddChild(_doneButton);
 
-        var backButton = new Button { Text = "Back" };
+        var backButton = ActionButton("Back");
         backButton.Pressed += back;
         footer.AddChild(backButton);
 
@@ -220,10 +246,15 @@ public partial class MatchScreen : VBoxContainer
 
     private Control BuildMatchHud()
     {
+        var panel = new PanelContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        panel.AddThemeStyleboxOverride("panel", FlatStyle(new Color("111614"), border: new Color("415044"), borderWidth: 2));
+
         var hud = new HBoxContainer
         {
             SizeFlagsHorizontal = SizeFlags.ExpandFill
         };
+        hud.AddThemeConstantOverride("separation", 8);
+        panel.AddChild(hud);
 
         _homeHudLabel = new Label
         {
@@ -249,17 +280,17 @@ public partial class MatchScreen : VBoxContainer
         _awayHudLabel.AddThemeFontSizeOverride("font_size", 14);
         hud.AddChild(_awayHudLabel);
 
-        return hud;
+        return panel;
     }
 
     private Control BuildRosterPanel()
     {
         var panel = new PanelContainer
         {
-            CustomMinimumSize = new Vector2(220, 0),
+            CustomMinimumSize = new Vector2(250, 0),
             SizeFlagsVertical = SizeFlags.ExpandFill
         };
-        panel.AddThemeStyleboxOverride("panel", FlatStyle(PanelBackground, border: new Color("405044")));
+        panel.AddThemeStyleboxOverride("panel", FlatStyle(PanelBackground, border: new Color("506358"), borderWidth: 2));
 
         var stack = new VBoxContainer();
         stack.AddThemeConstantOverride("separation", 5);
@@ -300,7 +331,7 @@ public partial class MatchScreen : VBoxContainer
             SizeFlagsHorizontal = SizeFlags.ExpandFill,
             SizeFlagsVertical = SizeFlags.ExpandFill
         };
-        panel.AddThemeStyleboxOverride("panel", FlatStyle(new Color("18261c"), border: new Color("41523f")));
+        panel.AddThemeStyleboxOverride("panel", FlatStyle(new Color("18261c"), border: new Color("5a6a4f"), borderWidth: 2));
 
         var stack = new VBoxContainer();
         stack.AddThemeConstantOverride("separation", 4);
@@ -309,7 +340,8 @@ public partial class MatchScreen : VBoxContainer
         _pitchGrid = new GridContainer
         {
             Columns = _ruleset.PitchWidth,
-            SizeFlagsHorizontal = SizeFlags.ShrinkCenter
+            SizeFlagsHorizontal = SizeFlags.ShrinkCenter,
+            SizeFlagsVertical = SizeFlags.ShrinkCenter
         };
         stack.AddChild(_pitchGrid);
         BuildPitchGrid();
@@ -317,9 +349,53 @@ public partial class MatchScreen : VBoxContainer
         return panel;
     }
 
+    private Control BuildEventLogPanel()
+    {
+        var panel = new PanelContainer
+        {
+            CustomMinimumSize = new Vector2(245, 0),
+            SizeFlagsVertical = SizeFlags.ExpandFill
+        };
+        panel.AddThemeStyleboxOverride("panel", FlatStyle(new Color("1c2420"), border: new Color("4f5846"), borderWidth: 2));
+
+        var stack = new VBoxContainer();
+        stack.AddThemeConstantOverride("separation", 5);
+        panel.AddChild(stack);
+
+        stack.AddChild(new Label
+        {
+            Text = "Event Log",
+            HorizontalAlignment = HorizontalAlignment.Center
+        });
+
+        _lastEventLabel = new Label
+        {
+            Text = "No match events yet.",
+            AutowrapMode = TextServer.AutowrapMode.WordSmart
+        };
+        _lastEventLabel.AddThemeFontSizeOverride("font_size", 12);
+        stack.AddChild(_lastEventLabel);
+
+        var scroll = new ScrollContainer
+        {
+            SizeFlagsVertical = SizeFlags.ExpandFill,
+            HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled
+        };
+        stack.AddChild(scroll);
+
+        _eventLogList = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        _eventLogList.AddThemeConstantOverride("separation", 4);
+        scroll.AddChild(_eventLogList);
+
+        return panel;
+    }
+
     private void BuildPitchGrid()
     {
         _pitchButtons.Clear();
+        _pitchTileLayers.Clear();
+        _pitchPieceLayers.Clear();
+        _pitchOverlayLayers.Clear();
         for (var y = 0; y < _ruleset.PitchHeight; y++)
         {
             for (var x = 0; x < _ruleset.PitchWidth; x++)
@@ -328,15 +404,201 @@ public partial class MatchScreen : VBoxContainer
                 var button = new Button
                 {
                     Text = "",
-                    CustomMinimumSize = new Vector2(21, 21),
+                    CustomMinimumSize = new Vector2(32, 32),
                     TooltipText = $"{x + 1},{y + 1}",
-                    FocusMode = FocusModeEnum.None
+                    FocusMode = FocusModeEnum.None,
+                    ClipContents = true
                 };
                 button.AddThemeFontSizeOverride("font_size", 10);
                 button.Pressed += async () => await HandlePitchSquareAsync(square);
+
+                var tileLayer = BuildPitchLayer(TextureRect.StretchModeEnum.Scale);
+                var pieceLayer = BuildPitchLayer(TextureRect.StretchModeEnum.KeepAspectCentered);
+                var overlayLayer = BuildPitchLayer(TextureRect.StretchModeEnum.KeepAspectCentered);
+                button.AddChild(tileLayer);
+                button.AddChild(pieceLayer);
+                button.AddChild(overlayLayer);
+
                 _pitchButtons[square] = button;
+                _pitchTileLayers[square] = tileLayer;
+                _pitchPieceLayers[square] = pieceLayer;
+                _pitchOverlayLayers[square] = overlayLayer;
                 _pitchGrid.AddChild(button);
             }
+        }
+    }
+
+    private static TextureRect BuildPitchLayer(TextureRect.StretchModeEnum stretchMode)
+    {
+        var layer = new TextureRect
+        {
+            MouseFilter = MouseFilterEnum.Ignore,
+            StretchMode = stretchMode
+        };
+        layer.SetAnchorsPreset(LayoutPreset.FullRect);
+        layer.OffsetLeft = 0;
+        layer.OffsetTop = 0;
+        layer.OffsetRight = 0;
+        layer.OffsetBottom = 0;
+        return layer;
+    }
+
+    private void LoadSpriteAssets()
+    {
+        _atlasCache.Clear();
+        _humanSpriteSheet = GD.Load<Texture2D>("res://assets/sprites/human_team_32.png");
+        _orcSpriteSheet = GD.Load<Texture2D>("res://assets/sprites/orc_team_32.png");
+        _pitchObjectSheet = GD.Load<Texture2D>("res://assets/sprites/pitch_objects_32.png");
+        _pitchTileSheet = GD.Load<Texture2D>("res://assets/sprites/pitch_tiles_32.png");
+    }
+
+    private Button ActionButton(string text, bool primary = false)
+    {
+        var button = new Button
+        {
+            Text = text,
+            CustomMinimumSize = new Vector2(primary ? 116 : 76, 30)
+        };
+        var background = primary ? new Color("4c4324") : new Color("253a32");
+        var border = primary ? SelectedColor : new Color("5d6755");
+        button.AddThemeStyleboxOverride("normal", FlatStyle(background, border, borderWidth: primary ? 2 : 1));
+        button.AddThemeStyleboxOverride("hover", FlatStyle(background.Lightened(0.12f), SelectedColor, borderWidth: 2));
+        button.AddThemeStyleboxOverride("pressed", FlatStyle(background.Darkened(0.12f), SelectedColor, borderWidth: 2));
+        button.AddThemeStyleboxOverride("disabled", FlatStyle(new Color("242a26"), new Color("343a35")));
+        return button;
+    }
+
+    private Texture2D? AtlasCell(Texture2D? sheet, string key, int column, int row)
+    {
+        if (sheet is null)
+        {
+            return null;
+        }
+
+        if (_atlasCache.TryGetValue(key, out var cached))
+        {
+            return cached;
+        }
+
+        var atlas = new AtlasTexture
+        {
+            Atlas = sheet,
+            Region = new Rect2(column * 32, row * 32, 32, 32)
+        };
+        _atlasCache[key] = atlas;
+        return atlas;
+    }
+
+    private Texture2D? PlayerSprite(LeagueTeam team, Player player, PlayerPlacement? placement)
+    {
+        var prone = placement?.State is PlayerPitchState.Prone or PlayerPitchState.Stunned;
+        var row = prone ? 1 : 0;
+        if (string.Equals(team.RosterId, "orc", StringComparison.OrdinalIgnoreCase))
+        {
+            var column = player.PositionId switch
+            {
+                "thrower" => 0,
+                "blitzer" => 1,
+                "big-un" => 2,
+                _ => 3
+            };
+            return AtlasCell(_orcSpriteSheet, $"orc:{column}:{row}", column, row);
+        }
+
+        var humanColumn = player.PositionId switch
+        {
+            "catcher" => 0,
+            "thrower" => 1,
+            "blitzer" => 2,
+            _ => 3
+        };
+        return AtlasCell(_humanSpriteSheet, $"human:{humanColumn}:{row}", humanColumn, row);
+    }
+
+    private Texture2D? BallSprite(int frame)
+    {
+        var column = Math.Clamp(frame, 0, 5);
+        return AtlasCell(_pitchObjectSheet, $"object:ball:{column}", column, 0);
+    }
+
+    private Texture2D? StunnedSprite(int frame)
+    {
+        var column = Math.Clamp(frame, 0, 5);
+        return AtlasCell(_pitchObjectSheet, $"object:stunned:{column}", column, 1);
+    }
+
+    private Texture2D? PitchTileTexture(PitchSquare square, bool canUse, string? pathMarker)
+    {
+        if (pathMarker is not null)
+        {
+            return pathMarker switch
+            {
+                ">" => AtlasCell(_pitchTileSheet, "tile:risk", 2, 2),
+                "B" or "P" or "L" => AtlasCell(_pitchTileSheet, "tile:target", 3, 2),
+                "o" => AtlasCell(_pitchTileSheet, "tile:ball-target", 6, 2),
+                _ => AtlasCell(_pitchTileSheet, "tile:selected", 1, 2)
+            };
+        }
+
+        if (canUse)
+        {
+            return AtlasCell(_pitchTileSheet, "tile:legal", 0, 2);
+        }
+
+        if (square.X <= 1)
+        {
+            return AtlasCell(_pitchTileSheet, "tile:home-endzone", 4, 0);
+        }
+
+        if (square.X >= _ruleset.PitchWidth - 2)
+        {
+            return AtlasCell(_pitchTileSheet, "tile:away-endzone", 5, 0);
+        }
+
+        if (IsCenterInsigniaSquare(square))
+        {
+            return AtlasCell(_pitchTileSheet, "tile:center-insignia", 7, 1);
+        }
+
+        if (square.X == (_ruleset.PitchWidth / 2) - 1 || square.X == _ruleset.PitchWidth / 2 || square.X == 1 || square.X == _ruleset.PitchWidth - 2)
+        {
+            return AtlasCell(_pitchTileSheet, "tile:line", 0, 1);
+        }
+
+        var variant = Math.Abs((square.X * 17) + (square.Y * 31)) % 4;
+        return AtlasCell(_pitchTileSheet, $"tile:grass:{variant}", variant, 0);
+    }
+
+    private bool IsCenterInsigniaSquare(PitchSquare square)
+    {
+        var centerLeft = (_ruleset.PitchWidth / 2) - 1;
+        var centerRight = _ruleset.PitchWidth / 2;
+        var centerY = _ruleset.PitchHeight / 2;
+        return (square.X == centerLeft || square.X == centerRight) &&
+            (square.Y == centerY || square.Y == centerY - 1);
+    }
+
+    private void SetPitchTile(PitchSquare square, Texture2D? texture)
+    {
+        if (_pitchTileLayers.TryGetValue(square, out var layer))
+        {
+            layer.Texture = texture;
+        }
+    }
+
+    private void SetPitchPiece(PitchSquare square, Texture2D? texture)
+    {
+        if (_pitchPieceLayers.TryGetValue(square, out var layer))
+        {
+            layer.Texture = texture;
+        }
+    }
+
+    private void SetPitchOverlay(PitchSquare square, Texture2D? texture)
+    {
+        if (_pitchOverlayLayers.TryGetValue(square, out var layer))
+        {
+            layer.Texture = texture;
         }
     }
 
@@ -365,7 +627,9 @@ public partial class MatchScreen : VBoxContainer
                 Text = $"{marker}  {player.Name}  {state}  {activationState}",
                 Alignment = HorizontalAlignment.Left,
                 SizeFlagsHorizontal = SizeFlags.ExpandFill,
-                Disabled = !CanSelectPlayer(player.Id)
+                Disabled = !CanSelectPlayer(player.Id),
+                Icon = PlayerSprite(activeTeam, player, placement),
+                ExpandIcon = false
             };
             button.AddThemeFontSizeOverride("font_size", 11);
             button.TooltipText = RosterTooltip(player, placement);
@@ -1376,6 +1640,10 @@ public partial class MatchScreen : VBoxContainer
             var isPreview = _previewPath.Contains(square);
             var pathMarker = canLaunchTarget ? "L" : canThrowBomb ? "B" : canPlaceBall ? "o" : canPush ? ">" : _previewPassTargetSquare == square ? "P" : MovementPathMarker(square);
             button.Text = "";
+            button.Icon = null;
+            SetPitchTile(square, PitchTileTexture(square, canPlace || canTargetKickoff || canMove || canPassSquare || canPush || canPlaceBall || canThrowBomb || canLaunchTarget, pathMarker));
+            SetPitchPiece(square, null);
+            SetPitchOverlay(square, null);
             button.Disabled = !canPlace && !canTargetKickoff && !canMove && !canPassSquare && !canPush && !canPlaceBall && !canThrowBomb && !canLaunchTarget;
             button.TooltipText = canLaunchTarget
                 ? LaunchSquareTooltip(square)
@@ -1405,7 +1673,11 @@ public partial class MatchScreen : VBoxContainer
             }
 
             var isSelected = placement.PlayerId == _selectedPlayerId;
-            button.Text = PlayerMarker(placement.PlayerId);
+            var player = FindPlayer(placement.PlayerId);
+            var team = TeamById(placement.TeamId);
+            SetPitchPiece(placement.Square!, player is null ? null : PlayerSprite(team, player, placement));
+            SetPitchOverlay(placement.Square!, placement.State == PlayerPitchState.Stunned ? StunnedSprite(0) : null);
+            button.Text = "";
             button.TooltipText = PlayerPitchTooltip(placement);
             var canBlockTarget = _selectedPlayerId is Guid attackerId && IsLegalBlockTarget(attackerId, placement.PlayerId);
             var canBlitzTarget = _selectedPlayerId is Guid blitzerId && IsLegalBlitzTarget(blitzerId, placement.PlayerId);
@@ -1434,12 +1706,14 @@ public partial class MatchScreen : VBoxContainer
 
         if (_animationBallSquare is PitchSquare animationBallSquare && _pitchButtons.TryGetValue(animationBallSquare, out var animationBallButton))
         {
-            animationBallButton.Text = "o";
+            SetPitchOverlay(animationBallSquare, BallSprite(0));
+            animationBallButton.Text = "";
             animationBallButton.TooltipText = "Ball";
         }
         else if (_match.Ball.Square is PitchSquare ballSquare && _pitchButtons.TryGetValue(ballSquare, out var ballButton))
         {
-            ballButton.Text = "o";
+            SetPitchOverlay(ballSquare, BallSprite(0));
+            ballButton.Text = "";
             ballButton.TooltipText = "Ball";
         }
 
@@ -1448,7 +1722,8 @@ public partial class MatchScreen : VBoxContainer
             _match.Placements.FirstOrDefault(placement => placement.PlayerId == carrierId)?.Square is PitchSquare carrierSquare &&
             _pitchButtons.TryGetValue(carrierSquare, out var carrierButton))
         {
-            carrierButton.Text = $"{PlayerMarker(carrierId)} o";
+            SetPitchOverlay(carrierSquare, BallSprite(4));
+            carrierButton.Text = "";
             carrierButton.TooltipText = $"{FindPlayer(carrierId)?.Name ?? "Ball carrier"} with ball";
         }
 
@@ -1485,7 +1760,7 @@ public partial class MatchScreen : VBoxContainer
             MatchPhase.OffensivePlayerTurn or MatchPhase.DefensiveTurn => $"{activeTeam.Name} active. Ready players can still activate; spent players are disabled. Current activation: {selected}.",
             _ => $"{activeTeam.Name} active. Phase: {_match.Phase}. Selected: {selected}."
         };
-        _lastEventLabel.Text = _match.Log.LastOrDefault()?.Message ?? "No match events yet.";
+        RefreshEventLog();
     }
 
     private void RefreshMatchHud()
@@ -1494,6 +1769,27 @@ public partial class MatchScreen : VBoxContainer
         _awayHudLabel.Text = FormatTeamHud(_awayTeam, _match.AwayScore, _match.AwayRerollsRemaining, _match.AwayApothecariesRemaining);
         _turnHudLabel.Text = $"Half {_match.Half}  Drive {_match.Drive} ({DriveStateLabel(_match.DriveState)})  {PhaseLabel(_match.Phase)}  Turn {_match.Turn}/{_ruleset.TurnsPerHalf}\nWeather: {WeatherLabel(_match.Weather)}";
         _turnHudLabel.TooltipText = $"{ActiveTeam().Name} active. Home turn {_match.HomeTurn}, away turn {_match.AwayTurn}. {WeatherEffectSummary(_match.Weather)}";
+    }
+
+    private void RefreshEventLog()
+    {
+        _lastEventLabel.Text = _match.Log.LastOrDefault()?.Message ?? "No match events yet.";
+
+        foreach (var child in _eventLogList.GetChildren())
+        {
+            child.QueueFree();
+        }
+
+        foreach (var entry in _match.Log.TakeLast(10).Reverse())
+        {
+            var label = new Label
+            {
+                Text = entry.Message,
+                AutowrapMode = TextServer.AutowrapMode.WordSmart
+            };
+            label.AddThemeFontSizeOverride("font_size", 11);
+            _eventLogList.AddChild(label);
+        }
     }
 
     private static string FormatTeamHud(LeagueTeam team, int score, int rerollsRemaining, int apothecariesRemaining)
@@ -1550,6 +1846,7 @@ public partial class MatchScreen : VBoxContainer
         _passModeButton.Disabled = !canPass;
         _passModeButton.Text = _passMode ? "Pass: On" : "Pass";
         _passModeButton.TooltipText = canPass ? "Toggle pass targeting." : "Select an unactivated ball carrier to pass.";
+        SetModeButtonStyle(_passModeButton, _passMode, canPass);
     }
 
     private void RefreshLaunchModeButtons()
@@ -1569,10 +1866,28 @@ public partial class MatchScreen : VBoxContainer
         _throwTeamMateModeButton.Disabled = !canThrow;
         _throwTeamMateModeButton.Text = _throwTeamMateMode ? "TTM: On" : "TTM";
         _throwTeamMateModeButton.TooltipText = canThrow ? "Throw an adjacent Right Stuff team-mate." : "Select an unactivated player with Throw Team-Mate.";
+        SetModeButtonStyle(_throwTeamMateModeButton, _throwTeamMateMode, canThrow);
 
         _kickTeamMateModeButton.Disabled = !canKick;
         _kickTeamMateModeButton.Text = _kickTeamMateMode ? "KTM: On" : "KTM";
         _kickTeamMateModeButton.TooltipText = canKick ? "Kick an adjacent Right Stuff team-mate." : "Select an unactivated player with Kick Team-Mate.";
+        SetModeButtonStyle(_kickTeamMateModeButton, _kickTeamMateMode, canKick);
+    }
+
+    private void SetModeButtonStyle(Button button, bool active, bool enabled)
+    {
+        if (!enabled)
+        {
+            button.AddThemeStyleboxOverride("normal", FlatStyle(new Color("242a26"), new Color("343a35")));
+            button.AddThemeStyleboxOverride("hover", FlatStyle(new Color("242a26"), new Color("343a35")));
+            return;
+        }
+
+        var background = active ? new Color("5a4a22") : new Color("253a32");
+        var border = active ? SelectedColor : new Color("5d6755");
+        button.AddThemeStyleboxOverride("normal", FlatStyle(background, border, borderWidth: active ? 2 : 1));
+        button.AddThemeStyleboxOverride("hover", FlatStyle(background.Lightened(0.12f), SelectedColor, borderWidth: 2));
+        button.AddThemeStyleboxOverride("pressed", FlatStyle(background.Darkened(0.12f), SelectedColor, borderWidth: 2));
     }
 
     private bool CanAdvanceCurrentStep()
@@ -1727,8 +2042,8 @@ public partial class MatchScreen : VBoxContainer
         var style = FlatStyle(baseColor, border: SquareBorderColor(square), borderWidth: 1);
         var hasPitchLine = square.X == (_ruleset.PitchWidth / 2) - 1 ||
             square.X == _ruleset.PitchWidth / 2 ||
-            square.Y == 3 ||
-            square.Y == _ruleset.PitchHeight - 4;
+            square.X == 1 ||
+            square.X == _ruleset.PitchWidth - 2;
         if (hasPitchLine)
         {
             style.BorderColor = LineColor;
@@ -1743,14 +2058,13 @@ public partial class MatchScreen : VBoxContainer
         {
             style.SetBorderWidth(Side.Left, 4);
         }
-
-        if (square.Y == 3)
+        else if (square.X == 1)
         {
-            style.SetBorderWidth(Side.Bottom, 4);
+            style.SetBorderWidth(Side.Left, 3);
         }
-        else if (square.Y == _ruleset.PitchHeight - 4)
+        else if (square.X == _ruleset.PitchWidth - 2)
         {
-            style.SetBorderWidth(Side.Top, 4);
+            style.SetBorderWidth(Side.Right, 3);
         }
 
         if (isSelected)
