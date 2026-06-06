@@ -42,6 +42,7 @@ public sealed record MatchState
     public IReadOnlyList<TeamRerollUse> TeamRerollUses { get; init; } = [];
     public IReadOnlyList<MatchPlayerAward> PlayerAwards { get; init; } = [];
     public PendingBlockChoice? PendingBlock { get; init; }
+    public PendingBlockRerollChoice? PendingBlockReroll { get; init; }
     public PendingPushChoice? PendingPush { get; init; }
     public PendingInterceptionChoice? PendingInterception { get; init; }
     public PendingRerollChoice? PendingReroll { get; init; }
@@ -148,6 +149,22 @@ public sealed record PendingBlockChoice
     public required int AttackerStrength { get; init; }
     public required int DefenderStrength { get; init; }
     public bool PreventFollowUp { get; init; }
+}
+
+public sealed record PendingBlockRerollChoice
+{
+    public required Guid AttackerTeamId { get; init; }
+    public required Guid DefenderTeamId { get; init; }
+    public required Guid AttackerPlayerId { get; init; }
+    public required Guid DefenderPlayerId { get; init; }
+    public required IReadOnlyList<int> Rolls { get; init; }
+    public required int ChosenRoll { get; init; }
+    public required int AttackerStrength { get; init; }
+    public required int DefenderStrength { get; init; }
+    public required int Dice { get; init; }
+    public bool TeamRerollAvailable { get; init; }
+    public bool PreventFollowUp { get; init; }
+    public required MatchState MatchBeforeRoll { get; init; }
 }
 
 public sealed record PendingPushChoice

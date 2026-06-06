@@ -73,6 +73,8 @@ public partial class MatchScreen : VBoxContainer
     private bool _throwTeamMateMode;
     private bool _kickTeamMateMode;
     private bool _isPitchDragging;
+    private bool _pitchZoomInitialized;
+    private bool _endTurnConfirmationArmed;
     private float _pitchZoom = 1.0f;
     private Vector2 _pitchPan = Vector2.Zero;
     private Func<MatchState, Task> _saveMatch = _ => Task.CompletedTask;
@@ -90,7 +92,7 @@ public partial class MatchScreen : VBoxContainer
     private static readonly Color LegalPitchGrass = new("6ca264");
     private static readonly Color PreviewPathColor = new("d8a93a");
     private static readonly Color DodgePathColor = new("d48b3d");
-    private static readonly Color GoForItPathColor = new("b84a4a");
+    private static readonly Color GoForItPathColor = new("d98532");
     private static readonly Color PickupPathColor = new("6ca6d9");
     private static readonly Color BlitzPathColor = new("d16f4c");
     private static readonly Color PushSquareColor = new("d6c15f");
@@ -139,6 +141,8 @@ public partial class MatchScreen : VBoxContainer
         _throwTeamMateMode = false;
         _kickTeamMateMode = false;
         _isPitchDragging = false;
+        _pitchZoomInitialized = false;
+        _endTurnConfirmationArmed = false;
         _pitchZoom = 1.0f;
         _pitchPan = Vector2.Zero;
         LoadSpriteAssets();
@@ -224,6 +228,7 @@ public partial class MatchScreen : VBoxContainer
         _passModeButton = ActionButton("Pass");
         _passModeButton.Pressed += () =>
         {
+            ResetEndTurnConfirmation();
             var enabled = !_passMode;
             _throwTeamMateMode = false;
             _kickTeamMateMode = false;
@@ -240,6 +245,7 @@ public partial class MatchScreen : VBoxContainer
         _throwTeamMateModeButton = ActionButton("TTM");
         _throwTeamMateModeButton.Pressed += () =>
         {
+            ResetEndTurnConfirmation();
             var enabled = !_throwTeamMateMode;
             ClearPreview();
             _throwTeamMateMode = enabled;
@@ -255,6 +261,7 @@ public partial class MatchScreen : VBoxContainer
         _kickTeamMateModeButton = ActionButton("KTM");
         _kickTeamMateModeButton.Pressed += () =>
         {
+            ResetEndTurnConfirmation();
             var enabled = !_kickTeamMateMode;
             ClearPreview();
             _kickTeamMateMode = enabled;
@@ -277,7 +284,7 @@ public partial class MatchScreen : VBoxContainer
 
         RefreshRoster();
         RefreshPitch();
-        CallDeferred(nameof(CenterPitch));
+        CallDeferred(nameof(InitializePitchZoom));
     }
 
     public override void _Input(InputEvent @event)
@@ -428,7 +435,7 @@ public partial class MatchScreen : VBoxContainer
             SizeFlagsHorizontal = SizeFlags.ExpandFill,
             SizeFlagsVertical = SizeFlags.ExpandFill
         };
-        _pitchViewport.Resized += ApplyPitchTransform;
+        _pitchViewport.Resized += OnPitchViewportResized;
         stack.AddChild(_pitchViewport);
 
         _pitchGrid = new GridContainer
@@ -443,7 +450,7 @@ public partial class MatchScreen : VBoxContainer
         _pitchGrid.AddThemeConstantOverride("v_separation", -1);
         _pitchViewport.AddChild(_pitchGrid);
         BuildPitchGrid();
-        CenterPitch();
+        InitializePitchZoom();
 
         return panel;
     }
@@ -490,6 +497,37 @@ public partial class MatchScreen : VBoxContainer
         }
 
         _pitchPan = (viewportSize - (baseSize * _pitchZoom)) / 2.0f;
+        ApplyPitchTransform();
+    }
+
+    private void InitializePitchZoom()
+    {
+        if (_pitchViewport is null || _pitchGrid is null || _pitchZoomInitialized)
+        {
+            return;
+        }
+
+        var viewportWidth = _pitchViewport.Size.X;
+        var pitchWidth = BasePitchSize().X;
+        if (viewportWidth <= 0 || pitchWidth <= 0)
+        {
+            CallDeferred(nameof(InitializePitchZoom));
+            return;
+        }
+
+        _pitchZoom = Math.Clamp(viewportWidth / pitchWidth, MinPitchZoom, MaxPitchZoom);
+        _pitchZoomInitialized = true;
+        CenterPitch();
+    }
+
+    private void OnPitchViewportResized()
+    {
+        if (!_pitchZoomInitialized)
+        {
+            InitializePitchZoom();
+            return;
+        }
+
         ApplyPitchTransform();
     }
 
@@ -780,6 +818,11 @@ public partial class MatchScreen : VBoxContainer
     {
         if (pathMarker is not null)
         {
+            if (pathMarker.StartsWith('!'))
+            {
+                return AtlasCell(_pitchTileSheet, "overlay:rush", 2, 3);
+            }
+
             return pathMarker switch
             {
                 ">" => AtlasCell(_pitchTileSheet, "overlay:risk", 2, 3),
@@ -875,6 +918,7 @@ public partial class MatchScreen : VBoxContainer
 
     private async Task HandlePitchSquareAsync(PitchSquare square)
     {
+        ResetEndTurnConfirmation();
         try
         {
             if (_match.PendingPush is not null)
@@ -1260,6 +1304,7 @@ public partial class MatchScreen : VBoxContainer
 
     private async Task ChooseBlockDieAsync(int roll)
     {
+        ResetEndTurnConfirmation();
         if (_match.PendingBlock is not PendingBlockChoice pending)
         {
             return;
@@ -1293,6 +1338,7 @@ public partial class MatchScreen : VBoxContainer
 
     private async Task ChoosePushSquareAsync(PitchSquare square)
     {
+        ResetEndTurnConfirmation();
         if (_match.PendingPush is not PendingPushChoice pending)
         {
             return;
@@ -1329,6 +1375,7 @@ public partial class MatchScreen : VBoxContainer
 
     private async Task ResolvePendingFollowUpAsync(bool useFollowUp)
     {
+        ResetEndTurnConfirmation();
         if (_match.PendingFollowUp is not PendingFollowUpChoice pending)
         {
             return;
@@ -1470,6 +1517,7 @@ public partial class MatchScreen : VBoxContainer
 
     private async Task ChooseInterceptorAsync(Guid interceptorId)
     {
+        ResetEndTurnConfirmation();
         if (_match.PendingInterception is not PendingInterceptionChoice pending)
         {
             return;
@@ -1501,6 +1549,7 @@ public partial class MatchScreen : VBoxContainer
 
     private async Task ChooseBallPlacementAsync(PitchSquare square)
     {
+        ResetEndTurnConfirmation();
         if (_match.PendingBallPlacement is not PendingBallPlacementChoice pending)
         {
             return;
@@ -1526,6 +1575,7 @@ public partial class MatchScreen : VBoxContainer
 
     private async Task ThrowPendingBombAsync(PitchSquare square)
     {
+        ResetEndTurnConfirmation();
         if (_match.PendingBombThrow is not PendingBombThrowChoice pending)
         {
             return;
@@ -1551,6 +1601,7 @@ public partial class MatchScreen : VBoxContainer
 
     private async Task ResolveRerollAsync(bool useTeamReroll, string? skillId = null)
     {
+        ResetEndTurnConfirmation();
         if (_match.PendingReroll is not PendingRerollChoice pending)
         {
             return;
@@ -1581,8 +1632,40 @@ public partial class MatchScreen : VBoxContainer
         RefreshPitch();
     }
 
+    private async Task ResolveBlockRerollAsync(bool useTeamReroll)
+    {
+        ResetEndTurnConfirmation();
+        if (_match.PendingBlockReroll is not PendingBlockRerollChoice pending)
+        {
+            return;
+        }
+
+        var beforeMatch = _match;
+        var logStart = _match.Log.Count;
+        var activeTeamBeforeChoice = _match.ActiveTeamId;
+        var service = new MatchService();
+        _match = service.ResolvePendingBlockReroll(_match, _ruleset, TeamById(pending.AttackerTeamId), TeamById(pending.DefenderTeamId), useTeamReroll);
+
+        if (_match.ActiveTeamId == activeTeamBeforeChoice && IsPlayerTurnPhase())
+        {
+            _selectedPlayerId = pending.AttackerPlayerId;
+            _currentActivationPlayerId = pending.AttackerPlayerId;
+        }
+        else
+        {
+            _selectedPlayerId = null;
+            _currentActivationPlayerId = null;
+        }
+
+        await AnimateBallAsync(beforeMatch, _match, logStart);
+        await _saveMatch(_match);
+        RefreshRoster();
+        RefreshPitch();
+    }
+
     private async Task ResolveApothecaryAsync(bool useApothecary)
     {
+        ResetEndTurnConfirmation();
         if (_match.PendingApothecary is not PendingApothecaryChoice pending)
         {
             return;
@@ -1602,6 +1685,7 @@ public partial class MatchScreen : VBoxContainer
 
     private async Task ResolveSendOffAsync(bool useBribe)
     {
+        ResetEndTurnConfirmation();
         if (_match.PendingSendOff is not PendingSendOffChoice pending)
         {
             return;
@@ -1621,6 +1705,7 @@ public partial class MatchScreen : VBoxContainer
 
     private async Task ResolveStandFirmAsync(bool useStandFirm)
     {
+        ResetEndTurnConfirmation();
         if (_match.PendingStandFirm is not PendingStandFirmChoice pending)
         {
             return;
@@ -1640,6 +1725,7 @@ public partial class MatchScreen : VBoxContainer
 
     private async Task ResolveDivingTackleAsync(bool useDivingTackle)
     {
+        ResetEndTurnConfirmation();
         if (_match.PendingDivingTackle is not PendingDivingTackleChoice pending)
         {
             return;
@@ -1730,6 +1816,11 @@ public partial class MatchScreen : VBoxContainer
 
         foreach (var entry in afterMatch.Log.Skip(logStart))
         {
+            if (!MentionsBall(entry.Message))
+            {
+                continue;
+            }
+
             foreach (var square in ExtractPitchSquares(entry.Message))
             {
                 if (IsOnPitch(square))
@@ -1758,6 +1849,11 @@ public partial class MatchScreen : VBoxContainer
             })
             .Skip(start is null ? 0 : 1)
             .ToArray();
+    }
+
+    private static bool MentionsBall(string message)
+    {
+        return message.Contains("ball", StringComparison.OrdinalIgnoreCase);
     }
 
     private PitchSquare? BallDisplaySquare(MatchState match)
@@ -1810,6 +1906,18 @@ public partial class MatchScreen : VBoxContainer
                 return;
             }
 
+            if (RequiresEndTurnConfirmation())
+            {
+                if (!_endTurnConfirmationArmed)
+                {
+                    _endTurnConfirmationArmed = true;
+                    RefreshPitch();
+                    return;
+                }
+
+                _endTurnConfirmationArmed = false;
+            }
+
             var service = new MatchService();
             var beforeMatch = _match;
             var logStart = _match.Log.Count;
@@ -1829,6 +1937,7 @@ public partial class MatchScreen : VBoxContainer
                 ? service.AdvanceTurn(_match, _ruleset)
                 : service.AdvancePhase(_match, _ruleset);
             }
+            ResetEndTurnConfirmation();
             _selectedPlayerId = null;
             _currentActivationPlayerId = null;
             ClearPreview();
@@ -1845,6 +1954,7 @@ public partial class MatchScreen : VBoxContainer
 
     private void SelectPlayer(Guid playerId)
     {
+        ResetEndTurnConfirmation();
         var placement = _match.Placements.FirstOrDefault(current => current.PlayerId == playerId);
         if (placement is null)
         {
@@ -2019,7 +2129,11 @@ public partial class MatchScreen : VBoxContainer
         var selected = _selectedPlayerId is Guid playerId ? FindPlayer(playerId)?.Name ?? "none" : "none";
         _doneButton.Disabled = !CanAdvanceCurrentStep();
         _doneButton.Text = AdvanceButtonText();
-        _doneButton.TooltipText = _doneButton.Disabled ? AdvanceBlockedMessage() : "Advance the current phase or turn.";
+        _doneButton.TooltipText = _doneButton.Disabled
+            ? AdvanceBlockedMessage()
+            : _endTurnConfirmationArmed && RequiresEndTurnConfirmation()
+                ? "Click again to end the current team turn."
+                : "Advance the current phase or turn.";
         RefreshPassModeButton();
         RefreshBlitzModeButton();
         RefreshLaunchModeButtons();
@@ -2043,6 +2157,11 @@ public partial class MatchScreen : VBoxContainer
         if (_match.PendingReroll is not null)
         {
             return "Reroll Choice";
+        }
+
+        if (_match.PendingBlockReroll is not null)
+        {
+            return "Block Reroll";
         }
 
         if (_match.PendingApothecary is not null)
@@ -2138,6 +2257,7 @@ public partial class MatchScreen : VBoxContainer
         return _match.Phase switch
         {
             _ when _match.PendingReroll is PendingRerollChoice pending => RerollSummary(pending),
+            _ when _match.PendingBlockReroll is PendingBlockRerollChoice pending => BlockRerollSummary(pending),
             _ when _match.PendingApothecary is PendingApothecaryChoice pending => ApothecarySummary(pending),
             _ when _match.PendingSendOff is PendingSendOffChoice pending => SendOffSummary(pending),
             _ when _match.PendingStandFirm is PendingStandFirmChoice pending => StandFirmSummary(pending),
@@ -2295,6 +2415,7 @@ public partial class MatchScreen : VBoxContainer
 
     private async Task DeclareBlitzModeAsync()
     {
+        ResetEndTurnConfirmation();
         if (_selectedPlayerId is not Guid playerId || !CanEnterBlitzMode(playerId))
         {
             return;
@@ -2366,6 +2487,7 @@ public partial class MatchScreen : VBoxContainer
     private bool CanAdvanceCurrentStep()
     {
         if (_match.PendingReroll is not null ||
+            _match.PendingBlockReroll is not null ||
             _match.PendingApothecary is not null ||
             _match.PendingSendOff is not null ||
             _match.PendingStandFirm is not null ||
@@ -2395,8 +2517,35 @@ public partial class MatchScreen : VBoxContainer
             MatchPhase.DefensiveTurn;
     }
 
+    private bool RequiresEndTurnConfirmation()
+    {
+        return _match.PendingFollowUp is null &&
+            _match.PendingKickoffEvent is null &&
+            _match.Phase is MatchPhase.OffensivePlayerTurn or MatchPhase.DefensiveTurn;
+    }
+
+    private void ResetEndTurnConfirmation()
+    {
+        if (!_endTurnConfirmationArmed)
+        {
+            return;
+        }
+
+        _endTurnConfirmationArmed = false;
+        if (_doneButton is not null && IsInstanceValid(_doneButton))
+        {
+            _doneButton.Text = AdvanceButtonText();
+            _doneButton.TooltipText = _doneButton.Disabled ? AdvanceBlockedMessage() : "Advance the current phase or turn.";
+        }
+    }
+
     private string AdvanceButtonText()
     {
+        if (_endTurnConfirmationArmed && RequiresEndTurnConfirmation())
+        {
+            return "Sure?";
+        }
+
         if (_match.PendingKickoffEvent is not null)
         {
             return "Resolve Kickoff";
@@ -2424,6 +2573,11 @@ public partial class MatchScreen : VBoxContainer
         if (_match.PendingReroll is not null)
         {
             return "Resolve the pending reroll first.";
+        }
+
+        if (_match.PendingBlockReroll is not null)
+        {
+            return "Resolve the pending block reroll first.";
         }
 
         if (_match.PendingApothecary is not null)
@@ -2505,6 +2659,15 @@ public partial class MatchScreen : VBoxContainer
     private void ApplySquareStyle(Button button, PitchSquare square, bool isSelected, bool canUse, string? pathMarker = null, string? blockRole = null, string? passRole = null)
     {
         ClearPitchButtonChrome(button);
+        var textColor = pathMarker?.StartsWith('!') == true
+            ? GoForItPathColor
+            : pathMarker is not null
+                ? LineColor
+                : new Color("e8eadc");
+        button.AddThemeColorOverride("font_color", textColor);
+        button.AddThemeColorOverride("font_hover_color", textColor.Lightened(0.12f));
+        button.AddThemeColorOverride("font_pressed_color", textColor.Darkened(0.1f));
+        button.AddThemeColorOverride("font_disabled_color", textColor.Darkened(0.16f));
     }
 
     private Color SquareColor(PitchSquare square)
@@ -3425,6 +3588,28 @@ public partial class MatchScreen : VBoxContainer
             child.QueueFree();
         }
 
+        if (_match.PendingBlockReroll is PendingBlockRerollChoice pendingBlockReroll)
+        {
+            _blockDiceBox.Visible = false;
+            _interceptionChoiceBox.Visible = false;
+            _rerollChoiceBox.Visible = true;
+            _rerollChoiceBox.AddChild(new Label { Text = "Block reroll:" });
+
+            if (pendingBlockReroll.TeamRerollAvailable)
+            {
+                var teamButton = new Button { Text = $"Team ({TeamRerollsRemaining(pendingBlockReroll.AttackerTeamId)})" };
+                teamButton.TooltipText = "Use a team reroll on the block dice.";
+                teamButton.Pressed += async () => await ResolveBlockRerollAsync(useTeamReroll: true);
+                _rerollChoiceBox.AddChild(teamButton);
+            }
+
+            var acceptButton = new Button { Text = "Accept" };
+            acceptButton.TooltipText = "Accept the attacker down result.";
+            acceptButton.Pressed += async () => await ResolveBlockRerollAsync(useTeamReroll: false);
+            _rerollChoiceBox.AddChild(acceptButton);
+            return;
+        }
+
         if (_match.PendingReroll is not PendingRerollChoice pending)
         {
             _rerollChoiceBox.Visible = false;
@@ -3606,6 +3791,13 @@ public partial class MatchScreen : VBoxContainer
         options.AddRange(pending.SkillRerollIds);
         var optionText = options.Count == 0 ? "no reroll available" : string.Join(", ", options);
         return $"{playerName} failed {FormatRerollKind(pending.Kind)}: rolled {pending.Roll} vs {pending.Target}+. Choose reroll or accept failure; {optionText}.";
+    }
+
+    private string BlockRerollSummary(PendingBlockRerollChoice pending)
+    {
+        var attackerName = FindPlayer(pending.AttackerPlayerId)?.Name ?? "attacker";
+        var defenderName = FindPlayer(pending.DefenderPlayerId)?.Name ?? "defender";
+        return $"{attackerName} rolled attacker down against {defenderName}. Use a team reroll or accept failure.";
     }
 
     private string ApothecarySummary(PendingApothecaryChoice pending)
@@ -3801,11 +3993,7 @@ public partial class MatchScreen : VBoxContainer
         }
 
         var path = BuildMovementPath(placement.Square, square);
-        var movementAllowance = placement.State == PlayerPitchState.Prone
-            ? Math.Max(0, player.Stats.Movement - 3)
-            : player.Stats.Movement;
-        var movementAlreadyUsed = activation?.MovementSquaresUsed ?? 0;
-        var remainingMovement = Math.Max(0, movementAllowance + 3 - movementAlreadyUsed);
+        var remainingMovement = RemainingTotalMovement(player, placement, activation);
         return (path.Count > 0 || placement.State == PlayerPitchState.Prone) &&
             path.Count <= remainingMovement &&
             path.All(pathSquare => !_match.Placements.Any(current => current.PlayerId != playerId && current.Square == pathSquare));
@@ -3849,10 +4037,11 @@ public partial class MatchScreen : VBoxContainer
             return null;
         }
 
+        var needsGoForIt = MovementStepNeedsGoForIt(playerId, stepIndex);
         var target = MovementStepTarget(playerId, stepIndex);
         if (target is not null)
         {
-            return $"{target}+";
+            return needsGoForIt ? $"!{target}+" : $"{target}+";
         }
 
         return _previewDestination == square ? "X" : ".";
@@ -3990,10 +4179,40 @@ public partial class MatchScreen : VBoxContainer
             return false;
         }
 
-        var movementAllowance = placement.State == PlayerPitchState.Prone
-            ? Math.Max(0, player.Stats.Movement - 3)
-            : player.Stats.Movement;
-        return stepIndex >= movementAllowance;
+        var activation = CurrentTurnActivation(playerId);
+        return stepIndex >= RemainingRegularMovement(player, placement, activation);
+    }
+
+    private int RemainingRegularMovement(Player player, PlayerPlacement placement, PlayerTurnActivation? activation)
+    {
+        return Math.Max(0, player.Stats.Movement - MovementSpentBeforePreview(player, placement, activation));
+    }
+
+    private int RemainingTotalMovement(Player player, PlayerPlacement placement, PlayerTurnActivation? activation)
+    {
+        return Math.Max(0, player.Stats.Movement + MaxRushes(player) - MovementSpentBeforePreview(player, placement, activation));
+    }
+
+    private int MovementSpentBeforePreview(Player player, PlayerPlacement placement, PlayerTurnActivation? activation)
+    {
+        return (activation?.MovementSquaresUsed ?? 0) + PendingStandUpCost(player, placement, activation);
+    }
+
+    private int PendingStandUpCost(Player player, PlayerPlacement placement, PlayerTurnActivation? activation)
+    {
+        if (placement.State != PlayerPitchState.Prone ||
+            activation is not null ||
+            SkillCatalog.PlayerHasEffect(_ruleset, player, SkillEffect.JumpUp))
+        {
+            return 0;
+        }
+
+        return Math.Min(3, player.Stats.Movement);
+    }
+
+    private int MaxRushes(Player player)
+    {
+        return SkillCatalog.PlayerHasEffect(_ruleset, player, SkillEffect.Sprint) ? 4 : 3;
     }
 
     private bool MovementStepNeedsPickup(int stepIndex)

@@ -133,6 +133,7 @@ public sealed class MatchService
             ActiveTeamId = nextActiveTeam,
             Activations = [],
             PendingPush = null,
+            PendingBlockReroll = null,
             PendingReroll = null,
             PendingApothecary = null,
             PendingStandFirm = null,
@@ -181,6 +182,7 @@ public sealed class MatchService
             Turn = GetTeamTurn(consumedTurnMatch, nextActiveTeam),
             Activations = [],
             PendingPush = null,
+            PendingBlockReroll = null,
             PendingReroll = null,
             PendingApothecary = null,
             PendingStandFirm = null,
@@ -206,6 +208,11 @@ public sealed class MatchService
         if (match.PendingReroll is not null)
         {
             throw new InvalidOperationException("Resolve the pending reroll before advancing the turn.");
+        }
+
+        if (match.PendingBlockReroll is not null)
+        {
+            throw new InvalidOperationException("Resolve the pending block reroll before advancing the turn.");
         }
 
         if (match.PendingApothecary is not null)
@@ -2907,6 +2914,7 @@ public sealed class MatchService
                 Turn = ruleset.TurnsPerHalf,
                 Activations = [],
                 PendingBlock = null,
+                PendingBlockReroll = null,
                 PendingPush = null,
                 PendingInterception = null,
                 PendingReroll = null,
@@ -3392,21 +3400,23 @@ public sealed class MatchService
             existingActivation is { DeclaredOnly: false } &&
             existingActivation.Action == action &&
             action is PlayerTurnAction.Move or PlayerTurnAction.Blitz;
-        var movementAllowance = isStandingUp && !continuesMovementActivation && !PlayerHasHookedEffect(ruleset, player, GameEventKind.MoveStep, GameEventStage.BeforeEvent, SkillEffect.JumpUp)
-            ? Math.Max(0, player.Stats.Movement - 3)
-            : player.Stats.Movement;
+        var standUpMovementCost = isStandingUp &&
+            !continuesMovementActivation &&
+            !PlayerHasHookedEffect(ruleset, player, GameEventKind.MoveStep, GameEventStage.BeforeEvent, SkillEffect.JumpUp)
+                ? Math.Min(3, player.Stats.Movement)
+                : 0;
         var priorMovementSquares = continuesMovementActivation ? existingActivation!.MovementSquaresUsed : 0;
         var priorGoForItsUsed = continuesMovementActivation ? existingActivation!.GoForItsUsed : 0;
-        var remainingMovementAllowance = Math.Max(0, movementAllowance - priorMovementSquares);
-        var totalMovementSquares = priorMovementSquares + path.Length;
+        var remainingMovementAllowance = Math.Max(0, player.Stats.Movement - priorMovementSquares - standUpMovementCost);
+        var totalMovementSquares = priorMovementSquares + standUpMovementCost + path.Length;
         var maxGoForIts = PlayerHasHookedEffect(ruleset, player, GameEventKind.MoveStep, GameEventStage.BeforeEvent, SkillEffect.Sprint)
             ? SprintGoForItsPerActivation
             : MaxGoForItsPerActivation;
-        var goForItsUsed = Math.Max(0, totalMovementSquares - movementAllowance);
+        var goForItsUsed = Math.Max(0, totalMovementSquares - player.Stats.Movement);
         if (goForItsUsed > maxGoForIts)
         {
             var movementDescription = isStandingUp
-                ? $"{movementAllowance} squares after standing"
+                ? $"{Math.Max(0, player.Stats.Movement - standUpMovementCost)} squares after standing"
                 : $"{player.Stats.Movement} squares";
             throw new InvalidOperationException($"{player.Name} can move {movementDescription} plus {maxGoForIts} go-for-its, not {totalMovementSquares}.");
         }
@@ -3681,7 +3691,8 @@ public sealed class MatchService
         BlockStrength strength,
         IReadOnlyList<int> rolls,
         int roll,
-        bool preventFollowUp = false)
+        bool preventFollowUp = false,
+        bool allowTeamReroll = true)
     {
         var rollText = string.Join(", ", rolls);
         var strengthText = $"ST {strength.AttackerStrength}-{strength.DefenderStrength}, block dice {strength.Dice}";
@@ -3708,6 +3719,20 @@ public sealed class MatchService
 
         if (roll <= 1)
         {
+            if (allowTeamReroll && CanUseTeamReroll(match, ruleset, attackerTeam))
+            {
+                return CreatePendingBlockReroll(
+                    match,
+                    attackerTeam,
+                    attacker,
+                    defenderTeam,
+                    defender,
+                    strength,
+                    rolls,
+                    roll,
+                    preventFollowUp);
+            }
+
             var injuryState = ResolveFallInjury(attacker);
             var knockedDown = KnockPlayerDown(match, ruleset, attacker, attackerPlacement, injuryState, attackerPlacement.Square!);
             return ApplyTurnover(knockedDown with
@@ -3816,6 +3841,129 @@ public sealed class MatchService
             knockDefenderDown: true,
             resultMessage: $"{attacker.Name} blocks {defender.Name}: {strengthText}, rolled {rollText}, chose {roll}, defender down.",
             preventFollowUp: preventFollowUp);
+    }
+
+    private MatchState CreatePendingBlockReroll(
+        MatchState match,
+        LeagueTeam attackerTeam,
+        Player attacker,
+        LeagueTeam defenderTeam,
+        Player defender,
+        BlockStrength strength,
+        IReadOnlyList<int> rolls,
+        int chosenRoll,
+        bool preventFollowUp)
+    {
+        return match with
+        {
+            PendingBlockReroll = new PendingBlockRerollChoice
+            {
+                AttackerTeamId = attackerTeam.Id,
+                DefenderTeamId = defenderTeam.Id,
+                AttackerPlayerId = attacker.Id,
+                DefenderPlayerId = defender.Id,
+                Rolls = rolls,
+                ChosenRoll = chosenRoll,
+                AttackerStrength = strength.AttackerStrength,
+                DefenderStrength = strength.DefenderStrength,
+                Dice = strength.Dice,
+                TeamRerollAvailable = true,
+                PreventFollowUp = preventFollowUp,
+                MatchBeforeRoll = match
+            },
+            Log =
+            [
+                .. match.Log,
+                new MatchLogEntry { Message = $"{attacker.Name} blocks {defender.Name}: ST {strength.AttackerStrength}-{strength.DefenderStrength}, block dice {strength.Dice}, rolled {string.Join(", ", rolls)}, chose {chosenRoll}, attacker down. Choose whether to reroll." }
+            ]
+        };
+    }
+
+    public MatchState ResolvePendingBlockReroll(
+        MatchState match,
+        Ruleset ruleset,
+        LeagueTeam attackerTeam,
+        LeagueTeam defenderTeam,
+        bool useTeamReroll)
+    {
+        var pending = match.PendingBlockReroll
+            ?? throw new InvalidOperationException("There is no pending block reroll.");
+
+        if (pending.AttackerTeamId != attackerTeam.Id || pending.DefenderTeamId != defenderTeam.Id)
+        {
+            throw new InvalidOperationException("Pending block reroll teams do not match the selected teams.");
+        }
+
+        var baseMatch = pending.MatchBeforeRoll with { PendingBlockReroll = null };
+        var attacker = FindTeamPlayer(attackerTeam, pending.AttackerPlayerId);
+        var defender = FindTeamPlayer(defenderTeam, pending.DefenderPlayerId);
+        var attackerPlacement = baseMatch.Placements.First(placement => placement.PlayerId == attacker.Id);
+        var defenderPlacement = baseMatch.Placements.First(placement => placement.PlayerId == defender.Id);
+        var strength = new BlockStrength(pending.AttackerStrength, pending.DefenderStrength, pending.Dice);
+
+        if (!useTeamReroll)
+        {
+            return ResolveChosenBlockDie(
+                baseMatch,
+                ruleset,
+                attackerTeam,
+                attacker,
+                attackerPlacement,
+                defenderTeam,
+                defender,
+                defenderPlacement,
+                strength,
+                pending.Rolls,
+                pending.ChosenRoll,
+                pending.PreventFollowUp,
+                allowTeamReroll: false);
+        }
+
+        if (!pending.TeamRerollAvailable || !CanUseTeamReroll(baseMatch, ruleset, attackerTeam))
+        {
+            throw new InvalidOperationException($"{attackerTeam.Name} has no team rerolls available.");
+        }
+
+        var rerolledMatch = SpendTeamReroll(baseMatch, ruleset, attackerTeam);
+        var rerolledRolls = Enumerable.Range(0, pending.Dice).Select(_ => _dice.RollD6()).ToArray();
+        rerolledMatch = rerolledMatch with
+        {
+            Log =
+            [
+                .. rerolledMatch.Log,
+                new MatchLogEntry { Message = $"{attackerTeam.Name} uses a team reroll: block dice rerolled from {string.Join(", ", pending.Rolls)} to {string.Join(", ", rerolledRolls)}." }
+            ]
+        };
+
+        return rerolledRolls.Length > 1
+            ? rerolledMatch with
+            {
+                PendingBlock = new PendingBlockChoice
+                {
+                    AttackerTeamId = attackerTeam.Id,
+                    DefenderTeamId = defenderTeam.Id,
+                    AttackerPlayerId = attacker.Id,
+                    DefenderPlayerId = defender.Id,
+                    Rolls = rerolledRolls,
+                    AttackerStrength = pending.AttackerStrength,
+                    DefenderStrength = pending.DefenderStrength,
+                    PreventFollowUp = pending.PreventFollowUp
+                }
+            }
+            : ResolveChosenBlockDie(
+                rerolledMatch,
+                ruleset,
+                attackerTeam,
+                attacker,
+                attackerPlacement,
+                defenderTeam,
+                defender,
+                defenderPlacement,
+                strength,
+                rerolledRolls,
+                rerolledRolls[0],
+                pending.PreventFollowUp,
+                allowTeamReroll: false);
     }
 
     private MatchState ResolvePushAfterBlock(
@@ -5947,6 +6095,7 @@ public sealed class MatchService
         return nextMatch with
         {
             PendingBlock = null,
+            PendingBlockReroll = null,
             PendingPush = null,
             PendingInterception = null,
             PendingReroll = null,
@@ -5976,6 +6125,7 @@ public sealed class MatchService
             match.Phase is MatchPhase.OffensivePlayerTurn or MatchPhase.DefensiveTurn &&
             match.ActiveTeamId == attackerTeamId &&
             match.PendingBlock is null &&
+            match.PendingBlockReroll is null &&
             match.PendingPush is null &&
             match.PendingStandFirm is null &&
             match.PendingFollowUp is null &&
@@ -6560,6 +6710,7 @@ public sealed class MatchService
             Turn = GetTeamTurn(consumedTurnMatch, nextActiveTeam),
             Activations = [],
             PendingReroll = null,
+            PendingBlockReroll = null,
             PendingPush = null,
             PendingStandFirm = null,
             PendingDivingTackle = null,
@@ -6633,6 +6784,7 @@ public sealed class MatchService
             Placements = resetPlacements,
             Activations = [],
             PendingBlock = null,
+            PendingBlockReroll = null,
             PendingPush = null,
             PendingInterception = null,
             PendingReroll = null,

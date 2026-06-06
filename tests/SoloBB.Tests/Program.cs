@@ -1614,6 +1614,13 @@ Assert(blockedPlayer.State == PlayerPitchState.Prone, "successful block should k
 Assert(blockedPlayer.Square == new PitchSquare(3, 1), "successful block should push the defender before knockdown");
 Assert(blockMatch.Activations.Single(activation => activation.PlayerId == playerToPlace.Id).Action == PlayerTurnAction.Block, "block should activate the attacker");
 
+var skullBlockRerollService = new MatchService(new FixedDiceRoller(d6: [1, 6]));
+var skullBlockPending = skullBlockRerollService.BlockPlayer(blockReadyMatch, ruleset, loadedLeague.Teams[0], playerToPlace.Id, awayLeague.Teams[0], awayPlayerToPlace.Id);
+Assert(skullBlockPending.PendingBlockReroll?.AttackerPlayerId == playerToPlace.Id, "single-die attacker down should offer a team reroll before turnover");
+var skullBlockRerolled = skullBlockRerollService.ResolvePendingBlockReroll(skullBlockPending, ruleset, loadedLeague.Teams[0], awayLeague.Teams[0], useTeamReroll: true);
+Assert(skullBlockRerolled.PendingPush?.KnockDefenderDown == true, "successful block reroll should continue normal block resolution");
+Assert(skullBlockRerolled.HomeRerollsRemaining == loadedLeague.Teams[0].Rerolls - 1, "block team reroll should spend a team reroll");
+
 var standFirmTeam = awayLeague.Teams[0] with
 {
     Players = awayLeague.Teams[0].Players
@@ -1827,13 +1834,15 @@ Assert(dauntlessBlock.PendingBlock is null, "successful dauntless should treat t
 Assert(dauntlessBlock.PendingPush?.KnockDefenderDown == true, "successful dauntless should consume its roll before the one block die is resolved");
 
 var badBlockService = new MatchService(new FixedDiceRoller(d6: [1, 6, 6, 6, 6], d8: [5]));
-var badBlockMatch = badBlockService.BlockPlayer(
+var badBlockPending = badBlockService.BlockPlayer(
     blockReadyMatch with { Ball = new BallState { CarrierPlayerId = playerToPlace.Id } },
     ruleset,
     loadedLeague.Teams[0],
     playerToPlace.Id,
     awayLeague.Teams[0],
     awayPlayerToPlace.Id);
+Assert(badBlockPending.PendingBlockReroll is not null, "attacker-down block should offer a reroll before resolving failure");
+var badBlockMatch = badBlockService.ResolvePendingBlockReroll(badBlockPending, ruleset, loadedLeague.Teams[0], awayLeague.Teams[0], useTeamReroll: false);
 var badBlockAttacker = badBlockMatch.Placements.Single(placement => placement.PlayerId == playerToPlace.Id);
 
 Assert(badBlockMatch.Phase == MatchPhase.DefensiveTurn, "attacker-down block should cause a turnover");
@@ -1861,26 +1870,28 @@ var mightyBlowVictim = mightyBlowMatch.Placements.Single(placement => placement.
 Assert(mightyBlowVictim.State == PlayerPitchState.KnockedOut, "mighty blow should be able to turn an armor tie into an armor break");
 
 var deathBlockService = new MatchService(new FixedDiceRoller(d6: [1, 6, 6, 6, 6], d16: [16]));
-var deathBlockMatch = deathBlockService.BlockPlayer(
+var deathBlockPending = deathBlockService.BlockPlayer(
     blockReadyMatch,
     ruleset,
     loadedLeague.Teams[0],
     playerToPlace.Id,
     awayLeague.Teams[0],
     awayPlayerToPlace.Id);
+var deathBlockMatch = deathBlockService.ResolvePendingBlockReroll(deathBlockPending, ruleset, loadedLeague.Teams[0], awayLeague.Teams[0], useTeamReroll: false);
 var deadAttacker = deathBlockMatch.Placements.Single(placement => placement.PlayerId == playerToPlace.Id);
 
 Assert(deadAttacker.State == PlayerPitchState.Dead, "dead should come from the casualty table rather than the injury roll");
 Assert(deadAttacker.Casualty?.Result == CasualtyResult.Dead, "casualty roll of 15-16 should be dead");
 
 var apothecaryBlockService = new MatchService(new FixedDiceRoller(d6: [1, 6, 6, 6, 6], d16: [16, 1]));
-var apothecaryBlockMatch = apothecaryBlockService.BlockPlayer(
+var apothecaryBlockPending = apothecaryBlockService.BlockPlayer(
     blockReadyMatch with { HomeApothecariesRemaining = 1 },
     ruleset,
     loadedLeague.Teams[0],
     playerToPlace.Id,
     awayLeague.Teams[0],
     awayPlayerToPlace.Id);
+var apothecaryBlockMatch = apothecaryBlockService.ResolvePendingBlockReroll(apothecaryBlockPending, ruleset, loadedLeague.Teams[0], awayLeague.Teams[0], useTeamReroll: false);
 Assert(apothecaryBlockMatch.PendingApothecary?.PlayerId == playerToPlace.Id, "casualty with an available apothecary should create a pending choice");
 Assert(apothecaryBlockMatch.HomeApothecariesRemaining == 1, "apothecary should not be spent before the user chooses to use it");
 var apothecaryUsedMatch = apothecaryBlockService.ResolvePendingApothecary(apothecaryBlockMatch, loadedLeague.Teams[0], useApothecary: true);
@@ -2236,6 +2247,13 @@ var stoodPlayer = standOnlyMatch.Placements.Single(placement => placement.Player
 Assert(stoodPlayer.State == PlayerPitchState.Standing, "move action should allow a prone player to stand up");
 Assert(stoodPlayer.Square == new PitchSquare(1, 0), "standing up without moving should keep the player in place");
 Assert(standOnlyMatch.Activations.Single(activation => activation.PlayerId == playerToPlace.Id).Action == PlayerTurnAction.Move, "standing up should spend a move activation");
+Assert(standOnlyMatch.Activations.Single(activation => activation.PlayerId == playerToPlace.Id).MovementSquaresUsed == 3, "standing up should record the movement allowance it spends");
+
+var continuedAfterStandMatch = matchService.MovePlayer(standOnlyMatch, ruleset, loadedLeague.Teams[0], playerToPlace.Id, new(4, 0));
+var continuedAfterStandActivation = continuedAfterStandMatch.Activations.Single(activation => activation.PlayerId == playerToPlace.Id);
+Assert(continuedAfterStandMatch.Placements.Single(placement => placement.PlayerId == playerToPlace.Id).Square == new PitchSquare(4, 0), "player should be able to continue moving after standing up");
+Assert(continuedAfterStandActivation.MovementSquaresUsed == 6, "continuing after standing should count the stand-up cost plus moved squares");
+Assert(continuedAfterStandActivation.GoForItsUsed == 0, "continuing within remaining movement after standing should not spend go-for-its");
 
 var proneMoveService = new MatchService(new FixedDiceRoller(d6: [2]));
 var stoodAndMovedMatch = proneMoveService.MovePlayer(proneMoveReadyMatch, ruleset, loadedLeague.Teams[0], playerToPlace.Id, new(5, 0));
