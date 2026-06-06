@@ -5,8 +5,10 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
   </PropertyGroup>
-
   <ItemGroup>
-    <ProjectReference Include="C:\Projects\SoloBB\src\SoloBB.Core\SoloBB.Core.csproj" />
+    <None Remove="Program.cs.uid" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\SoloBB.Core\SoloBB.Core.csproj" />
   </ItemGroup>
 </Project>

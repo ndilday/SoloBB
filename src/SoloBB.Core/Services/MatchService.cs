@@ -7,11 +7,21 @@ public sealed class MatchService
     private const int MaxGoForItsPerActivation = 3;
     private const int SprintGoForItsPerActivation = 4;
     private readonly IDiceRoller _dice;
+    private Dictionary<Guid, string> _playerNames = [];
 
     public MatchService(IDiceRoller? dice = null)
     {
         _dice = dice ?? new RandomDiceRoller();
     }
+
+    public void RegisterTeams(LeagueTeam homeTeam, LeagueTeam awayTeam)
+    {
+        _playerNames = homeTeam.Players.Concat(awayTeam.Players)
+            .ToDictionary(p => p.Id, p => p.Name);
+    }
+
+    private string PlayerName(Guid playerId) =>
+        _playerNames.TryGetValue(playerId, out var name) ? name : playerId.ToString();
 
     public MatchState CreateHotseatMatch(Ruleset ruleset, LeagueTeam homeTeam, LeagueTeam awayTeam)
     {
@@ -2897,11 +2907,11 @@ public sealed class MatchService
                         BribeAvailable = true,
                         DriveEnd = continuation
                     },
-                    Log = [.. match.Log, new MatchLogEntry { Message = $"{nextSecretWeapon.PlayerId} must be sent off for Secret Weapon. Choose whether to use a bribe; {remainingSecretWeapons} more Secret Weapon send-off{(remainingSecretWeapons == 1 ? "" : "s")} remain after this." }]
+                    Log = [.. match.Log, new MatchLogEntry { Message = $"{PlayerName(nextSecretWeapon.PlayerId)} must be sent off for Secret Weapon. Choose whether to use a bribe; {remainingSecretWeapons} more Secret Weapon send-off{(remainingSecretWeapons == 1 ? "" : "s")} remain after this." }]
                 };
             }
 
-            var sentOff = SendOffPlayer(match, nextSecretWeapon.PlayerId, $"{nextSecretWeapon.PlayerId} is sent off for Secret Weapon.");
+            var sentOff = SendOffPlayer(match, nextSecretWeapon.PlayerId, $"{PlayerName(nextSecretWeapon.PlayerId)} is sent off for Secret Weapon.");
             return ContinueDriveEnd(sentOff, ruleset, continuation with { ResolvedPlayerIds = [.. continuation.ResolvedPlayerIds, nextSecretWeapon.PlayerId] });
         }
 
@@ -3787,6 +3797,12 @@ public sealed class MatchService
 
             var attackerHasBlock = PlayerHasHookedEffect(ruleset, attacker, GameEventKind.BlockRoll, GameEventStage.BeforeResolve, SkillEffect.BothDownProtection);
             var defenderHasBlock = PlayerHasHookedEffect(ruleset, defender, GameEventKind.BlockRoll, GameEventStage.BeforeResolve, SkillEffect.BothDownProtection);
+
+            if (allowTeamReroll && CanUseTeamReroll(match, ruleset, attackerTeam))
+            {
+                return CreatePendingBlockReroll(match, attackerTeam, attacker, defenderTeam, defender, strength, rolls, roll, preventFollowUp, resultDescription: "both down");
+            }
+
             var nextMatch = match;
         if (!defenderHasBlock)
         {
@@ -3852,7 +3868,8 @@ public sealed class MatchService
         BlockStrength strength,
         IReadOnlyList<int> rolls,
         int chosenRoll,
-        bool preventFollowUp)
+        bool preventFollowUp,
+        string resultDescription = "attacker down")
     {
         return match with
         {
@@ -3874,7 +3891,7 @@ public sealed class MatchService
             Log =
             [
                 .. match.Log,
-                new MatchLogEntry { Message = $"{attacker.Name} blocks {defender.Name}: ST {strength.AttackerStrength}-{strength.DefenderStrength}, block dice {strength.Dice}, rolled {string.Join(", ", rolls)}, chose {chosenRoll}, attacker down. Choose whether to reroll." }
+                new MatchLogEntry { Message = $"{attacker.Name} blocks {defender.Name}: ST {strength.AttackerStrength}-{strength.DefenderStrength}, block dice {strength.Dice}, rolled {string.Join(", ", rolls)}, chose {chosenRoll}, {resultDescription}. Choose whether to reroll." }
             ]
         };
     }
@@ -4643,11 +4660,11 @@ public sealed class MatchService
 
         var crowdLog = new List<MatchLogEntry>
         {
-            new() { Message = $"{placement.PlayerId} is pushed into the crowd: {FormatPitchState(crowdState)}." }
+            new() { Message = $"{PlayerName(placement.PlayerId)} is pushed into the crowd: {FormatPitchState(crowdState)}." }
         };
         if (injuryState.Casualty is not null)
         {
-            crowdLog.Add(new MatchLogEntry { Message = $"{placement.PlayerId} casualty roll {injuryState.Casualty.Roll}: {FormatCasualtyResult(injuryState.Casualty.Result)}." });
+            crowdLog.Add(new MatchLogEntry { Message = $"{PlayerName(placement.PlayerId)} casualty roll {injuryState.Casualty.Roll}: {FormatCasualtyResult(injuryState.Casualty.Result)}." });
         }
         crowdLog.AddRange(apothecary.Log);
         crowdLog.AddRange(log);
@@ -6981,12 +6998,12 @@ public sealed class MatchService
                     StunnedRecoveryTurn = null,
                     Casualty = null
                 });
-                log.Add(new MatchLogEntry { Message = $"Knockout recovery {placement.PlayerId}: rolled {roll} vs {target}+, recovered." });
+                log.Add(new MatchLogEntry { Message = $"Knockout recovery {PlayerName(placement.PlayerId)}: rolled {roll} vs {target}+, recovered." });
                 continue;
             }
 
             placements.Add(placement with { Square = null });
-            log.Add(new MatchLogEntry { Message = $"Knockout recovery {placement.PlayerId}: rolled {roll} vs {target}+, remains knocked out." });
+            log.Add(new MatchLogEntry { Message = $"Knockout recovery {PlayerName(placement.PlayerId)}: rolled {roll} vs {target}+, remains knocked out." });
         }
 
         return log.Count == 0

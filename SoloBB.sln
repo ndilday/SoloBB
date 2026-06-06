@@ -2,11 +2,11 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.0.31903.59
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SoloBB.Core", "C:\Projects\SoloBB\src\SoloBB.Core\SoloBB.Core.csproj", "{A8E1E7C4-BB03-4E45-A1C5-B3AF83982E2F}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SoloBB.Core", "src\SoloBB.Core\SoloBB.Core.csproj", "{A8E1E7C4-BB03-4E45-A1C5-B3AF83982E2F}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SoloBB", "C:\Projects\SoloBB\SoloBB.csproj", "{F87DA74A-6B9F-4B1C-9987-A55142B5081B}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SoloBB", "SoloBB.csproj", "{F87DA74A-6B9F-4B1C-9987-A55142B5081B}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SoloBB.Tests", "C:\Projects\SoloBB\tests\SoloBB.Tests\SoloBB.Tests.csproj", "{8C9CC015-2E0A-4F37-9D5D-E9E65437777E}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SoloBB.Tests", "tests\SoloBB.Tests\SoloBB.Tests.csproj", "{8C9CC015-2E0A-4F37-9D5D-E9E65437777E}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SoloBB.SmokeTests", "tests\SoloBB.SmokeTests\SoloBB.SmokeTests.csproj", "{80C83F77-EFDD-4ABA-930C-E86AAB035C90}"
 EndProject

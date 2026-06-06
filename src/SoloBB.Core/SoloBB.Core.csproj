@@ -4,4 +4,20 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
   </PropertyGroup>
+  <ItemGroup>
+    <None Remove="Domain\GameEvents.cs.uid" />
+    <None Remove="Domain\League.cs.uid" />
+    <None Remove="Domain\MatchState.cs.uid" />
+    <None Remove="Domain\PreGame.cs.uid" />
+    <None Remove="Domain\RosterSet.cs.uid" />
+    <None Remove="Domain\Ruleset.cs.uid" />
+    <None Remove="Services\JsonGameDataStore.cs.uid" />
+    <None Remove="Services\LeagueService.cs.uid" />
+    <None Remove="Services\MatchService.cs.uid" />
+    <None Remove="Services\PreGameService.cs.uid" />
+    <None Remove="Services\RosterSetValidator.cs.uid" />
+    <None Remove="Services\RulesetValidator.cs.uid" />
+    <None Remove="Services\SkillCatalog.cs.uid" />
+    <None Remove="Services\SkillHookResolver.cs.uid" />
+  </ItemGroup>
 </Project>

@@ -68,6 +68,7 @@ public partial class MatchScreen : VBoxContainer
     private Guid? _previewLaunchedPlayerId;
     private PitchSquare? _previewLaunchTargetSquare;
     private PitchSquare? _animationBallSquare;
+    private bool _isAnimating;
     private bool _passMode;
     private bool _blitzMode;
     private bool _throwTeamMateMode;
@@ -844,11 +845,12 @@ public partial class MatchScreen : VBoxContainer
         }
     }
 
-    private void SetPitchHighlight(PitchSquare square, Texture2D? texture)
+    private void SetPitchHighlight(PitchSquare square, Texture2D? texture, Color? modulate = null)
     {
         if (_pitchHighlightLayers.TryGetValue(square, out var layer))
         {
             layer.Texture = texture;
+            layer.Modulate = modulate ?? Colors.White;
         }
     }
 
@@ -1048,7 +1050,7 @@ public partial class MatchScreen : VBoxContainer
                 return;
             }
 
-            var service = new MatchService();
+            var service = CreateMatchService();
             _match = service.PlacePlayer(_match, _ruleset, playerId, square);
             await _saveMatch(_match);
             ClearPreview();
@@ -1098,7 +1100,7 @@ public partial class MatchScreen : VBoxContainer
         {
             var beforeBlock = _match;
             var blockLogStart = _match.Log.Count;
-            var blockService = new MatchService();
+            var blockService = CreateMatchService();
             _match = blockService.BlockDuringPendingKickoffBlitz(_match, _ruleset, TeamById(_match.PendingKickoffEvent!.TeamId), playerId, TeamById(_match.PendingKickoffEvent.ReceivingTeamId), occupied.PlayerId);
             _selectedPlayerId = null;
             ClearPreview();
@@ -1119,7 +1121,7 @@ public partial class MatchScreen : VBoxContainer
 
         var beforeMatch = _match;
         var logStart = _match.Log.Count;
-        var service = new MatchService();
+        var service = CreateMatchService();
         _match = service.MovePendingKickoffEventPlayer(_match, _ruleset, playerId, square);
         _selectedPlayerId = null;
         ClearPreview();
@@ -1136,7 +1138,7 @@ public partial class MatchScreen : VBoxContainer
         var activeTeamBeforeMove = _match.ActiveTeamId;
         var path = _previewPath.ToArray();
         var movingTeam = ActiveTeam();
-        var service = new MatchService();
+        var service = CreateMatchService();
         var isBlitzMove = CurrentTurnActivation(playerId)?.Action == PlayerTurnAction.Blitz;
         _match = isBlitzMove
             ? service.MovePlayerAsBlitz(_match, _ruleset, movingTeam, playerId, destination, OpponentTeam())
@@ -1181,7 +1183,7 @@ public partial class MatchScreen : VBoxContainer
         var beforeMatch = _match;
         var logStart = _match.Log.Count;
         var activeTeamBeforeBlock = _match.ActiveTeamId;
-        var service = new MatchService();
+        var service = CreateMatchService();
         _match = service.BlockPlayer(_match, _ruleset, ActiveTeam(), attackerId, OpponentTeam(), defenderId);
         _previewBlockDefenderId = null;
         _previewFoulVictimId = null;
@@ -1253,7 +1255,7 @@ public partial class MatchScreen : VBoxContainer
         var beforeMatch = _match;
         var logStart = _match.Log.Count;
         var activeTeamBeforeFoul = _match.ActiveTeamId;
-        var service = new MatchService();
+        var service = CreateMatchService();
         _match = service.FoulPlayer(_match, _ruleset, ActiveTeam(), foulerId, OpponentTeam(), victimId);
         _previewFoulVictimId = null;
 
@@ -1280,7 +1282,7 @@ public partial class MatchScreen : VBoxContainer
         var logStart = _match.Log.Count;
         var activeTeamBeforeBlitz = _match.ActiveTeamId;
         var path = _previewPath.ToArray();
-        var service = new MatchService();
+        var service = CreateMatchService();
         _match = service.BlitzPlayer(_match, _ruleset, ActiveTeam(), attackerId, destination, OpponentTeam(), defenderId);
 
         if (_match.ActiveTeamId == activeTeamBeforeBlitz && IsPlayerTurnPhase())
@@ -1315,7 +1317,7 @@ public partial class MatchScreen : VBoxContainer
         var activeTeamBeforeChoice = _match.ActiveTeamId;
         var attackerTeam = TeamById(pending.AttackerTeamId);
         var defenderTeam = TeamById(pending.DefenderTeamId);
-        var service = new MatchService();
+        var service = CreateMatchService();
         _match = service.ChooseBlockDie(_match, _ruleset, attackerTeam, defenderTeam, roll);
         _previewBlockDefenderId = null;
 
@@ -1353,7 +1355,7 @@ public partial class MatchScreen : VBoxContainer
         var beforeMatch = _match;
         var logStart = _match.Log.Count;
         var activeTeamBeforeChoice = _match.ActiveTeamId;
-        var service = new MatchService();
+        var service = CreateMatchService();
         _match = service.ChoosePushSquare(_match, _ruleset, TeamById(pending.AttackerTeamId), TeamById(pending.DefenderTeamId), square);
 
         if (_match.ActiveTeamId == activeTeamBeforeChoice && IsPlayerTurnPhase())
@@ -1384,7 +1386,7 @@ public partial class MatchScreen : VBoxContainer
         var beforeMatch = _match;
         var logStart = _match.Log.Count;
         var activeTeamBeforeChoice = _match.ActiveTeamId;
-        var service = new MatchService();
+        var service = CreateMatchService();
         _match = service.ResolvePendingFollowUp(_match, TeamById(pending.AttackerTeamId), TeamById(pending.DefenderTeamId), useFollowUp);
 
         if (_match.ActiveTeamId == activeTeamBeforeChoice && IsPlayerTurnPhase())
@@ -1427,7 +1429,7 @@ public partial class MatchScreen : VBoxContainer
         var beforeMatch = _match;
         var logStart = _match.Log.Count;
         var activeTeamBeforePass = _match.ActiveTeamId;
-        var service = new MatchService();
+        var service = CreateMatchService();
         _match = service.PassBall(_match, _ruleset, ActiveTeam(), passerId, targetSquare, OpponentTeam());
         _previewPassReceiverId = null;
         _previewPassTargetSquare = null;
@@ -1488,7 +1490,7 @@ public partial class MatchScreen : VBoxContainer
         var beforeMatch = _match;
         var logStart = _match.Log.Count;
         var activeTeamBeforeLaunch = _match.ActiveTeamId;
-        var service = new MatchService();
+        var service = CreateMatchService();
         _match = _throwTeamMateMode
             ? service.ThrowTeamMate(_match, _ruleset, ActiveTeam(), actorId, launchedId, targetSquare, OpponentTeam())
             : service.KickTeamMate(_match, _ruleset, ActiveTeam(), actorId, launchedId, targetSquare, OpponentTeam());
@@ -1526,7 +1528,7 @@ public partial class MatchScreen : VBoxContainer
         var beforeMatch = _match;
         var logStart = _match.Log.Count;
         var activeTeamBeforeChoice = _match.ActiveTeamId;
-        var service = new MatchService();
+        var service = CreateMatchService();
         _match = service.ChooseInterceptor(_match, _ruleset, TeamById(pending.PassingTeamId), TeamById(pending.DefendingTeamId), interceptorId);
         _previewPassReceiverId = null;
 
@@ -1563,7 +1565,7 @@ public partial class MatchScreen : VBoxContainer
 
         var beforeMatch = _match;
         var logStart = _match.Log.Count;
-        var service = new MatchService();
+        var service = CreateMatchService();
         _match = service.ChooseBallPlacement(_match, TeamById(pending.TeamId), square);
         _selectedPlayerId = null;
         _currentActivationPlayerId = null;
@@ -1589,7 +1591,7 @@ public partial class MatchScreen : VBoxContainer
 
         var beforeMatch = _match;
         var logStart = _match.Log.Count;
-        var service = new MatchService();
+        var service = CreateMatchService();
         _match = service.ThrowPendingBomb(_match, _ruleset, TeamById(pending.ThrowingTeamId), TeamById(pending.OpposingTeamId), square);
         _selectedPlayerId = _match.PendingBombThrow?.ThrowerPlayerId;
         _currentActivationPlayerId = null;
@@ -1610,7 +1612,7 @@ public partial class MatchScreen : VBoxContainer
         var beforeMatch = _match;
         var logStart = _match.Log.Count;
         var activeTeamBeforeChoice = _match.ActiveTeamId;
-        var service = new MatchService();
+        var service = CreateMatchService();
         var rerollTeam = TeamById(pending.TeamId);
         var opposingTeam = pending.TeamId == _homeTeam.Id ? _awayTeam : _homeTeam;
         _match = service.ResolvePendingReroll(_match, _ruleset, rerollTeam, useTeamReroll, skillId, opposingTeam);
@@ -1643,7 +1645,7 @@ public partial class MatchScreen : VBoxContainer
         var beforeMatch = _match;
         var logStart = _match.Log.Count;
         var activeTeamBeforeChoice = _match.ActiveTeamId;
-        var service = new MatchService();
+        var service = CreateMatchService();
         _match = service.ResolvePendingBlockReroll(_match, _ruleset, TeamById(pending.AttackerTeamId), TeamById(pending.DefenderTeamId), useTeamReroll);
 
         if (_match.ActiveTeamId == activeTeamBeforeChoice && IsPlayerTurnPhase())
@@ -1673,7 +1675,7 @@ public partial class MatchScreen : VBoxContainer
 
         var beforeMatch = _match;
         var logStart = _match.Log.Count;
-        var service = new MatchService();
+        var service = CreateMatchService();
         _match = service.ResolvePendingApothecary(_match, TeamById(pending.TeamId), useApothecary);
         _selectedPlayerId = null;
         _currentActivationPlayerId = null;
@@ -1693,7 +1695,7 @@ public partial class MatchScreen : VBoxContainer
 
         var beforeMatch = _match;
         var logStart = _match.Log.Count;
-        var service = new MatchService();
+        var service = CreateMatchService();
         _match = service.ResolvePendingSendOff(_match, _ruleset, TeamById(pending.TeamId), useBribe);
         _selectedPlayerId = null;
         _currentActivationPlayerId = null;
@@ -1713,7 +1715,7 @@ public partial class MatchScreen : VBoxContainer
 
         var beforeMatch = _match;
         var logStart = _match.Log.Count;
-        var service = new MatchService();
+        var service = CreateMatchService();
         _match = service.ResolvePendingStandFirm(_match, _ruleset, TeamById(pending.AttackerTeamId), TeamById(pending.DefenderTeamId), useStandFirm);
         _selectedPlayerId = null;
         _currentActivationPlayerId = null;
@@ -1734,7 +1736,7 @@ public partial class MatchScreen : VBoxContainer
         var beforeMatch = _match;
         var logStart = _match.Log.Count;
         var activeTeamBeforeChoice = _match.ActiveTeamId;
-        var service = new MatchService();
+        var service = CreateMatchService();
         _match = service.ResolvePendingDivingTackle(_match, _ruleset, TeamById(pending.DodgingTeamId), TeamById(pending.TacklerTeamId), useDivingTackle);
 
         if (_match.ActiveTeamId == activeTeamBeforeChoice && IsPlayerTurnPhase())
@@ -1761,26 +1763,33 @@ public partial class MatchScreen : VBoxContainer
             return;
         }
 
-        var finalSquare = afterMatch.Placements.FirstOrDefault(placement => placement.PlayerId == playerId)?.Square;
-        foreach (var square in path)
+        _isAnimating = true;
+        try
         {
-            _match = beforeMatch with
+            var finalSquare = afterMatch.Placements.FirstOrDefault(placement => placement.PlayerId == playerId)?.Square;
+            foreach (var square in path)
             {
-                Placements = beforeMatch.Placements
-                    .Select(placement => placement.PlayerId == playerId
-                        ? placement with { Square = square }
-                        : placement)
-                    .ToArray()
-            };
-            RefreshPitch();
-            await Task.Delay(70);
-            if (finalSquare == square)
-            {
-                break;
+                _match = beforeMatch with
+                {
+                    Placements = beforeMatch.Placements
+                        .Select(placement => placement.PlayerId == playerId
+                            ? placement with { Square = square }
+                            : placement)
+                        .ToArray()
+                };
+                RefreshPitch();
+                await Task.Delay(70);
+                if (finalSquare == square)
+                {
+                    break;
+                }
             }
         }
-
-        _match = afterMatch;
+        finally
+        {
+            _isAnimating = false;
+            _match = afterMatch;
+        }
     }
 
     private async Task AnimateBallAsync(MatchState beforeMatch, MatchState afterMatch, int logStart)
@@ -1885,7 +1894,7 @@ public partial class MatchScreen : VBoxContainer
         var beforeMatch = _match;
         var logStart = _match.Log.Count;
         var receivingTeam = ActiveTeam();
-        var service = new MatchService();
+        var service = CreateMatchService();
         _match = service.ResolveKickoff(_match, _ruleset, receivingTeam, square, KickingTeam());
         _selectedPlayerId = null;
         _currentActivationPlayerId = null;
@@ -1918,7 +1927,7 @@ public partial class MatchScreen : VBoxContainer
                 _endTurnConfirmationArmed = false;
             }
 
-            var service = new MatchService();
+            var service = CreateMatchService();
             var beforeMatch = _match;
             var logStart = _match.Log.Count;
             if (_match.PendingFollowUp is not null)
@@ -2031,7 +2040,7 @@ public partial class MatchScreen : VBoxContainer
             button.Text = "";
             button.Icon = null;
             SetPitchTile(square, PitchTileTexture(square, canPlace || canTargetKickoff || canMove || canPassSquare || canPush || canFollowUp || canPlaceBall || canThrowBomb || canLaunchTarget, pathMarker));
-            SetPitchHighlight(square, PitchHighlightTexture(canPlace || canTargetKickoff || canMove || canPassSquare || canPush || canFollowUp || canPlaceBall || canThrowBomb || canLaunchTarget, pathMarker));
+            SetPitchHighlight(square, PitchHighlightTexture(canPlace || canTargetKickoff || canMove || canPassSquare || canPush || canFollowUp || canPlaceBall || canThrowBomb || canLaunchTarget, pathMarker), pathMarker?.StartsWith('!') == true ? GoForItPathColor : null);
             SetPitchMarking(square, PitchMarkingTexture(square));
             SetPitchPiece(square, null);
             SetPitchOverlay(square, null);
@@ -2423,7 +2432,7 @@ public partial class MatchScreen : VBoxContainer
 
         try
         {
-            var service = new MatchService();
+            var service = CreateMatchService();
             _match = service.DeclarePlayerAction(_match, ActiveTeam(), playerId, PlayerTurnAction.Blitz);
             _currentActivationPlayerId = playerId;
             _passMode = false;
@@ -2925,10 +2934,16 @@ public partial class MatchScreen : VBoxContainer
 
     private string PlayerPitchTooltip(PlayerPlacement placement)
     {
-        var playerName = FindPlayer(placement.PlayerId)?.Name ?? "Unknown";
+        var player = FindPlayer(placement.PlayerId);
+        var playerName = player?.Name ?? "Unknown";
+        var stats = player is null ? "" : $"\n{FormatStats(player.Stats)}";
+        var skillNames = player is null || player.Skills.Count == 0
+            ? ""
+            : $"\n{string.Join(", ", player.Skills.Select(id => _ruleset.Skills.FirstOrDefault(s => s.Id == id)?.Name ?? id))}";
+        var baseText = $"{playerName}{stats}{skillNames}";
         return IsPlayerTurnPhase()
-            ? $"{playerName} - {ActivationDisplayState(placement.PlayerId, placement)}"
-            : playerName;
+            ? $"{baseText}\n{ActivationDisplayState(placement.PlayerId, placement)}"
+            : baseText;
     }
 
     private bool IsPlayerTurnPhase()
@@ -3914,6 +3929,11 @@ public partial class MatchScreen : VBoxContainer
 
     private bool IsLegalMovementTarget(Guid playerId, PitchSquare square)
     {
+        if (_isAnimating)
+        {
+            return false;
+        }
+
         if (_match.PendingKickoffEvent is PendingKickoffEventChoice pendingKickoff)
         {
             var kickoffPlacement = _match.Placements.FirstOrDefault(current => current.PlayerId == playerId);
@@ -4444,6 +4464,13 @@ public partial class MatchScreen : VBoxContainer
         }
 
         throw new InvalidOperationException("Unknown match team.");
+    }
+
+    private MatchService CreateMatchService()
+    {
+        var service = CreateMatchService();
+        service.RegisterTeams(_homeTeam, _awayTeam);
+        return service;
     }
 
     private Player? FindPlayer(Guid playerId)
