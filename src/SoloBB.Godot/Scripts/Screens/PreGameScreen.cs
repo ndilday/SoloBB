@@ -10,25 +10,34 @@ namespace SoloBB.Godot.Scripts.Screens;
 
 public partial class PreGameScreen : VBoxContainer
 {
+    private static readonly Color ScreenInk = new("f3ead6");
+    private static readonly Color MutedInk = new("bfb39c");
+    private static readonly Color PanelBg = new("211b17");
+    private static readonly Color PanelBgAlt = new("2b241e");
+    private static readonly Color FieldBg = new("182b20");
+    private static readonly Color Gold = new("d8a43f");
+    private static readonly Color HomeRed = new("7c333a");
+    private static readonly Color AwayBlue = new("27506e");
+    private static readonly Color Line = new("6f5a3f");
+    private static readonly Color LiveGreen = new("93b95f");
+    private static readonly Color LockedRed = new("a45a48");
+
     private readonly PreGameService _preGameService = new();
+    private readonly Dictionary<Guid, TeamDraftState> _teamStates = [];
 
     private Ruleset _ruleset = null!;
     private RosterSet _rosterSet = null!;
     private LeagueTeam _homeTeam = null!;
     private LeagueTeam _awayTeam = null!;
-    private Func<MatchInducementPlan, Task> _done = _ => Task.CompletedTask;
-    private SpinBox _homeBribesSpin = null!;
-    private SpinBox _awayBribesSpin = null!;
-    private SpinBox _homeTreasurySpin = null!;
-    private SpinBox _awayTreasurySpin = null!;
-    private Label _homeBudgetLabel = null!;
-    private Label _awayBudgetLabel = null!;
+    private LeagueTeam _firstTeam = null!;
+    private LeagueTeam _secondTeam = null!;
     private TeamPreGameSummary _homeSummary = null!;
     private TeamPreGameSummary _awaySummary = null!;
-    private readonly Dictionary<string, CheckBox> _homeStarChecks = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<string, CheckBox> _awayStarChecks = new(StringComparer.OrdinalIgnoreCase);
+    private Func<MatchInducementPlan, Task> _done = _ => Task.CompletedTask;
+    private Action _back = () => { };
+    private int _step;
     private Label _statusLabel = null!;
-    private Button _doneButton = null!;
+    private Button _continueButton = null!;
 
     public void Setup(
         Ruleset ruleset,
@@ -38,85 +47,377 @@ public partial class PreGameScreen : VBoxContainer
         Func<MatchInducementPlan, Task> done,
         Action back)
     {
-        Clear();
-
         _ruleset = ruleset;
         _rosterSet = rosterSet;
         _done = done;
+        _back = back;
         _homeTeam = FindTeam(league, scheduledMatch.HomeTeamId);
         _awayTeam = FindTeam(league, scheduledMatch.AwayTeamId);
+        (_firstTeam, _secondTeam) = OrderTeamsForInducements(_homeTeam, _awayTeam);
+        _step = 0;
+
         var summary = _preGameService.BuildSummary(_ruleset, _rosterSet, _homeTeam, _awayTeam);
         _homeSummary = summary.Home;
         _awaySummary = summary.Away;
-        _homeStarChecks.Clear();
-        _awayStarChecks.Clear();
+        _teamStates.Clear();
+        _teamStates[_homeTeam.Id] = new TeamDraftState(_homeTeam, _homeSummary);
+        _teamStates[_awayTeam.Id] = new TeamDraftState(_awayTeam, _awaySummary);
 
-        AddTitle("Pre-Game");
-        AddChild(new Label { Text = $"Week {scheduledMatch.Week}" });
-        AddChild(new Label { Text = $"{_homeTeam.Name} vs {_awayTeam.Name}" });
-
-        var grid = new GridContainer { Columns = 7 };
-        AddChild(grid);
-        AddHeader(grid, "Team");
-        AddHeader(grid, "TV");
-        AddHeader(grid, "Treasury");
-        AddHeader(grid, "Petty Cash");
-        AddHeader(grid, "Journeymen");
-        AddHeader(grid, "Bribes");
-        AddHeader(grid, "Treasury Spend");
-
-        AddTeamRow(grid, summary.Home, out _homeBribesSpin, out _homeTreasurySpin);
-        AddTeamRow(grid, summary.Away, out _awayBribesSpin, out _awayTreasurySpin);
-
-        _homeBudgetLabel = new Label { AutowrapMode = TextServer.AutowrapMode.WordSmart };
-        AddChild(_homeBudgetLabel);
-        _awayBudgetLabel = new Label { AutowrapMode = TextServer.AutowrapMode.WordSmart };
-        AddChild(_awayBudgetLabel);
-
-        AddRosterMetadata(summary.Home);
-        AddRosterMetadata(summary.Away);
-
-        if (summary.StarPlayersSupported)
-        {
-            AddTeamStarSection(summary.Home, _homeStarChecks);
-            AddTeamStarSection(summary.Away, _awayStarChecks);
-        }
-        else
-        {
-            AddChild(new Label
-            {
-                Text = "Star Players: roster data unavailable",
-                AutowrapMode = TextServer.AutowrapMode.WordSmart
-            });
-        }
-
-        _doneButton = new Button { Text = "Done" };
-        _doneButton.Pressed += async () => await DoneAsync();
-        AddChild(_doneButton);
-
-        var backButton = new Button { Text = "Back" };
-        backButton.Pressed += back;
-        AddChild(backButton);
-
-        _statusLabel = new Label { Text = "", AutowrapMode = TextServer.AutowrapMode.WordSmart };
-        AddChild(_statusLabel);
-
-        UpdatePlanStatus();
+        AddThemeConstantOverride("separation", 14);
+        AddThemeStyleboxOverride("panel", FlatStyle(FieldBg, Line, 2));
+        Render(scheduledMatch.Week);
     }
 
-    private void AddTeamRow(GridContainer grid, TeamPreGameSummary summary, out SpinBox bribesSpin, out SpinBox treasurySpin)
+    private void Render(int week)
     {
-        grid.AddChild(new Label { Text = summary.TeamName });
-        grid.AddChild(new Label { Text = FormatGold(summary.TeamValue) });
-        grid.AddChild(new Label { Text = FormatGold(summary.Treasury) });
-        grid.AddChild(new Label { Text = FormatGold(summary.PettyCash) });
-        grid.AddChild(new Label { Text = summary.JourneymenNeeded.ToString() });
+        Clear();
 
-        bribesSpin = CreateSpinBox(0, (summary.PettyCash + summary.Treasury) / PreGameService.BribeCost, 0, 1);
-        grid.AddChild(bribesSpin);
+        var activeTeam = _step == 0 ? _firstTeam : _secondTeam;
+        var activeState = _teamStates[activeTeam.Id];
+        var plan = TryBuildPlan(out var planError);
 
-        treasurySpin = CreateSpinBox(0, summary.Treasury, 0, 10_000);
-        grid.AddChild(treasurySpin);
+        AddChild(BuildHeader(week, activeTeam));
+
+        var body = new HBoxContainer
+        {
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            SizeFlagsVertical = SizeFlags.ExpandFill
+        };
+        body.AddThemeConstantOverride("separation", 14);
+        AddChild(body);
+
+        var mainColumn = new VBoxContainer
+        {
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            SizeFlagsVertical = SizeFlags.ExpandFill
+        };
+        mainColumn.AddThemeConstantOverride("separation", 12);
+        body.AddChild(mainColumn);
+
+        mainColumn.AddChild(BuildTeamSummaryPanel(activeState, plan));
+        mainColumn.AddChild(BuildTreasuryPanel(activeState, week));
+        mainColumn.AddChild(BuildMarketPanel(activeState, plan, week));
+        mainColumn.AddChild(BuildStarsPanel(activeState, plan, week));
+
+        body.AddChild(BuildLedgerPanel(activeState, plan, planError));
+        AddChild(BuildFooter(week, planError));
+
+        UpdateStatus(planError);
+    }
+
+    private Control BuildHeader(int week, LeagueTeam activeTeam)
+    {
+        var panel = Panel(PanelBg, Line, 2);
+        var row = new HBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        row.AddThemeConstantOverride("separation", 12);
+        panel.AddChild(row);
+
+        var titleStack = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        row.AddChild(titleStack);
+
+        var crumb = Label($"Week {week} - Pre-Game Inducements", 12, Gold);
+        titleStack.AddChild(crumb);
+
+        var title = Label($"{_firstTeam.Name} spend, then {_secondTeam.Name} spend", 26, ScreenInk);
+        title.AddThemeFontSizeOverride("font_size", 26);
+        titleStack.AddChild(title);
+
+        var context = Label($"{RoleText(_firstTeam)}: {_firstTeam.Name}  |  {RoleText(_secondTeam)}: {_secondTeam.Name}", 13, MutedInk);
+        titleStack.AddChild(context);
+
+        var stepStack = new VBoxContainer();
+        row.AddChild(stepStack);
+        stepStack.AddChild(Pill(_step == 0 ? "Screen 1 of 2" : "Screen 2 of 2", Gold, new Color("16100a")));
+        stepStack.AddChild(Pill($"Active: {activeTeam.Name}", activeTeam.Id == _homeTeam.Id ? HomeRed : AwayBlue, ScreenInk));
+
+        return panel;
+    }
+
+    private Control BuildTeamSummaryPanel(TeamDraftState state, MatchInducementPlan? plan)
+    {
+        var panel = Panel(state.Team.Id == _homeTeam.Id ? HomeRed.Darkened(0.25f) : AwayBlue.Darkened(0.22f), Line, 2);
+        var stack = Stack(panel, 10);
+
+        var heading = new HBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        heading.AddChild(Label(state.Team.Name, 24, ScreenInk));
+        var role = Pill(RoleText(state.Team), state.Team.Id == _homeTeam.Id ? HomeRed : AwayBlue, ScreenInk);
+        role.SizeFlagsHorizontal = SizeFlags.ShrinkEnd;
+        heading.AddChild(role);
+        stack.AddChild(heading);
+
+        var numbers = new GridContainer
+        {
+            Columns = 4,
+            SizeFlagsHorizontal = SizeFlags.ExpandFill
+        };
+        numbers.AddThemeConstantOverride("h_separation", 8);
+        numbers.AddThemeConstantOverride("v_separation", 8);
+        stack.AddChild(numbers);
+
+        var teamPlan = plan is null ? null : PlanForTeam(plan, state.Team.Id);
+        AddStat(numbers, "Team Value", FormatGold(state.Team.TeamValue));
+        AddStat(numbers, "Treasury", FormatGold(state.Team.Treasury));
+        AddStat(numbers, "Petty Cash", FormatGold(teamPlan?.PettyCash ?? state.Summary.PettyCash), Gold);
+        AddStat(numbers, "Journeymen", state.Summary.JourneymenNeeded.ToString());
+
+        var rules = state.Summary.SpecialRules.Count == 0 ? "none" : string.Join(", ", state.Summary.SpecialRules);
+        stack.AddChild(Label($"Roster rules: {rules}", 13, MutedInk, autowrap: true));
+        return panel;
+    }
+
+    private Control BuildTreasuryPanel(TeamDraftState state, int week)
+    {
+        var panel = Panel(PanelBgAlt, Line);
+        var stack = Stack(panel, 8);
+        stack.AddChild(Label("Treasury Budget", 18, ScreenInk));
+
+        var note = state.Team.Id == _firstTeam.Id
+            ? $"Anything {state.Team.Name} spends from treasury increases {_secondTeam.Name}'s petty cash on screen 2."
+            : $"{state.Team.Name} can add its own treasury after receiving recalculated petty cash.";
+        stack.AddChild(Label(note, 13, MutedInk, autowrap: true));
+
+        var row = new HBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        row.AddThemeConstantOverride("separation", 10);
+        stack.AddChild(row);
+        row.AddChild(Label("Treasury spend", 13, MutedInk));
+        var spin = CreateSpinBox(0, state.Team.Treasury, state.TreasurySpent, 10_000);
+        spin.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+        spin.ValueChanged += value =>
+        {
+            state.TreasurySpent = (int)value;
+            Render(week);
+        };
+        row.AddChild(spin);
+
+        return panel;
+    }
+
+    private Control BuildMarketPanel(TeamDraftState state, MatchInducementPlan? plan, int week)
+    {
+        var panel = Panel(PanelBg, Line, 2);
+        var stack = Stack(panel, 10);
+        stack.AddChild(Label("Inducement Market", 20, ScreenInk));
+
+        var tabs = new HBoxContainer();
+        tabs.AddThemeConstantOverride("separation", 6);
+        stack.AddChild(tabs);
+        foreach (var text in new[] { "Core Staff", "Recovery", "Tricks", "Players", "Restricted" })
+        {
+            tabs.AddChild(Pill(text, text == "Core Staff" ? Gold : PanelBgAlt, text == "Core Staff" ? new Color("16100a") : ScreenInk));
+        }
+
+        var grid = new GridContainer
+        {
+            Columns = 2,
+            SizeFlagsHorizontal = SizeFlags.ExpandFill
+        };
+        grid.AddThemeConstantOverride("h_separation", 8);
+        grid.AddThemeConstantOverride("v_separation", 8);
+        stack.AddChild(grid);
+
+        foreach (var inducement in state.Summary.AvailableInducements.Where(inducement => !string.Equals(inducement.Id, "star-player", StringComparison.OrdinalIgnoreCase)))
+        {
+            grid.AddChild(BuildInducementCard(state, inducement, plan, week));
+        }
+
+        return panel;
+    }
+
+    private Control BuildInducementCard(TeamDraftState state, AvailableInducementSummary inducement, MatchInducementPlan? plan, int week)
+    {
+        var selectable = !(inducement.Cost == 0 && !inducement.MatchEffectImplemented);
+        var panel = Panel(selectable ? PanelBgAlt : new Color("1c1b19"), selectable ? new Color("514532") : new Color("34302a"));
+        panel.CustomMinimumSize = new Vector2(0, 116);
+        var row = new HBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        row.AddThemeConstantOverride("separation", 8);
+        panel.AddChild(row);
+
+        var details = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        details.AddThemeConstantOverride("separation", 4);
+        row.AddChild(details);
+
+        details.AddChild(Label(inducement.Name, 15, selectable ? ScreenInk : MutedInk, autowrap: true));
+        details.AddChild(Label($"{FormatInducementCost(inducement)} - {FormatLimit(inducement.MaxCount)}", 12, Gold));
+        details.AddChild(Label(inducement.Description, 12, MutedInk, autowrap: true));
+        details.AddChild(StatusPill(inducement, selectable));
+
+        var controls = new VBoxContainer();
+        row.AddChild(controls);
+        var currentCount = state.CountFor(inducement.Id);
+        var affordableMax = selectable ? AffordableInducementMax(state, inducement, plan) : 0;
+        var spinMax = selectable ? Math.Max(currentCount, affordableMax) : 0;
+        var spin = CreateSpinBox(0, spinMax, currentCount, 1);
+        spin.CustomMinimumSize = new Vector2(88, 0);
+        spin.TooltipText = selectable
+            ? $"Maximum now: {affordableMax} based on remaining budget."
+            : "This inducement needs a detail picker before it can be purchased.";
+        spin.ValueChanged += value =>
+        {
+            state.InducementCounts[inducement.Id] = (int)value;
+            Render(week);
+        };
+        controls.AddChild(spin);
+
+        return panel;
+    }
+
+    private Control BuildStarsPanel(TeamDraftState state, MatchInducementPlan? plan, int week)
+    {
+        var panel = Panel(PanelBgAlt, Line);
+        var stack = Stack(panel, 8);
+        stack.AddChild(Label("Players and Named Help", 18, ScreenInk));
+        stack.AddChild(Label("Star players can be selected here. Mercenaries, famous coaching staff, wizards, and biased referees are shown in the market as picker-backed items because their price varies.", 13, MutedInk, autowrap: true));
+
+        if (state.Summary.EligibleStarPlayers.Count == 0)
+        {
+            stack.AddChild(Label("No eligible Star Players for this roster.", 13, MutedInk));
+            return panel;
+        }
+
+        var grid = new GridContainer
+        {
+            Columns = 2,
+            SizeFlagsHorizontal = SizeFlags.ExpandFill
+        };
+        grid.AddThemeConstantOverride("h_separation", 8);
+        grid.AddThemeConstantOverride("v_separation", 8);
+        stack.AddChild(grid);
+
+        foreach (var star in state.Summary.EligibleStarPlayers)
+        {
+            grid.AddChild(BuildStarCard(state, star, plan, week));
+        }
+
+        return panel;
+    }
+
+    private Control BuildStarCard(TeamDraftState state, EligibleStarPlayerSummary star, MatchInducementPlan? plan, int week)
+    {
+        var selected = state.StarPlayerIds.Contains(star.Id);
+        var affordable = plan is null || selected || StarCanBeAdded(state, star, plan);
+        var panel = Panel(affordable ? PanelBg : new Color("1c1b19"), affordable ? new Color("514532") : new Color("34302a"));
+        var row = new HBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        row.AddThemeConstantOverride("separation", 8);
+        panel.AddChild(row);
+
+        var check = new CheckBox
+        {
+            ButtonPressed = selected,
+            Disabled = !affordable,
+            TooltipText = affordable ? "Select this star player." : "Not enough budget remaining."
+        };
+        check.Toggled += toggled =>
+        {
+            if (toggled)
+            {
+                state.StarPlayerIds.Add(star.Id);
+            }
+            else
+            {
+                state.StarPlayerIds.Remove(star.Id);
+            }
+
+            Render(week);
+        };
+        row.AddChild(check);
+
+        var text = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        text.AddThemeConstantOverride("separation", 4);
+        row.AddChild(text);
+        text.AddChild(Label(star.Name, 15, affordable ? ScreenInk : MutedInk));
+        text.AddChild(Label($"{FormatGold(star.Cost)} - {FormatStats(star.Stats)}", 12, Gold, autowrap: true));
+        text.AddChild(Label(star.Skills.Count == 0 ? "Skills: -" : $"Skills: {string.Join(", ", star.Skills)}", 12, MutedInk, autowrap: true));
+        text.AddChild(Label($"Eligible: {string.Join(", ", star.MatchedSpecialRules)}", 12, MutedInk, autowrap: true));
+
+        return panel;
+    }
+
+    private Control BuildLedgerPanel(TeamDraftState activeState, MatchInducementPlan? plan, string? planError)
+    {
+        var panel = Panel(PanelBg, Gold, 2);
+        panel.CustomMinimumSize = new Vector2(310, 0);
+        var stack = Stack(panel, 10);
+        stack.AddChild(Label("Inducement Ledger", 20, ScreenInk));
+
+        AddLedgerTeam(stack, _teamStates[_firstTeam.Id], plan);
+        AddLedgerTeam(stack, _teamStates[_secondTeam.Id], plan);
+
+        if (_step == 0)
+        {
+            var first = _teamStates[_firstTeam.Id];
+            var tvGap = Math.Abs(_homeTeam.TeamValue - _awayTeam.TeamValue);
+            stack.AddChild(Separator());
+            stack.AddChild(Label("Handoff Preview", 16, ScreenInk));
+            stack.AddChild(LedgerRow("TV difference", FormatGold(tvGap)));
+            stack.AddChild(LedgerRow($"{_firstTeam.Name} treasury spend", FormatGold(first.TreasurySpent)));
+            stack.AddChild(LedgerRow($"{_secondTeam.Name} petty cash next", FormatGold(tvGap + first.TreasurySpent), Gold));
+        }
+
+        if (!string.IsNullOrWhiteSpace(planError))
+        {
+            stack.AddChild(Separator());
+            stack.AddChild(Label(planError, 13, LockedRed, autowrap: true));
+        }
+
+        return panel;
+    }
+
+    private void AddLedgerTeam(VBoxContainer stack, TeamDraftState state, MatchInducementPlan? plan)
+    {
+        var teamPlan = plan is null ? null : PlanForTeam(plan, state.Team.Id);
+        var budget = (teamPlan?.PettyCash ?? state.Summary.PettyCash) + state.TreasurySpent;
+        var selected = SelectedFixedCost(state) + SelectedStarCost(state);
+        stack.AddChild(Separator());
+        stack.AddChild(Label(state.Team.Name, 16, ScreenInk));
+        stack.AddChild(LedgerRow("Petty cash", FormatGold(teamPlan?.PettyCash ?? state.Summary.PettyCash)));
+        stack.AddChild(LedgerRow("Own treasury", FormatGold(state.TreasurySpent)));
+        stack.AddChild(LedgerRow("Selected", FormatGold(selected)));
+        stack.AddChild(LedgerRow("Remaining", FormatGold(budget - selected), budget - selected >= 0 ? Gold : LockedRed));
+    }
+
+    private Control BuildFooter(int week, string? planError)
+    {
+        var panel = Panel(PanelBg, Line, 2);
+        var row = new HBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        row.AddThemeConstantOverride("separation", 10);
+        panel.AddChild(row);
+
+        var backButton = StyledButton(_step == 0 ? "Back" : $"Back to {_firstTeam.Name}");
+        backButton.Pressed += () =>
+        {
+            if (_step == 0)
+            {
+                _back();
+            }
+            else
+            {
+                _step = 0;
+                Render(week);
+            }
+        };
+        row.AddChild(backButton);
+
+        _statusLabel = Label("", 13, MutedInk, autowrap: true);
+        _statusLabel.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+        row.AddChild(_statusLabel);
+
+        _continueButton = StyledButton(_step == 0 ? $"Continue to {_secondTeam.Name}" : "Confirm Pre-Game", primary: true);
+        _continueButton.Disabled = !string.IsNullOrWhiteSpace(planError);
+        _continueButton.Pressed += async () =>
+        {
+            if (_step == 0)
+            {
+                _step = 1;
+                Render(week);
+            }
+            else
+            {
+                await DoneAsync();
+            }
+        };
+        row.AddChild(_continueButton);
+
+        return panel;
     }
 
     private async Task DoneAsync()
@@ -127,158 +428,148 @@ public partial class PreGameScreen : VBoxContainer
         }
         catch (Exception ex)
         {
-            SetStatus($"Pre-game setup failed: {ex.Message}");
+            SetStatus($"Pre-game setup failed: {ex.Message}", LockedRed);
         }
     }
 
     private MatchInducementPlan BuildPlan()
     {
+        var home = _teamStates[_homeTeam.Id];
+        var away = _teamStates[_awayTeam.Id];
         return _preGameService.CreatePlan(
             _ruleset,
             _homeTeam,
             _awayTeam,
-            homeBribes: (int)_homeBribesSpin.Value,
-            awayBribes: (int)_awayBribesSpin.Value,
-            homeTreasurySpent: (int)_homeTreasurySpin.Value,
-            awayTreasurySpent: (int)_awayTreasurySpin.Value,
-            homeStarPlayerIds: SelectedStarIds(_homeStarChecks),
-            awayStarPlayerIds: SelectedStarIds(_awayStarChecks));
+            homeBribes: 0,
+            awayBribes: 0,
+            homeTreasurySpent: home.TreasurySpent,
+            awayTreasurySpent: away.TreasurySpent,
+            homeInducements: SelectedInducements(home),
+            awayInducements: SelectedInducements(away),
+            homeStarPlayerIds: home.StarPlayerIds.ToArray(),
+            awayStarPlayerIds: away.StarPlayerIds.ToArray());
     }
 
-    private void UpdatePlanStatus()
+    private MatchInducementPlan? TryBuildPlan(out string? error)
     {
+        var plan = BuildPlan();
         try
         {
-            var plan = BuildPlan();
-            _homeBudgetLabel.Text = BudgetText(_homeTeam, _homeSummary, plan.Home);
-            _awayBudgetLabel.Text = BudgetText(_awayTeam, _awaySummary, plan.Away);
-            UpdateStarAffordability(_homeSummary, plan.Home, _homeStarChecks);
-            UpdateStarAffordability(_awaySummary, plan.Away, _awayStarChecks);
-            _doneButton.Disabled = false;
-            SetStatus("Ready.");
+            _preGameService.PrepareMatch(_ruleset, _rosterSet, _homeTeam, _awayTeam, plan);
+            error = null;
+            return plan;
         }
         catch (Exception ex)
         {
-            _doneButton.Disabled = true;
-            SetStatus(ex.Message);
+            error = ex.Message;
+            return plan;
         }
     }
 
-    private void SetStatus(string status)
+    private void UpdateStatus(string? planError)
     {
-        if (_statusLabel is not null)
+        if (string.IsNullOrWhiteSpace(planError))
         {
-            _statusLabel.Text = status;
+            SetStatus(_step == 0
+                ? $"{_firstTeam.Name} is ready to declare treasury-funded inducements."
+                : $"{_secondTeam.Name} is spending with recalculated petty cash.");
+        }
+        else
+        {
+            SetStatus(planError, LockedRed);
         }
     }
 
-    private static string BudgetText(LeagueTeam team, TeamPreGameSummary summary, TeamInducementPlan plan)
+    private void SetStatus(string status, Color? color = null)
     {
-        var bribeCost = plan.Bribes * PreGameService.BribeCost;
-        var starCost = SelectedStarCost(summary, plan);
-        var totalCost = bribeCost + starCost;
-        var budget = plan.PettyCash + plan.TreasurySpent;
-        return $"{team.Name}: budget {FormatGold(budget)} ({FormatGold(plan.PettyCash)} petty cash + {FormatGold(plan.TreasurySpent)} treasury), selected {FormatGold(totalCost)}, remaining {FormatGold(budget - totalCost)}. Bribes: {plan.Bribes} ({FormatGold(bribeCost)}). Stars: {plan.StarPlayerIds.Count} ({FormatGold(starCost)}).";
-    }
-
-    private void AddRosterMetadata(TeamPreGameSummary summary)
-    {
-        var details = summary.SpecialRules.Count == 0
-            ? "Special rules: none"
-            : $"Special rules: {string.Join(", ", summary.SpecialRules)}";
-        if (summary.RosterRestrictions.Count > 0)
+        if (_statusLabel is null)
         {
-            details += $". Restrictions: {string.Join(", ", summary.RosterRestrictions)}";
-        }
-
-        AddChild(new Label
-        {
-            Text = $"{summary.TeamName} roster: {details}.",
-            AutowrapMode = TextServer.AutowrapMode.WordSmart
-        });
-    }
-
-    private void AddTeamStarSection(TeamPreGameSummary summary, Dictionary<string, CheckBox> checks)
-    {
-        AddChild(new Label
-        {
-            Text = $"{summary.TeamName} eligible Star Players",
-            ThemeTypeVariation = "HeaderSmall"
-        });
-
-        if (summary.EligibleStarPlayers.Count == 0)
-        {
-            AddChild(new Label { Text = "No eligible Star Players for this roster.", AutowrapMode = TextServer.AutowrapMode.WordSmart });
             return;
         }
 
-        var grid = new GridContainer { Columns = 6 };
-        AddChild(grid);
-        AddHeader(grid, "Select");
-        AddHeader(grid, "Star");
-        AddHeader(grid, "Cost");
-        AddHeader(grid, "Stats");
-        AddHeader(grid, "Skills");
-        AddHeader(grid, "Eligibility");
-
-        foreach (var star in summary.EligibleStarPlayers)
-        {
-            var check = new CheckBox();
-            check.Toggled += _ => UpdatePlanStatus();
-            checks[star.Id] = check;
-            grid.AddChild(check);
-            grid.AddChild(new Label { Text = star.Name });
-            grid.AddChild(new Label { Text = FormatGold(star.Cost) });
-            grid.AddChild(new Label { Text = FormatStats(star.Stats) });
-            grid.AddChild(new Label { Text = star.Skills.Count == 0 ? "-" : string.Join(", ", star.Skills), AutowrapMode = TextServer.AutowrapMode.WordSmart });
-            grid.AddChild(new Label { Text = string.Join(", ", star.MatchedSpecialRules), AutowrapMode = TextServer.AutowrapMode.WordSmart });
-        }
+        _statusLabel.Text = status;
+        _statusLabel.AddThemeColorOverride("font_color", color ?? MutedInk);
     }
 
-    private void UpdateStarAffordability(TeamPreGameSummary summary, TeamInducementPlan plan, Dictionary<string, CheckBox> checks)
+    private static IReadOnlyList<SelectedInducement> SelectedInducements(TeamDraftState state)
     {
-        var selectedCost = SelectedStarCost(summary, plan);
-        var budgetBeforeStars = plan.PettyCash + plan.TreasurySpent - (plan.Bribes * PreGameService.BribeCost);
-        foreach (var star in summary.EligibleStarPlayers)
-        {
-            if (!checks.TryGetValue(star.Id, out var check))
-            {
-                continue;
-            }
-
-            var selected = plan.StarPlayerIds.Contains(star.Id, StringComparer.OrdinalIgnoreCase);
-            check.Disabled = !selected && selectedCost + star.Cost > budgetBeforeStars;
-        }
-    }
-
-    private static IReadOnlyList<string> SelectedStarIds(Dictionary<string, CheckBox> checks)
-    {
-        return checks
-            .Where(pair => pair.Value.ButtonPressed)
-            .Select(pair => pair.Key)
+        return state.InducementCounts
+            .Where(pair => pair.Value > 0)
+            .Select(pair => new SelectedInducement { InducementId = pair.Key, Count = pair.Value })
             .ToArray();
     }
 
-    private static int SelectedStarCost(TeamPreGameSummary summary, TeamInducementPlan plan)
+    private bool StarCanBeAdded(TeamDraftState state, EligibleStarPlayerSummary star, MatchInducementPlan plan)
     {
-        return summary.EligibleStarPlayers
-            .Where(star => plan.StarPlayerIds.Contains(star.Id, StringComparer.OrdinalIgnoreCase))
+        var teamPlan = PlanForTeam(plan, state.Team.Id);
+        var budget = teamPlan.PettyCash + teamPlan.TreasurySpent;
+        var selected = SelectedFixedCost(state) + SelectedStarCost(state);
+        return selected + star.Cost <= budget;
+    }
+
+    private static int AffordableInducementMax(TeamDraftState state, AvailableInducementSummary inducement, MatchInducementPlan? plan)
+    {
+        if (inducement.Cost <= 0)
+        {
+            return 0;
+        }
+
+        var currentCount = state.CountFor(inducement.Id);
+        var budget = plan is null
+            ? state.Summary.PettyCash + state.TreasurySpent
+            : PlanForTeam(plan, state.Team.Id).PettyCash + state.TreasurySpent;
+        var selectedOther = SelectedFixedCostExcept(state, inducement.Id) + SelectedStarCost(state);
+        var remainingForThisItem = Math.Max(0, budget - selectedOther);
+        return Math.Min(inducement.MaxCount, remainingForThisItem / inducement.Cost);
+    }
+
+    private static TeamInducementPlan PlanForTeam(MatchInducementPlan plan, Guid teamId)
+    {
+        return plan.Home.TeamId == teamId ? plan.Home : plan.Away;
+    }
+
+    private static int SelectedFixedCost(TeamDraftState state)
+    {
+        return state.InducementCounts.Sum(pair =>
+        {
+            var definition = state.Summary.AvailableInducements.FirstOrDefault(inducement => string.Equals(inducement.Id, pair.Key, StringComparison.OrdinalIgnoreCase));
+            return (definition?.Cost ?? 0) * pair.Value;
+        });
+    }
+
+    private static int SelectedFixedCostExcept(TeamDraftState state, string inducementId)
+    {
+        return state.InducementCounts
+            .Where(pair => !string.Equals(pair.Key, inducementId, StringComparison.OrdinalIgnoreCase))
+            .Sum(pair =>
+            {
+                var definition = state.Summary.AvailableInducements.FirstOrDefault(inducement => string.Equals(inducement.Id, pair.Key, StringComparison.OrdinalIgnoreCase));
+                return (definition?.Cost ?? 0) * pair.Value;
+            });
+    }
+
+    private static int SelectedStarCost(TeamDraftState state)
+    {
+        return state.Summary.EligibleStarPlayers
+            .Where(star => state.StarPlayerIds.Contains(star.Id))
             .Sum(star => star.Cost);
     }
 
-    private SpinBox CreateSpinBox(double min, double max, double value, double step)
+    private static (LeagueTeam First, LeagueTeam Second) OrderTeamsForInducements(LeagueTeam homeTeam, LeagueTeam awayTeam)
     {
-        var spinBox = new SpinBox
+        return homeTeam.TeamValue >= awayTeam.TeamValue
+            ? (homeTeam, awayTeam)
+            : (awayTeam, homeTeam);
+    }
+
+    private string RoleText(LeagueTeam team)
+    {
+        if (_homeTeam.TeamValue == _awayTeam.TeamValue)
         {
-            MinValue = min,
-            MaxValue = max,
-            Value = value,
-            Step = step,
-            AllowGreater = false,
-            AllowLesser = false
-        };
-        spinBox.ValueChanged += _ => UpdatePlanStatus();
-        return spinBox;
+            return team.Id == _firstTeam.Id ? "First declaration" : "Second declaration";
+        }
+
+        return team.Id == _firstTeam.Id ? "Higher TV" : "Lower TV";
     }
 
     private static LeagueTeam FindTeam(League league, Guid teamId)
@@ -287,24 +578,159 @@ public partial class PreGameScreen : VBoxContainer
             ?? throw new InvalidOperationException("Scheduled match team is not part of this league.");
     }
 
-    private static void AddHeader(GridContainer grid, string text)
+    private static void AddStat(GridContainer grid, string label, string value, Color? valueColor = null)
     {
-        grid.AddChild(new Label
-        {
-            Text = text,
-            ThemeTypeVariation = "HeaderSmall"
-        });
+        var panel = Panel(new Color("171412"), new Color("4b3e2f"));
+        panel.CustomMinimumSize = new Vector2(0, 72);
+        var stack = Stack(panel, 3);
+        stack.AddChild(Label(label, 11, MutedInk));
+        stack.AddChild(Label(value, 17, valueColor ?? ScreenInk));
+        grid.AddChild(panel);
     }
 
-    private void AddTitle(string text)
+    private static Label Label(string text, int fontSize, Color color, bool autowrap = false)
     {
-        var title = new Label
+        var label = new Label
         {
             Text = text,
-            HorizontalAlignment = HorizontalAlignment.Center
+            AutowrapMode = autowrap ? TextServer.AutowrapMode.WordSmart : TextServer.AutowrapMode.Off
         };
-        title.AddThemeFontSizeOverride("font_size", 32);
-        AddChild(title);
+        label.AddThemeFontSizeOverride("font_size", fontSize);
+        label.AddThemeColorOverride("font_color", color);
+        return label;
+    }
+
+    private static Control LedgerRow(string label, string value, Color? valueColor = null)
+    {
+        var row = new HBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        row.AddChild(Label(label, 13, MutedInk));
+        var valueLabel = Label(value, 13, valueColor ?? ScreenInk);
+        valueLabel.HorizontalAlignment = HorizontalAlignment.Right;
+        valueLabel.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+        row.AddChild(valueLabel);
+        return row;
+    }
+
+    private static Label Pill(string text, Color background, Color foreground)
+    {
+        var label = Label(text, 12, foreground);
+        label.HorizontalAlignment = HorizontalAlignment.Center;
+        label.AddThemeStyleboxOverride("normal", FlatStyle(background, background.Lightened(0.15f)));
+        return label;
+    }
+
+    private static Control StatusPill(AvailableInducementSummary inducement, bool selectable)
+    {
+        if (!selectable)
+        {
+            return Pill("Needs picker", LockedRed, new Color("1b100d"));
+        }
+
+        return inducement.MatchEffectImplemented
+            ? Pill("Implemented", LiveGreen, new Color("101709"))
+            : Pill("Selection only", new Color("4b463a"), MutedInk);
+    }
+
+    private static Button StyledButton(string text, bool primary = false)
+    {
+        var button = new Button { Text = text };
+        var background = primary ? Gold : PanelBgAlt;
+        var foreground = primary ? new Color("16100a") : ScreenInk;
+        button.AddThemeColorOverride("font_color", foreground);
+        button.AddThemeColorOverride("font_hover_color", foreground.Lightened(0.08f));
+        button.AddThemeStyleboxOverride("normal", FlatStyle(background, primary ? new Color("f0ca65") : Line, primary ? 2 : 1));
+        button.AddThemeStyleboxOverride("hover", FlatStyle(background.Lightened(0.12f), Gold, 2));
+        button.AddThemeStyleboxOverride("pressed", FlatStyle(background.Darkened(0.12f), Gold, 2));
+        button.AddThemeStyleboxOverride("disabled", FlatStyle(new Color("24211d"), new Color("3a342c")));
+        return button;
+    }
+
+    private static PanelContainer Panel(Color background, Color border, int borderWidth = 1)
+    {
+        var panel = new PanelContainer
+        {
+            SizeFlagsHorizontal = SizeFlags.ExpandFill
+        };
+        panel.AddThemeStyleboxOverride("panel", FlatStyle(background, border, borderWidth));
+        return panel;
+    }
+
+    private static VBoxContainer Stack(PanelContainer panel, int separation)
+    {
+        var margin = new MarginContainer();
+        margin.AddThemeConstantOverride("margin_left", 12);
+        margin.AddThemeConstantOverride("margin_top", 12);
+        margin.AddThemeConstantOverride("margin_right", 12);
+        margin.AddThemeConstantOverride("margin_bottom", 12);
+        panel.AddChild(margin);
+
+        var stack = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        stack.AddThemeConstantOverride("separation", separation);
+        margin.AddChild(stack);
+        return stack;
+    }
+
+    private static HSeparator Separator()
+    {
+        var separator = new HSeparator();
+        separator.AddThemeStyleboxOverride("separator", FlatStyle(Line, Line));
+        return separator;
+    }
+
+    private static StyleBoxFlat FlatStyle(Color background, Color? border = null, int borderWidth = 1)
+    {
+        var style = new StyleBoxFlat
+        {
+            BgColor = background,
+            BorderColor = border ?? background.Darkened(0.25f),
+            BorderWidthLeft = borderWidth,
+            BorderWidthTop = borderWidth,
+            BorderWidthRight = borderWidth,
+            BorderWidthBottom = borderWidth,
+            ContentMarginLeft = 8,
+            ContentMarginTop = 6,
+            ContentMarginRight = 8,
+            ContentMarginBottom = 6,
+            CornerRadiusTopLeft = 4,
+            CornerRadiusTopRight = 4,
+            CornerRadiusBottomRight = 4,
+            CornerRadiusBottomLeft = 4
+        };
+        return style;
+    }
+
+    private SpinBox CreateSpinBox(double min, double max, double value, double step)
+    {
+        var spinBox = new SpinBox
+        {
+            MinValue = min,
+            MaxValue = max,
+            Value = Math.Clamp(value, min, max),
+            Step = step,
+            AllowGreater = false,
+            AllowLesser = false
+        };
+        return spinBox;
+    }
+
+    private static string FormatGold(int value)
+    {
+        return $"{value:N0} gp";
+    }
+
+    private static string FormatInducementCost(AvailableInducementSummary inducement)
+    {
+        return inducement.Cost == 0 ? "Price varies" : $"{FormatGold(inducement.Cost)} each";
+    }
+
+    private static string FormatLimit(int maxCount)
+    {
+        return maxCount >= 99 ? "Unlimited" : $"0-{maxCount}";
+    }
+
+    private static string FormatStats(PlayerStats stats)
+    {
+        return $"MA {stats.Movement} ST {stats.Strength} AG {stats.Agility}+ PA {stats.Passing}+ AV {stats.Armor}+";
     }
 
     private void Clear()
@@ -315,13 +741,17 @@ public partial class PreGameScreen : VBoxContainer
         }
     }
 
-    private static string FormatGold(int value)
+    private sealed class TeamDraftState(LeagueTeam team, TeamPreGameSummary summary)
     {
-        return $"{value:N0} gp";
-    }
+        public LeagueTeam Team { get; } = team;
+        public TeamPreGameSummary Summary { get; } = summary;
+        public int TreasurySpent { get; set; }
+        public Dictionary<string, int> InducementCounts { get; } = new(StringComparer.OrdinalIgnoreCase);
+        public HashSet<string> StarPlayerIds { get; } = new(StringComparer.OrdinalIgnoreCase);
 
-    private static string FormatStats(PlayerStats stats)
-    {
-        return $"MA {stats.Movement} ST {stats.Strength} AG {stats.Agility}+ PA {stats.Passing}+ AV {stats.Armor}+";
+        public int CountFor(string inducementId)
+        {
+            return InducementCounts.TryGetValue(inducementId, out var count) ? count : 0;
+        }
     }
 }

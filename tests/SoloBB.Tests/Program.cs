@@ -596,8 +596,10 @@ var benchMatch = matchService.CreateHotseatMatch(ruleset, benchLeague.Teams[0], 
 var depletedTeam = benchLeague.Teams[0] with { Players = benchLeague.Teams[0].Players.Take(3).ToArray() };
 var depletedMatch = matchService.CreateHotseatMatch(ruleset, depletedTeam, awayLeague.Teams[0]);
 var richerAwayTeam = awayLeague.Teams[0] with { TeamValue = loadedLeague.Teams[0].TeamValue + 200_000 };
+var richerAwayTeamWithTreasury = richerAwayTeam with { Treasury = 50_000 };
 var preGameSummary = preGameService.BuildSummary(ruleset, rosterSet, loadedLeague.Teams[0], richerAwayTeam);
 var bribePlan = preGameService.CreatePlan(ruleset, loadedLeague.Teams[0], richerAwayTeam, homeBribes: 2, awayBribes: 0);
+var higherTvTreasuryPlan = preGameService.CreatePlan(ruleset, loadedLeague.Teams[0], richerAwayTeamWithTreasury, homeBribes: 0, awayBribes: 0, awayTreasurySpent: 50_000);
 var preparedBribeMatch = preGameService.PrepareMatch(ruleset, rosterSet, loadedLeague.Teams[0], richerAwayTeam, bribePlan);
 var inducedMatch = matchService.CreateHotseatMatch(ruleset, preparedBribeMatch.HomeTeam, preparedBribeMatch.AwayTeam, preparedBribeMatch.Inducements.Home, preparedBribeMatch.Inducements.Away);
 var preparedDepletedMatch = preGameService.PrepareMatch(ruleset, rosterSet, depletedTeam, awayLeague.Teams[0]);
@@ -608,12 +610,31 @@ var loadedMatch = await store.LoadMatchAsync(matchPath);
 Assert(benchMatch.Placements.Count == 23, "matches should accept teams with bench players");
 Assert(depletedMatch.Placements.Count == 14, "matches should accept teams with the three-player minimum");
 Assert(preGameSummary.Home.PettyCash == 200_000 && preGameSummary.Away.PettyCash == 0, "pre-game should award petty cash to the lower-value team");
+Assert(higherTvTreasuryPlan.Home.PettyCash == 250_000 && higherTvTreasuryPlan.Away.PettyCash == 0, "higher-TV treasury spend should increase lower-TV petty cash");
 Assert(preGameSummary.Home.JourneymenNeeded == 0, "full teams should not need journeymen");
 Assert(preparedDepletedMatch.Summary.Home.JourneymenNeeded == 8, "pre-game should identify journeymen needed to reach eleven available players");
 Assert(preparedDepletedMatch.HomeTeam.Players.Count == 11, "pre-game should add temporary journeymen to the match team");
 Assert(preparedDepletedMatch.HomeTeam.Players.Count(player => player.Injuries.Contains("journeyman")) == 8, "temporary journeymen should be marked on the match roster");
 Assert(preparedDepletedMatch.HomeTeam.Players.Where(player => player.Injuries.Contains("journeyman")).All(player => player.Skills.Contains("loner")), "journeymen should have Loner");
 Assert(inducedMatch.HomeBribesRemaining == 2 && inducedMatch.AwayBribesRemaining == 0, "purchased inducement bribes should be available in match state");
+Assert(preGameSummary.Home.AvailableInducements.Any(inducement => inducement.Id == "bloodweiser-keg" && inducement.MaxCount == 2), "pre-game summary should expose the broader inducement catalog");
+var staffInducementPlan = preGameService.CreatePlan(
+    ruleset,
+    loadedLeague.Teams[0],
+    richerAwayTeam,
+    homeBribes: 0,
+    awayBribes: 0,
+    homeInducements:
+    [
+        new SelectedInducement { InducementId = "extra-team-training", Count = 1 },
+        new SelectedInducement { InducementId = "temp-agency-cheerleader", Count = 1 },
+        new SelectedInducement { InducementId = "part-time-assistant-coach", Count = 1 }
+    ]);
+var preparedStaffInducementMatch = preGameService.PrepareMatch(ruleset, rosterSet, loadedLeague.Teams[0], richerAwayTeam, staffInducementPlan);
+var staffInducedMatch = matchService.CreateHotseatMatch(ruleset, preparedStaffInducementMatch.HomeTeam, preparedStaffInducementMatch.AwayTeam, preparedStaffInducementMatch.Inducements.Home, preparedStaffInducementMatch.Inducements.Away);
+Assert(staffInducedMatch.HomeTeamRerolls == loadedLeague.Teams[0].Rerolls + 1, "extra team training should add a temporary team reroll");
+Assert(staffInducedMatch.HomeCheerleaders == loadedLeague.Teams[0].Cheerleaders + 1, "temp agency cheerleaders should add temporary cheerleaders");
+Assert(staffInducedMatch.HomeAssistantCoaches == loadedLeague.Teams[0].AssistantCoaches + 1, "part-time assistant coaches should add temporary assistant coaches");
 Assert(preGameSummary.StarPlayersSupported, "pre-game should report star player support when roster data defines stars");
 Assert(preGameSummary.Home.EligibleStarPlayers.Any(star => star.Id == "griff-oberwald"), "pre-game summary should list star players eligible for the team's roster special rules");
 Assert(preGameSummary.Home.EligibleStarPlayers.All(star => star.MatchedSpecialRules.Count > 0), "eligible star player summaries should name the matched roster special rules");

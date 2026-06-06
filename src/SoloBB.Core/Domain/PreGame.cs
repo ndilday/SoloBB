@@ -12,7 +12,14 @@ public sealed record TeamInducementPlan
     public int PettyCash { get; init; }
     public int TreasurySpent { get; init; }
     public int Bribes { get; init; }
+    public IReadOnlyList<SelectedInducement> Inducements { get; init; } = [];
     public IReadOnlyList<string> StarPlayerIds { get; init; } = [];
+}
+
+public sealed record SelectedInducement
+{
+    public required string InducementId { get; init; }
+    public int Count { get; init; }
 }
 
 public sealed record PreparedPreGameMatch
@@ -42,7 +49,19 @@ public sealed record TeamPreGameSummary
     public int MaximumBribesFromPettyCash { get; init; }
     public IReadOnlyList<string> SpecialRules { get; init; } = [];
     public IReadOnlyList<string> RosterRestrictions { get; init; } = [];
+    public IReadOnlyList<AvailableInducementSummary> AvailableInducements { get; init; } = [];
     public IReadOnlyList<EligibleStarPlayerSummary> EligibleStarPlayers { get; init; } = [];
+}
+
+public sealed record AvailableInducementSummary
+{
+    public required string Id { get; init; }
+    public required string Name { get; init; }
+    public int Cost { get; init; }
+    public int MaxCount { get; init; }
+    public required string Kind { get; init; }
+    public required string Description { get; init; }
+    public bool MatchEffectImplemented { get; init; }
 }
 
 public sealed record EligibleStarPlayerSummary

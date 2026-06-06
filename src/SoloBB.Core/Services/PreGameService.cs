@@ -5,6 +5,7 @@ namespace SoloBB.Core.Services;
 public sealed class PreGameService
 {
     public const int BribeCost = 100_000;
+    private const string StarPlayerInducementId = "star-player";
 
     public PreGameSummary BuildSummary(Ruleset ruleset, RosterSet rosterSet, LeagueTeam homeTeam, LeagueTeam awayTeam)
     {
@@ -39,12 +40,14 @@ public sealed class PreGameService
         int awayBribes,
         int homeTreasurySpent = 0,
         int awayTreasurySpent = 0,
+        IReadOnlyList<SelectedInducement>? homeInducements = null,
+        IReadOnlyList<SelectedInducement>? awayInducements = null,
         IReadOnlyList<string>? homeStarPlayerIds = null,
         IReadOnlyList<string>? awayStarPlayerIds = null)
     {
-        var (homePettyCash, awayPettyCash) = CalculatePettyCash(ruleset, homeTeam, awayTeam);
-        var home = CreateTeamPlan(homeTeam, homePettyCash, homeBribes, homeTreasurySpent, homeStarPlayerIds ?? []);
-        var away = CreateTeamPlan(awayTeam, awayPettyCash, awayBribes, awayTreasurySpent, awayStarPlayerIds ?? []);
+        var (homePettyCash, awayPettyCash) = CalculatePettyCash(ruleset, homeTeam, awayTeam, homeTreasurySpent, awayTreasurySpent);
+        var home = CreateTeamPlan(homeTeam, homePettyCash, homeBribes, homeTreasurySpent, homeInducements ?? [], homeStarPlayerIds ?? []);
+        var away = CreateTeamPlan(awayTeam, awayPettyCash, awayBribes, awayTreasurySpent, awayInducements ?? [], awayStarPlayerIds ?? []);
 
         return new MatchInducementPlan { Home = home, Away = away };
     }
@@ -58,7 +61,18 @@ public sealed class PreGameService
     {
         var summary = BuildSummary(ruleset, rosterSet, homeTeam, awayTeam);
         var plan = inducements ?? CreateDefaultPlan(ruleset, homeTeam, awayTeam);
-        var expectedPlan = CreateDefaultPlan(ruleset, homeTeam, awayTeam);
+        var expectedPlan = CreatePlan(
+            ruleset,
+            homeTeam,
+            awayTeam,
+            homeBribes: plan.Home.Bribes,
+            awayBribes: plan.Away.Bribes,
+            homeTreasurySpent: plan.Home.TreasurySpent,
+            awayTreasurySpent: plan.Away.TreasurySpent,
+            homeInducements: plan.Home.Inducements,
+            awayInducements: plan.Away.Inducements,
+            homeStarPlayerIds: plan.Home.StarPlayerIds,
+            awayStarPlayerIds: plan.Away.StarPlayerIds);
         ValidateExpectedPettyCash(plan.Home, expectedPlan.Home);
         ValidateExpectedPettyCash(plan.Away, expectedPlan.Away);
         ValidatePlan(homeTeam, plan.Home);
@@ -67,8 +81,12 @@ public sealed class PreGameService
 
         var homeRoster = FindRoster(rosterSet, homeTeam);
         var awayRoster = FindRoster(rosterSet, awayTeam);
+        ValidateInducementPlan(ruleset, homeRoster, homeTeam, plan.Home);
+        ValidateInducementPlan(ruleset, awayRoster, awayTeam, plan.Away);
         ValidateStarPlayerPlan(rosterSet, homeRoster, homeTeam, plan.Home);
         ValidateStarPlayerPlan(rosterSet, awayRoster, awayTeam, plan.Away);
+        ValidateCompleteBudget(ruleset, rosterSet, homeRoster, plan.Home);
+        ValidateCompleteBudget(ruleset, rosterSet, awayRoster, plan.Away);
         return new PreparedPreGameMatch
         {
             HomeTeam = ApplyMatchOnlyInducements(ruleset, rosterSet, homeRoster, homeTeam, plan.Home),
@@ -92,11 +110,18 @@ public sealed class PreGameService
             MaximumBribesFromPettyCash = pettyCash / BribeCost,
             SpecialRules = roster.SpecialRules,
             RosterRestrictions = roster.RosterRestrictions,
+            AvailableInducements = AvailableInducements(ruleset, roster, team),
             EligibleStarPlayers = EligibleStarPlayers(rosterSet, roster)
         };
     }
 
-    private static TeamInducementPlan CreateTeamPlan(LeagueTeam team, int pettyCash, int bribes, int treasurySpent, IReadOnlyList<string> starPlayerIds)
+    private static TeamInducementPlan CreateTeamPlan(
+        LeagueTeam team,
+        int pettyCash,
+        int bribes,
+        int treasurySpent,
+        IReadOnlyList<SelectedInducement> inducements,
+        IReadOnlyList<string> starPlayerIds)
     {
         var plan = new TeamInducementPlan
         {
@@ -104,6 +129,7 @@ public sealed class PreGameService
             PettyCash = pettyCash,
             Bribes = bribes,
             TreasurySpent = treasurySpent,
+            Inducements = NormalizeInducements(inducements),
             StarPlayerIds = starPlayerIds
         };
         ValidatePlan(team, plan);
@@ -152,10 +178,61 @@ public sealed class PreGameService
             }
         }
 
-        var starCost = stars.Sum(star => star.Cost);
-        if ((plan.Bribes * BribeCost) + starCost > plan.PettyCash + plan.TreasurySpent)
+    }
+
+    private static void ValidateInducementPlan(Ruleset ruleset, TeamRoster roster, LeagueTeam team, TeamInducementPlan plan)
+    {
+        var bribeDefinition = FindInducement(ruleset, "bribe");
+        var totalBribes = plan.Bribes + SelectedInducementCount(plan, "bribe");
+        if (totalBribes > bribeDefinition.MaxCount)
         {
-            throw new InvalidOperationException("Inducement budget does not cover the selected star players.");
+            throw new InvalidOperationException($"{bribeDefinition.Name} can be selected at most {bribeDefinition.MaxCount} time(s).");
+        }
+
+        var duplicate = plan.Inducements
+            .GroupBy(inducement => inducement.InducementId, StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault(group => group.Count() > 1);
+        if (duplicate is not null)
+        {
+            throw new InvalidOperationException($"Inducement '{duplicate.Key}' was selected more than once.");
+        }
+
+        foreach (var selected in plan.Inducements)
+        {
+            var definition = FindInducement(ruleset, selected.InducementId);
+            if (selected.Count < 0)
+            {
+                throw new InvalidOperationException("Inducement values cannot be negative.");
+            }
+
+            if (selected.Count > definition.MaxCount)
+            {
+                throw new InvalidOperationException($"{definition.Name} can be selected at most {definition.MaxCount} time(s).");
+            }
+
+            if (definition.Cost == 0 && !definition.MatchEffectImplemented)
+            {
+                throw new InvalidOperationException($"{definition.Name} requires a detailed selection before it can be purchased.");
+            }
+
+            if (!InducementAvailableToTeam(definition, roster, team))
+            {
+                throw new InvalidOperationException($"{definition.Name} is not available to {team.Name}.");
+            }
+        }
+
+        if (SelectedCost(ruleset, roster, plan, []) > plan.PettyCash + plan.TreasurySpent)
+        {
+            throw new InvalidOperationException("Inducement budget does not cover the selected inducements.");
+        }
+    }
+
+    private static void ValidateCompleteBudget(Ruleset ruleset, RosterSet rosterSet, TeamRoster roster, TeamInducementPlan plan)
+    {
+        var stars = plan.StarPlayerIds.Select(starId => FindStarPlayer(rosterSet, starId)).ToArray();
+        if (SelectedCost(ruleset, roster, plan, stars) > plan.PettyCash + plan.TreasurySpent)
+        {
+            throw new InvalidOperationException("Inducement budget does not cover the selected inducements and star players.");
         }
     }
 
@@ -191,6 +268,13 @@ public sealed class PreGameService
         return team with
         {
             Treasury = Math.Max(0, team.Treasury - plan.TreasurySpent),
+            Rerolls = team.Rerolls + SelectedInducementCount(plan, "extra-team-training"),
+            Cheerleaders = team.Cheerleaders + SelectedInducementCount(plan, "temp-agency-cheerleader"),
+            AssistantCoaches = team.AssistantCoaches + SelectedInducementCount(plan, "part-time-assistant-coach"),
+            Apothecaries = team.Apothecaries
+                + SelectedInducementCount(plan, "wandering-apothecary")
+                + SelectedInducementCount(plan, "mortuary-assistant")
+                + SelectedInducementCount(plan, "plague-doctor"),
             Players = [.. team.Players, .. journeymen, .. starPlayers]
         };
     }
@@ -257,6 +341,96 @@ public sealed class PreGameService
             .ToArray();
     }
 
+    private static AvailableInducementSummary[] AvailableInducements(Ruleset ruleset, TeamRoster roster, LeagueTeam team)
+    {
+        return ruleset.Inducements
+            .Where(inducement => !string.Equals(inducement.Id, StarPlayerInducementId, StringComparison.OrdinalIgnoreCase))
+            .Where(inducement => InducementAvailableToTeam(inducement, roster, team))
+            .Select(inducement => new AvailableInducementSummary
+            {
+                Id = inducement.Id,
+                Name = inducement.Name,
+                Cost = InducementCost(inducement, roster),
+                MaxCount = inducement.MaxCount,
+                Kind = inducement.Kind,
+                Description = inducement.Description,
+                MatchEffectImplemented = inducement.MatchEffectImplemented
+            })
+            .OrderBy(inducement => inducement.Cost)
+            .ThenBy(inducement => inducement.Name, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    private static IReadOnlyList<SelectedInducement> NormalizeInducements(IReadOnlyList<SelectedInducement> inducements)
+    {
+        return inducements
+            .Where(inducement => inducement.Count > 0)
+            .Select(inducement => inducement with { InducementId = inducement.InducementId.Trim() })
+            .ToArray();
+    }
+
+    private static int SelectedCost(Ruleset ruleset, TeamRoster roster, TeamInducementPlan plan, IReadOnlyList<StarPlayerDefinition> selectedStars)
+    {
+        var bribeCost = InducementCost(FindInducement(ruleset, "bribe"), roster);
+        var inducementCost = plan.Inducements.Sum(selected =>
+        {
+            var definition = FindInducement(ruleset, selected.InducementId);
+            return InducementCost(definition, roster) * selected.Count;
+        });
+        return (plan.Bribes * bribeCost) + inducementCost + selectedStars.Sum(star => star.Cost);
+    }
+
+    private static int InducementCost(InducementDefinition inducement, TeamRoster roster)
+    {
+        if (inducement.DiscountedCost is int discountedCost &&
+            !string.IsNullOrWhiteSpace(inducement.DiscountSpecialRule) &&
+            roster.SpecialRules.Contains(inducement.DiscountSpecialRule, StringComparer.OrdinalIgnoreCase))
+        {
+            return discountedCost;
+        }
+
+        return inducement.Cost;
+    }
+
+    private static bool InducementAvailableToTeam(InducementDefinition inducement, TeamRoster roster, LeagueTeam team)
+    {
+        if (!string.IsNullOrWhiteSpace(inducement.RequiredSpecialRule) &&
+            !roster.SpecialRules.Contains(inducement.RequiredSpecialRule, StringComparer.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (inducement.RequiresApothecaryAccess && !TeamCanHireApothecary(roster, team))
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool TeamCanHireApothecary(TeamRoster roster, LeagueTeam team)
+    {
+        if (team.Apothecaries > 0)
+        {
+            return true;
+        }
+
+        return !roster.SpecialRules.Any(rule => rule is "sylvanian-spotlight" or "favoured-of-nurgle");
+    }
+
+    private static InducementDefinition FindInducement(Ruleset ruleset, string inducementId)
+    {
+        return ruleset.Inducements.FirstOrDefault(inducement => string.Equals(inducement.Id, inducementId, StringComparison.OrdinalIgnoreCase))
+            ?? throw new InvalidOperationException($"Ruleset '{ruleset.Id}' does not contain inducement '{inducementId}'.");
+    }
+
+    public static int SelectedInducementCount(TeamInducementPlan plan, string inducementId)
+    {
+        return plan.Inducements
+            .Where(inducement => string.Equals(inducement.InducementId, inducementId, StringComparison.OrdinalIgnoreCase))
+            .Sum(inducement => inducement.Count);
+    }
+
     private static int JourneymenNeeded(Ruleset ruleset, LeagueTeam team)
     {
         var availablePlayers = team.Players.Count(player => player.Status == PlayerStatus.Available);
@@ -278,7 +452,12 @@ public sealed class PreGameService
             ?? throw new InvalidOperationException($"Roster set '{rosterSet.Id}' does not contain roster '{team.RosterId}'.");
     }
 
-    private static (int HomePettyCash, int AwayPettyCash) CalculatePettyCash(Ruleset ruleset, LeagueTeam homeTeam, LeagueTeam awayTeam)
+    private static (int HomePettyCash, int AwayPettyCash) CalculatePettyCash(
+        Ruleset ruleset,
+        LeagueTeam homeTeam,
+        LeagueTeam awayTeam,
+        int homeTreasurySpent = 0,
+        int awayTreasurySpent = 0)
     {
         if (!ruleset.UseTeamValueInducements)
         {
@@ -292,7 +471,7 @@ public sealed class PreGameService
         }
 
         return homeTeam.TeamValue < awayTeam.TeamValue
-            ? (difference, 0)
-            : (0, difference);
+            ? (difference + awayTreasurySpent, 0)
+            : (0, difference + homeTreasurySpent);
     }
 }

@@ -44,6 +44,12 @@ public sealed record InducementDefinition
     public required string Id { get; init; }
     public required string Name { get; init; }
     public int Cost { get; init; }
+    public int MaxCount { get; init; } = 1;
+    public int? DiscountedCost { get; init; }
+    public string DiscountSpecialRule { get; init; } = "";
+    public string RequiredSpecialRule { get; init; } = "";
+    public bool RequiresApothecaryAccess { get; init; }
+    public bool MatchEffectImplemented { get; init; }
     public string Kind { get; init; } = "";
     public string Description { get; init; } = "";
 }

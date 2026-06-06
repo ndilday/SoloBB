@@ -18,10 +18,17 @@ public sealed class RulesetValidator
     {
         "apothecary",
         "bribe",
+        "cheerleader",
+        "coach",
+        "coachingStaff",
+        "chef",
+        "mage",
+        "mercenary",
         "players",
         "recovery",
         "referee",
         "reroll",
+        "specialPlay",
         "special",
         "starPlayer"
     };
@@ -128,6 +135,16 @@ public sealed class RulesetValidator
             if (inducement.Cost < 0)
             {
                 throw new InvalidDataException($"Inducement '{inducement.Id}' has a negative cost.");
+            }
+
+            if (inducement.MaxCount < 0)
+            {
+                throw new InvalidDataException($"Inducement '{inducement.Id}' has a negative max count.");
+            }
+
+            if (inducement.DiscountedCost is < 0)
+            {
+                throw new InvalidDataException($"Inducement '{inducement.Id}' has a negative discounted cost.");
             }
 
             if (!KnownInducementKinds.Contains(inducement.Kind))

@@ -118,14 +118,23 @@
     { "id": "breathe-fire", "name": "Breathe Fire", "category": "trait", "timing": "duringAction", "effects": ["breatheFire"], "hooks": [{ "event": "specialAction", "stage": "beforeEvent" }, { "event": "armorRoll", "stage": "beforeEvent" }], "description": "Allows a special breath weapon action." }
   ],
   "inducements": [
-    { "id": "bribe", "name": "Bribe", "cost": 100000, "kind": "bribe", "description": "May be used for send-off rolls." },
-    { "id": "bloodweiser-keg", "name": "Bloodweiser Keg", "cost": 50000, "kind": "recovery", "description": "Improves knockout recovery." },
-    { "id": "wandering-apothecary", "name": "Wandering Apothecary", "cost": 100000, "kind": "apothecary", "description": "Adds temporary apothecary support." },
-    { "id": "extra-team-training", "name": "Extra Team Training", "cost": 100000, "kind": "reroll", "description": "Adds a temporary team reroll." },
-    { "id": "riotous-rookies", "name": "Riotous Rookies", "cost": 100000, "kind": "players", "description": "Adds temporary rookie players where roster rules allow." },
-    { "id": "biased-referee", "name": "Biased Referee", "cost": 120000, "kind": "referee", "description": "Improves foul/send-off interactions." },
-    { "id": "wizard", "name": "Wizard", "cost": 150000, "kind": "special", "description": "A data-only placeholder for wizard inducements." },
-    { "id": "star-player", "name": "Star Player", "cost": 0, "kind": "starPlayer", "description": "Cost is defined by the selected star player." }
+    { "id": "temp-agency-cheerleader", "name": "Temp Agency Cheerleader", "cost": 20000, "maxCount": 4, "kind": "cheerleader", "matchEffectImplemented": true, "description": "Adds a temporary cheerleader for kickoff table contests." },
+    { "id": "part-time-assistant-coach", "name": "Part-time Assistant Coach", "cost": 20000, "maxCount": 3, "kind": "coach", "matchEffectImplemented": true, "description": "Adds a temporary assistant coach for kickoff table contests." },
+    { "id": "weather-mage", "name": "Weather Mage", "cost": 30000, "maxCount": 1, "kind": "mage", "description": "A match-only weather control inducement." },
+    { "id": "bloodweiser-keg", "name": "Bloodweiser Keg", "cost": 50000, "maxCount": 2, "kind": "recovery", "description": "Improves knockout recovery." },
+    { "id": "special-play", "name": "Special Play", "cost": 100000, "maxCount": 5, "kind": "specialPlay", "description": "Adds a special play card or equivalent match-only benefit." },
+    { "id": "extra-team-training", "name": "Extra Team Training", "cost": 100000, "maxCount": 8, "kind": "reroll", "matchEffectImplemented": true, "description": "Adds a temporary team reroll." },
+    { "id": "bribe", "name": "Bribe", "cost": 100000, "discountedCost": 50000, "discountSpecialRule": "bribery-and-corruption", "maxCount": 3, "kind": "bribe", "matchEffectImplemented": true, "description": "May be used for send-off rolls." },
+    { "id": "wandering-apothecary", "name": "Wandering Apothecary", "cost": 100000, "maxCount": 2, "kind": "apothecary", "requiresApothecaryAccess": true, "matchEffectImplemented": true, "description": "Adds temporary apothecary support." },
+    { "id": "mortuary-assistant", "name": "Mortuary Assistant", "cost": 100000, "maxCount": 1, "kind": "apothecary", "requiredSpecialRule": "sylvanian-spotlight", "matchEffectImplemented": true, "description": "Adds temporary casualty support for Sylvanian Spotlight teams." },
+    { "id": "plague-doctor", "name": "Plague Doctor", "cost": 100000, "maxCount": 1, "kind": "apothecary", "requiredSpecialRule": "favoured-of-nurgle", "matchEffectImplemented": true, "description": "Adds temporary casualty support for Favoured of Nurgle teams." },
+    { "id": "riotous-rookies", "name": "Riotous Rookies", "cost": 100000, "maxCount": 1, "kind": "players", "requiredSpecialRule": "low-cost-linemen", "description": "Adds temporary rookie players where roster rules allow." },
+    { "id": "halfling-master-chef", "name": "Halfling Master Chef", "cost": 300000, "discountedCost": 100000, "discountSpecialRule": "halfling-thimble-cup", "maxCount": 1, "kind": "chef", "description": "Can steal or grant team rerolls before a half." },
+    { "id": "mercenary-player", "name": "Mercenary Player", "cost": 0, "maxCount": 99, "kind": "mercenary", "description": "Adds a temporary mercenary player. Cost depends on the selected position and options." },
+    { "id": "star-player", "name": "Star Player", "cost": 0, "maxCount": 2, "kind": "starPlayer", "matchEffectImplemented": true, "description": "Cost is defined by the selected star player." },
+    { "id": "infamous-coaching-staff", "name": "(In)Famous Coaching Staff", "cost": 0, "maxCount": 2, "kind": "coachingStaff", "description": "Adds named coaching staff. Cost and effect vary by staff member." },
+    { "id": "wizard", "name": "Wizard", "cost": 0, "maxCount": 1, "kind": "special", "description": "Adds a selected wizard inducement. Cost and effect vary by wizard." },
+    { "id": "biased-referee", "name": "Biased Referee", "cost": 0, "maxCount": 1, "kind": "referee", "description": "Adds a selected biased referee. Cost and effect vary by referee." }
   ],
   "advancementThresholds": {
     "first": 6,
