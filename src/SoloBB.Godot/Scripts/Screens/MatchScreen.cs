@@ -13,6 +13,8 @@ public partial class MatchScreen : VBoxContainer
 {
     private readonly Dictionary<PitchSquare, Button> _pitchButtons = [];
     private readonly Dictionary<PitchSquare, TextureRect> _pitchTileLayers = [];
+    private readonly Dictionary<PitchSquare, TextureRect> _pitchHighlightLayers = [];
+    private readonly Dictionary<PitchSquare, TextureRect> _pitchMarkingLayers = [];
     private readonly Dictionary<PitchSquare, TextureRect> _pitchPieceLayers = [];
     private readonly Dictionary<PitchSquare, TextureRect> _pitchOverlayLayers = [];
     private readonly Dictionary<Guid, Button> _rosterButtons = [];
@@ -20,7 +22,9 @@ public partial class MatchScreen : VBoxContainer
     private Label _homeHudLabel = null!;
     private Label _turnHudLabel = null!;
     private Label _awayHudLabel = null!;
+    private Label _decisionTitleLabel = null!;
     private Label _summaryLabel = null!;
+    private Label _decisionDetailLabel = null!;
     private Label _lastEventLabel = null!;
     private Label _selectedLabel = null!;
     private VBoxContainer _eventLogList = null!;
@@ -41,6 +45,8 @@ public partial class MatchScreen : VBoxContainer
     private Texture2D? _orcSpriteSheet;
     private Texture2D? _pitchObjectSheet;
     private Texture2D? _pitchTileSheet;
+    private Texture2D? _pitchFieldSheet;
+    private Texture2D? _pitchMarkingSheet;
     private readonly Dictionary<string, Texture2D?> _atlasCache = [];
     private Ruleset _ruleset = null!;
     private MatchState _match = null!;
@@ -132,15 +138,22 @@ public partial class MatchScreen : VBoxContainer
         decisionStack.AddThemeConstantOverride("separation", 5);
         decisionPanel.AddChild(decisionStack);
 
-        decisionStack.AddChild(new Label
+        _decisionTitleLabel = new Label
         {
             Text = "Current Decision",
             ThemeTypeVariation = "HeaderSmall"
-        });
+        };
+        _decisionTitleLabel.AddThemeFontSizeOverride("font_size", 15);
+        decisionStack.AddChild(_decisionTitleLabel);
 
         _summaryLabel = new Label { AutowrapMode = TextServer.AutowrapMode.WordSmart };
         _summaryLabel.AddThemeFontSizeOverride("font_size", 13);
         decisionStack.AddChild(_summaryLabel);
+
+        _decisionDetailLabel = new Label { AutowrapMode = TextServer.AutowrapMode.WordSmart };
+        _decisionDetailLabel.AddThemeFontSizeOverride("font_size", 11);
+        _decisionDetailLabel.AddThemeColorOverride("font_color", new Color("c9d1bd"));
+        decisionStack.AddChild(_decisionDetailLabel);
 
         var decisionActions = new HBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
         decisionActions.AddThemeConstantOverride("separation", 4);
@@ -343,6 +356,8 @@ public partial class MatchScreen : VBoxContainer
             SizeFlagsHorizontal = SizeFlags.ShrinkCenter,
             SizeFlagsVertical = SizeFlags.ShrinkCenter
         };
+        _pitchGrid.AddThemeConstantOverride("h_separation", 0);
+        _pitchGrid.AddThemeConstantOverride("v_separation", 0);
         stack.AddChild(_pitchGrid);
         BuildPitchGrid();
 
@@ -394,6 +409,8 @@ public partial class MatchScreen : VBoxContainer
     {
         _pitchButtons.Clear();
         _pitchTileLayers.Clear();
+        _pitchHighlightLayers.Clear();
+        _pitchMarkingLayers.Clear();
         _pitchPieceLayers.Clear();
         _pitchOverlayLayers.Clear();
         for (var y = 0; y < _ruleset.PitchHeight; y++)
@@ -409,18 +426,25 @@ public partial class MatchScreen : VBoxContainer
                     FocusMode = FocusModeEnum.None,
                     ClipContents = true
                 };
+                ClearPitchButtonChrome(button);
                 button.AddThemeFontSizeOverride("font_size", 10);
                 button.Pressed += async () => await HandlePitchSquareAsync(square);
 
                 var tileLayer = BuildPitchLayer(TextureRect.StretchModeEnum.Scale);
+                var highlightLayer = BuildPitchLayer(TextureRect.StretchModeEnum.Scale);
+                var markingLayer = BuildPitchLayer(TextureRect.StretchModeEnum.Scale);
                 var pieceLayer = BuildPitchLayer(TextureRect.StretchModeEnum.KeepAspectCentered);
                 var overlayLayer = BuildPitchLayer(TextureRect.StretchModeEnum.KeepAspectCentered);
                 button.AddChild(tileLayer);
+                button.AddChild(highlightLayer);
+                button.AddChild(markingLayer);
                 button.AddChild(pieceLayer);
                 button.AddChild(overlayLayer);
 
                 _pitchButtons[square] = button;
                 _pitchTileLayers[square] = tileLayer;
+                _pitchHighlightLayers[square] = highlightLayer;
+                _pitchMarkingLayers[square] = markingLayer;
                 _pitchPieceLayers[square] = pieceLayer;
                 _pitchOverlayLayers[square] = overlayLayer;
                 _pitchGrid.AddChild(button);
@@ -443,6 +467,16 @@ public partial class MatchScreen : VBoxContainer
         return layer;
     }
 
+    private static void ClearPitchButtonChrome(Button button)
+    {
+        var empty = new StyleBoxEmpty();
+        button.AddThemeStyleboxOverride("normal", empty);
+        button.AddThemeStyleboxOverride("disabled", empty);
+        button.AddThemeStyleboxOverride("hover", empty);
+        button.AddThemeStyleboxOverride("pressed", empty);
+        button.AddThemeStyleboxOverride("focus", empty);
+    }
+
     private void LoadSpriteAssets()
     {
         _atlasCache.Clear();
@@ -450,6 +484,8 @@ public partial class MatchScreen : VBoxContainer
         _orcSpriteSheet = GD.Load<Texture2D>("res://assets/sprites/orc_team_32.png");
         _pitchObjectSheet = GD.Load<Texture2D>("res://assets/sprites/pitch_objects_32.png");
         _pitchTileSheet = GD.Load<Texture2D>("res://assets/sprites/pitch_tiles_32.png");
+        _pitchFieldSheet = GD.Load<Texture2D>("res://assets/sprites/pitch_field_base_32.png");
+        _pitchMarkingSheet = GD.Load<Texture2D>("res://assets/sprites/pitch_field_markings_32.png");
     }
 
     private Button ActionButton(string text, bool primary = false)
@@ -529,58 +565,50 @@ public partial class MatchScreen : VBoxContainer
 
     private Texture2D? PitchTileTexture(PitchSquare square, bool canUse, string? pathMarker)
     {
+        return AtlasCell(_pitchFieldSheet, $"field:{square.X}:{square.Y}", square.X, square.Y);
+    }
+
+    private Texture2D? PitchMarkingTexture(PitchSquare square)
+    {
+        return AtlasCell(_pitchMarkingSheet, $"marking:{square.X}:{square.Y}", square.X, square.Y);
+    }
+
+    private Texture2D? PitchHighlightTexture(bool canUse, string? pathMarker)
+    {
         if (pathMarker is not null)
         {
             return pathMarker switch
             {
-                ">" => AtlasCell(_pitchTileSheet, "tile:risk", 2, 2),
-                "B" or "P" or "L" => AtlasCell(_pitchTileSheet, "tile:target", 3, 2),
-                "o" => AtlasCell(_pitchTileSheet, "tile:ball-target", 6, 2),
-                _ => AtlasCell(_pitchTileSheet, "tile:selected", 1, 2)
+                ">" => AtlasCell(_pitchTileSheet, "overlay:risk", 2, 3),
+                "B" or "P" or "L" => AtlasCell(_pitchTileSheet, "overlay:target", 5, 3),
+                "o" => AtlasCell(_pitchTileSheet, "overlay:ball-target", 4, 3),
+                "." or "X" => AtlasCell(_pitchTileSheet, "overlay:path", 3, 3),
+                _ => AtlasCell(_pitchTileSheet, "overlay:selected", 0, 3)
             };
         }
 
-        if (canUse)
-        {
-            return AtlasCell(_pitchTileSheet, "tile:legal", 0, 2);
-        }
-
-        if (square.X <= 1)
-        {
-            return AtlasCell(_pitchTileSheet, "tile:home-endzone", 4, 0);
-        }
-
-        if (square.X >= _ruleset.PitchWidth - 2)
-        {
-            return AtlasCell(_pitchTileSheet, "tile:away-endzone", 5, 0);
-        }
-
-        if (IsCenterInsigniaSquare(square))
-        {
-            return AtlasCell(_pitchTileSheet, "tile:center-insignia", 7, 1);
-        }
-
-        if (square.X == (_ruleset.PitchWidth / 2) - 1 || square.X == _ruleset.PitchWidth / 2 || square.X == 1 || square.X == _ruleset.PitchWidth - 2)
-        {
-            return AtlasCell(_pitchTileSheet, "tile:line", 0, 1);
-        }
-
-        var variant = Math.Abs((square.X * 17) + (square.Y * 31)) % 4;
-        return AtlasCell(_pitchTileSheet, $"tile:grass:{variant}", variant, 0);
-    }
-
-    private bool IsCenterInsigniaSquare(PitchSquare square)
-    {
-        var centerLeft = (_ruleset.PitchWidth / 2) - 1;
-        var centerRight = _ruleset.PitchWidth / 2;
-        var centerY = _ruleset.PitchHeight / 2;
-        return (square.X == centerLeft || square.X == centerRight) &&
-            (square.Y == centerY || square.Y == centerY - 1);
+        return canUse ? AtlasCell(_pitchTileSheet, "overlay:legal", 1, 3) : null;
     }
 
     private void SetPitchTile(PitchSquare square, Texture2D? texture)
     {
         if (_pitchTileLayers.TryGetValue(square, out var layer))
+        {
+            layer.Texture = texture;
+        }
+    }
+
+    private void SetPitchHighlight(PitchSquare square, Texture2D? texture)
+    {
+        if (_pitchHighlightLayers.TryGetValue(square, out var layer))
+        {
+            layer.Texture = texture;
+        }
+    }
+
+    private void SetPitchMarking(PitchSquare square, Texture2D? texture)
+    {
+        if (_pitchMarkingLayers.TryGetValue(square, out var layer))
         {
             layer.Texture = texture;
         }
@@ -1642,6 +1670,8 @@ public partial class MatchScreen : VBoxContainer
             button.Text = "";
             button.Icon = null;
             SetPitchTile(square, PitchTileTexture(square, canPlace || canTargetKickoff || canMove || canPassSquare || canPush || canPlaceBall || canThrowBomb || canLaunchTarget, pathMarker));
+            SetPitchHighlight(square, PitchHighlightTexture(canPlace || canTargetKickoff || canMove || canPassSquare || canPush || canPlaceBall || canThrowBomb || canLaunchTarget, pathMarker));
+            SetPitchMarking(square, PitchMarkingTexture(square));
             SetPitchPiece(square, null);
             SetPitchOverlay(square, null);
             button.Disabled = !canPlace && !canTargetKickoff && !canMove && !canPassSquare && !canPush && !canPlaceBall && !canThrowBomb && !canLaunchTarget;
@@ -1677,6 +1707,10 @@ public partial class MatchScreen : VBoxContainer
             var team = TeamById(placement.TeamId);
             SetPitchPiece(placement.Square!, player is null ? null : PlayerSprite(team, player, placement));
             SetPitchOverlay(placement.Square!, placement.State == PlayerPitchState.Stunned ? StunnedSprite(0) : null);
+            if (isSelected)
+            {
+                SetPitchHighlight(placement.Square!, AtlasCell(_pitchTileSheet, "overlay:selected", 0, 3));
+            }
             button.Text = "";
             button.TooltipText = PlayerPitchTooltip(placement);
             var canBlockTarget = _selectedPlayerId is Guid attackerId && IsLegalBlockTarget(attackerId, placement.PlayerId);
@@ -1728,14 +1762,120 @@ public partial class MatchScreen : VBoxContainer
         }
 
         var activeTeam = ActiveTeam();
-        var selected = _selectedPlayerId is Guid playerId ? FindPlayer(playerId)?.Name : "none";
+        var selected = _selectedPlayerId is Guid playerId ? FindPlayer(playerId)?.Name ?? "none" : "none";
         _doneButton.Disabled = !CanAdvanceCurrentStep();
         _doneButton.Text = AdvanceButtonText();
         _doneButton.TooltipText = _doneButton.Disabled ? AdvanceBlockedMessage() : "Advance the current phase or turn.";
         RefreshPassModeButton();
         RefreshLaunchModeButtons();
 
-        _summaryLabel.Text = _match.Phase switch
+        _decisionTitleLabel.Text = DecisionTitle();
+        _summaryLabel.Text = DecisionInstruction(activeTeam, selected);
+        _decisionDetailLabel.Text = DecisionDetail(activeTeam, selected);
+        RefreshEventLog();
+    }
+
+    private void RefreshMatchHud()
+    {
+        _homeHudLabel.Text = FormatTeamHud(_homeTeam, _match.HomeScore, _match.HomeRerollsRemaining, _match.HomeApothecariesRemaining);
+        _awayHudLabel.Text = FormatTeamHud(_awayTeam, _match.AwayScore, _match.AwayRerollsRemaining, _match.AwayApothecariesRemaining);
+        _turnHudLabel.Text = $"Half {_match.Half}  Drive {_match.Drive} ({DriveStateLabel(_match.DriveState)})  {PhaseLabel(_match.Phase)}  Turn {_match.Turn}/{_ruleset.TurnsPerHalf}\nWeather: {WeatherLabel(_match.Weather)}";
+        _turnHudLabel.TooltipText = $"{ActiveTeam().Name} active. Home turn {_match.HomeTurn}, away turn {_match.AwayTurn}. {WeatherEffectSummary(_match.Weather)}";
+    }
+
+    private string DecisionTitle()
+    {
+        if (_match.PendingReroll is not null)
+        {
+            return "Reroll Choice";
+        }
+
+        if (_match.PendingApothecary is not null)
+        {
+            return "Apothecary Choice";
+        }
+
+        if (_match.PendingSendOff is not null)
+        {
+            return "Send-Off Choice";
+        }
+
+        if (_match.PendingStandFirm is not null)
+        {
+            return "Stand Firm";
+        }
+
+        if (_match.PendingDivingTackle is not null)
+        {
+            return "Diving Tackle";
+        }
+
+        if (_match.PendingBallPlacement is not null)
+        {
+            return "Place Ball";
+        }
+
+        if (_match.PendingBombThrow is not null)
+        {
+            return "Bomb Throw";
+        }
+
+        if (_match.PendingBlock is not null)
+        {
+            return "Block Dice";
+        }
+
+        if (_match.PendingPush is not null)
+        {
+            return "Choose Push";
+        }
+
+        if (_match.PendingInterception is not null)
+        {
+            return "Interception";
+        }
+
+        if (_match.PendingKickoffEvent is PendingKickoffEventChoice kickoff)
+        {
+            return FormatKickoffEventKind(kickoff.Kind);
+        }
+
+        if (_previewBlockDefenderId is not null)
+        {
+            return "Block Preview";
+        }
+
+        if (_previewBlitzDefenderId is not null)
+        {
+            return "Blitz Preview";
+        }
+
+        if (_previewFoulVictimId is not null)
+        {
+            return "Foul Preview";
+        }
+
+        if (_previewPassTargetSquare is not null)
+        {
+            return "Pass Preview";
+        }
+
+        if (_throwTeamMateMode || _kickTeamMateMode)
+        {
+            return _kickTeamMateMode ? "Kick Team-Mate" : "Throw Team-Mate";
+        }
+
+        if (_previewDestination is not null)
+        {
+            return "Confirm Movement";
+        }
+
+        return PhaseLabel(_match.Phase);
+    }
+
+    private string DecisionInstruction(LeagueTeam activeTeam, string selected)
+    {
+        return _match.Phase switch
         {
             _ when _match.PendingReroll is PendingRerollChoice pending => RerollSummary(pending),
             _ when _match.PendingApothecary is PendingApothecaryChoice pending => ApothecarySummary(pending),
@@ -1748,27 +1888,47 @@ public partial class MatchScreen : VBoxContainer
             _ when _match.PendingPush is PendingPushChoice pending => $"Choose where {FindPlayer(pending.DefenderPlayerId)?.Name ?? "defender"} is pushed.",
             _ when _match.PendingInterception is PendingInterceptionChoice pending => $"Choose an interceptor for the {pending.PassRangeName} pass.",
             _ when _match.PendingKickoffEvent is PendingKickoffEventChoice pending => KickoffEventSummary(pending),
-            MatchPhase.DefenseSetup => $"{activeTeam.Name} is kicking off and places players first. Selected: {selected}.",
-            MatchPhase.OffenseSetup => $"{activeTeam.Name} is receiving the kick and places players. Selected: {selected}.",
-            MatchPhase.Kickoff => $"{KickingTeam().Name} is kicking. Select a target square in {activeTeam.Name}'s half.",
+            MatchPhase.DefenseSetup => $"{activeTeam.Name}: place the kicking team in the legal setup area.",
+            MatchPhase.OffenseSetup => $"{activeTeam.Name}: place the receiving team in the legal setup area.",
+            MatchPhase.Kickoff => $"{KickingTeam().Name}: select a kick target square in {activeTeam.Name}'s half.",
             MatchPhase.OffensivePlayerTurn or MatchPhase.DefensiveTurn when _previewBlockDefenderId is Guid defenderId => BlockPreviewSummary(defenderId),
             MatchPhase.OffensivePlayerTurn or MatchPhase.DefensiveTurn when _previewBlitzDefenderId is Guid blitzDefenderId => BlitzPreviewSummary(blitzDefenderId),
             MatchPhase.OffensivePlayerTurn or MatchPhase.DefensiveTurn when _previewFoulVictimId is Guid victimId => FoulPreviewSummary(victimId),
             MatchPhase.OffensivePlayerTurn or MatchPhase.DefensiveTurn when _previewPassTargetSquare is PitchSquare passTargetSquare => PassPreviewSummary(passTargetSquare),
             MatchPhase.OffensivePlayerTurn or MatchPhase.DefensiveTurn when _throwTeamMateMode || _kickTeamMateMode => LaunchPreviewSummary(),
-            MatchPhase.OffensivePlayerTurn or MatchPhase.DefensiveTurn when _previewDestination is not null => $"{activeTeam.Name} active. Click {_previewDestination.X + 1},{_previewDestination.Y + 1} again to confirm movement. Current activation: {selected}.",
-            MatchPhase.OffensivePlayerTurn or MatchPhase.DefensiveTurn => $"{activeTeam.Name} active. Ready players can still activate; spent players are disabled. Current activation: {selected}.",
-            _ => $"{activeTeam.Name} active. Phase: {_match.Phase}. Selected: {selected}."
+            MatchPhase.OffensivePlayerTurn or MatchPhase.DefensiveTurn when _previewDestination is not null => $"Click {_previewDestination.X + 1},{_previewDestination.Y + 1} again to confirm movement.",
+            MatchPhase.OffensivePlayerTurn or MatchPhase.DefensiveTurn => $"{activeTeam.Name}: choose a ready player or continue the turn.",
+            _ => $"{activeTeam.Name}: resolve {_match.Phase}."
         };
-        RefreshEventLog();
     }
 
-    private void RefreshMatchHud()
+    private string DecisionDetail(LeagueTeam activeTeam, string selected)
     {
-        _homeHudLabel.Text = FormatTeamHud(_homeTeam, _match.HomeScore, _match.HomeRerollsRemaining, _match.HomeApothecariesRemaining);
-        _awayHudLabel.Text = FormatTeamHud(_awayTeam, _match.AwayScore, _match.AwayRerollsRemaining, _match.AwayApothecariesRemaining);
-        _turnHudLabel.Text = $"Half {_match.Half}  Drive {_match.Drive} ({DriveStateLabel(_match.DriveState)})  {PhaseLabel(_match.Phase)}  Turn {_match.Turn}/{_ruleset.TurnsPerHalf}\nWeather: {WeatherLabel(_match.Weather)}";
-        _turnHudLabel.TooltipText = $"{ActiveTeam().Name} active. Home turn {_match.HomeTurn}, away turn {_match.AwayTurn}. {WeatherEffectSummary(_match.Weather)}";
+        var details = new List<string>();
+        if (_selectedPlayerId is Guid playerId && FindPlayer(playerId) is Player player)
+        {
+            details.Add($"Selected: {player.Name} ({player.PositionId})");
+        }
+        else
+        {
+            details.Add("Selected: none");
+        }
+
+        if (_match.Phase is MatchPhase.DefenseSetup or MatchPhase.OffenseSetup)
+        {
+            details.Add("Legal squares are softly chalked");
+        }
+        else if (_match.Phase is MatchPhase.OffensivePlayerTurn or MatchPhase.DefensiveTurn)
+        {
+            details.Add($"Active: {activeTeam.Name}");
+        }
+
+        if (_match.Log.LastOrDefault()?.Message is string lastEvent)
+        {
+            details.Add($"Last: {lastEvent}");
+        }
+
+        return string.Join("  |  ", details);
     }
 
     private void RefreshEventLog()
@@ -2016,81 +2176,7 @@ public partial class MatchScreen : VBoxContainer
 
     private void ApplySquareStyle(Button button, PitchSquare square, bool isSelected, bool canUse, string? pathMarker = null, string? blockRole = null, string? passRole = null)
     {
-        var pathColor = pathMarker switch
-        {
-            not null when pathMarker.EndsWith("+", StringComparison.Ordinal) && MovementPathNeedsDodge(square) => DodgePathColor,
-            not null when pathMarker.EndsWith("+", StringComparison.Ordinal) && MovementPathNeedsPickup(square) => PickupPathColor,
-            not null when pathMarker.EndsWith("+", StringComparison.Ordinal) => GoForItPathColor,
-            ">" => PushSquareColor,
-            "." or "X" => _previewBlitzDestination is not null ? BlitzPathColor : PreviewPathColor,
-            _ => (Color?)null
-        };
-        var blockColor = blockRole switch
-        {
-            "target" => BlockTargetColor,
-            "attackAssist" => AttackingAssistColor,
-            "defenseAssist" => DefendingAssistColor,
-            _ => (Color?)null
-        };
-        var passColor = passRole switch
-        {
-            "receiver" => PassTargetColor,
-            "interceptor" => InterceptorColor,
-            _ => (Color?)null
-        };
-        var baseColor = passColor ?? blockColor ?? pathColor ?? (canUse ? SquareColor(square).Lerp(LegalPitchGrass, 0.35f) : SquareColor(square));
-        var style = FlatStyle(baseColor, border: SquareBorderColor(square), borderWidth: 1);
-        var hasPitchLine = square.X == (_ruleset.PitchWidth / 2) - 1 ||
-            square.X == _ruleset.PitchWidth / 2 ||
-            square.X == 1 ||
-            square.X == _ruleset.PitchWidth - 2;
-        if (hasPitchLine)
-        {
-            style.BorderColor = LineColor;
-            style.SetBorderWidthAll(0);
-        }
-
-        if (square.X == (_ruleset.PitchWidth / 2) - 1)
-        {
-            style.SetBorderWidth(Side.Right, 4);
-        }
-        else if (square.X == _ruleset.PitchWidth / 2)
-        {
-            style.SetBorderWidth(Side.Left, 4);
-        }
-        else if (square.X == 1)
-        {
-            style.SetBorderWidth(Side.Left, 3);
-        }
-        else if (square.X == _ruleset.PitchWidth - 2)
-        {
-            style.SetBorderWidth(Side.Right, 3);
-        }
-
-        if (isSelected)
-        {
-            style.BorderColor = SelectedColor;
-            style.SetBorderWidthAll(3);
-        }
-        else if (blockRole is not null)
-        {
-            style.BorderColor = blockRole == "target" ? new Color("f0d0c8") : new Color("f3e2a8");
-            style.SetBorderWidthAll(blockRole == "target" ? 3 : 2);
-        }
-        else if (passRole is not null)
-        {
-            style.BorderColor = passRole == "receiver" ? new Color("d5e6ff") : new Color("ead7ff");
-            style.SetBorderWidthAll(passRole == "receiver" ? 3 : 2);
-        }
-
-        button.AddThemeStyleboxOverride("normal", style);
-        button.AddThemeStyleboxOverride("disabled", style);
-        button.AddThemeStyleboxOverride("hover", canUse
-            ? FlatStyle(baseColor.Lightened(0.12f), border: SelectedColor, borderWidth: 2)
-            : style);
-        button.AddThemeStyleboxOverride("pressed", canUse
-            ? FlatStyle(baseColor.Darkened(0.12f), border: SelectedColor, borderWidth: 2)
-            : style);
+        ClearPitchButtonChrome(button);
     }
 
     private Color SquareColor(PitchSquare square)

@@ -59,8 +59,8 @@ Layout: `8 columns x 4 rows`
 | 1 | 0 | Center/goal line through tile center |
 | 1 | 1 | Chalk line on left edge |
 | 1 | 2 | Chalk line on right edge |
-| 1 | 3-6 | Four corner-mark tiles |
-| 1 | 7 | Subtle center insignia tile |
+| 1 | 3-6 | 2x2 center insignia quadrants |
+| 1 | 7 | Small center insignia tile |
 | 2 | 0 | Legal square highlight tile |
 | 2 | 1 | Selected square highlight tile |
 | 2 | 2 | Risk square highlight tile |
@@ -70,10 +70,42 @@ Layout: `8 columns x 4 rows`
 | 2 | 6 | Ball-square highlight tile |
 | 2 | 7 | Disabled/unavailable square tile |
 | 3 | 0 | Transparent selected outline overlay |
-| 3 | 1 | Transparent legal outline overlay |
+| 3 | 1 | Transparent legal deployment outline overlay |
 | 3 | 2 | Transparent risk outline overlay |
 | 3 | 3 | Transparent dotted path overlay |
 | 3 | 4 | Transparent ball target ring overlay |
 | 3 | 5 | Transparent target/block outline overlay |
 | 3 | 6 | Transparent vertical chalk line overlay |
 | 3 | 7 | Transparent horizontal chalk line overlay |
+
+## `pitch_field_32.png`
+
+Size: `832x480`
+Cell size: `32x32`
+Layout: `26 columns x 15 rows`
+
+This is the composited preview of the split pitch art.
+
+## `pitch_field_base_32.png`
+
+Size: `832x480`
+Cell size: `32x32`
+Layout: `26 columns x 15 rows`
+
+Base grass and end-zone art used by the match screen.
+
+## `pitch_field_markings_32.png`
+
+Size: `832x480`
+Cell size: `32x32`
+Layout: `26 columns x 15 rows`
+
+Transparent chalk-marking layer used by the match screen. It is drawn above legal-placement highlights so markings remain readable:
+
+- One-column home and away end zones.
+- Goal lines at the boundary between each end zone and the field.
+- Center line at the half-way boundary.
+- Wide-zone separator lines that stop before the end zones.
+- A center-field chalk crest.
+
+The match screen slices the base and marking images into 32 px square regions at runtime, then draws transparent highlight/player/ball layers between and above them.
