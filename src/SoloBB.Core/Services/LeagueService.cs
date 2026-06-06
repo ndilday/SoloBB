@@ -174,6 +174,89 @@ public sealed class LeagueService
         };
     }
 
+    public League UpdateTeamManagement(
+        League league,
+        Ruleset ruleset,
+        TeamRoster roster,
+        Guid teamId,
+        string teamName,
+        string coachName,
+        int rerolls,
+        int fanFactor,
+        int cheerleaders,
+        int assistantCoaches,
+        int apothecaries)
+    {
+        var existingTeam = league.Teams.FirstOrDefault(team => team.Id == teamId)
+            ?? throw new InvalidOperationException("Team is not part of this league.");
+        if (!string.Equals(existingTeam.RosterId, roster.Id, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("Roster does not match the selected team.");
+        }
+
+        if (rerolls < 0 || rerolls > ruleset.RerollCap)
+        {
+            throw new InvalidOperationException($"Rerolls must be between 0 and {ruleset.RerollCap}.");
+        }
+
+        if (fanFactor < 1)
+        {
+            throw new InvalidOperationException("Fan factor must be at least 1.");
+        }
+
+        ValidateStaff(cheerleaders, assistantCoaches, apothecaries);
+
+        var playerCost = existingTeam.Players.Sum(player => FindPosition(roster, player.PositionId).Cost);
+        var rerollCost = rerolls * roster.RerollCost;
+        var fanFactorCost = Math.Max(0, fanFactor - 1) * FanFactorCost;
+        var staffCost = (cheerleaders * CheerleaderCost) + (assistantCoaches * AssistantCoachCost) + (apothecaries * ApothecaryCost);
+
+        var updatedTeam = existingTeam with
+        {
+            Name = RequireText(teamName, "Team name is required."),
+            CoachName = string.IsNullOrWhiteSpace(coachName) ? "Solo Coach" : coachName.Trim(),
+            TeamValue = playerCost + rerollCost + fanFactorCost + staffCost,
+            Rerolls = rerolls,
+            FanFactor = fanFactor,
+            Cheerleaders = cheerleaders,
+            AssistantCoaches = assistantCoaches,
+            Apothecaries = apothecaries
+        };
+
+        return league with
+        {
+            Teams = league.Teams
+                .Select(team => team.Id == teamId ? updatedTeam : team)
+                .ToArray()
+        };
+    }
+
+    public League RenamePlayer(League league, Guid teamId, Guid playerId, string playerName)
+    {
+        var team = league.Teams.FirstOrDefault(current => current.Id == teamId)
+            ?? throw new InvalidOperationException("Team is not part of this league.");
+        if (!team.Players.Any(player => player.Id == playerId))
+        {
+            throw new InvalidOperationException("Player is not part of this team.");
+        }
+
+        return league with
+        {
+            Teams = league.Teams
+                .Select(current => current.Id == team.Id
+                    ? current with
+                    {
+                        Players = current.Players
+                            .Select(player => player.Id == playerId
+                                ? player with { Name = RequireText(playerName, "Player name is required.") }
+                                : player)
+                            .ToArray()
+                    }
+                    : current)
+                .ToArray()
+        };
+    }
+
     public League ApplyMatchCasualties(League league, Ruleset ruleset, MatchState match)
     {
         var casualtyPlacements = match.Placements

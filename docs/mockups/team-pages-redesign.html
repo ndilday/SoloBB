@@ -1,0 +1,1176 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SoloBB Team Builder Mockups</title>
+  <style>
+    :root {
+      --bg: #17211d;
+      --shell: #111816;
+      --panel: #202522;
+      --panel-2: #292d28;
+      --line: #4d554b;
+      --line-soft: #343b35;
+      --text: #f0ead8;
+      --muted: #b8b19f;
+      --dim: #817b70;
+      --pitch: #2f6b37;
+      --home: #2e5f9f;
+      --away: #943b34;
+      --gold: #d9aa4e;
+      --amber: #f0c45b;
+      --risk: #c96f35;
+      --good: #8bc982;
+      --bad: #d66a58;
+      --button: #38433b;
+      --button-border: #79836f;
+      --shadow: rgba(0, 0, 0, .45);
+      font-family: "Segoe UI", system-ui, sans-serif;
+      color-scheme: dark;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background:
+        linear-gradient(90deg, rgba(255, 255, 255, .025) 1px, transparent 1px) 0 0 / 36px 36px,
+        linear-gradient(rgba(255, 255, 255, .018) 1px, transparent 1px) 0 0 / 36px 36px,
+        radial-gradient(circle at 18% 12%, rgba(201, 111, 53, .14), transparent 30%),
+        var(--bg);
+      color: var(--text);
+    }
+
+    .mockup-sheet {
+      width: min(1480px, calc(100vw - 40px));
+      margin: 24px auto 56px;
+    }
+
+    .sheet-header {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 24px;
+      margin-bottom: 18px;
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin: 0;
+    }
+
+    h1 {
+      font-size: 28px;
+      letter-spacing: 0;
+    }
+
+    .sheet-header p {
+      max-width: 760px;
+      color: var(--muted);
+      line-height: 1.45;
+      font-size: 14px;
+    }
+
+    .screens {
+      display: grid;
+      gap: 24px;
+    }
+
+    .app {
+      min-height: 820px;
+      display: grid;
+      grid-template-rows: 54px 1fr;
+      border: 1px solid #5f6759;
+      background: var(--shell);
+      box-shadow: 0 22px 55px var(--shadow);
+      overflow: hidden;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 18px;
+      border-bottom: 1px solid var(--line);
+      background: linear-gradient(180deg, #263126, #151d19);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 800;
+      letter-spacing: 0;
+    }
+
+    .mark {
+      width: 28px;
+      height: 28px;
+      border: 2px solid #d7cfb7;
+      background:
+        linear-gradient(135deg, transparent 0 42%, rgba(255, 255, 255, .35) 42% 49%, transparent 49%),
+        radial-gradient(circle at 50% 50%, #724238 0 31%, #1e211d 32% 100%);
+      transform: rotate(-12deg);
+    }
+
+    .save-state {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .body {
+      display: grid;
+      grid-template-columns: 184px 1fr;
+      min-height: 0;
+    }
+
+    .nav {
+      padding: 18px 12px;
+      border-right: 1px solid var(--line);
+      background: #151b18;
+    }
+
+    .nav h3 {
+      color: var(--dim);
+      text-transform: uppercase;
+      font-size: 11px;
+      font-weight: 700;
+      margin: 8px 10px 10px;
+    }
+
+    .nav-item {
+      height: 34px;
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 0 10px;
+      margin-bottom: 4px;
+      border: 1px solid transparent;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .nav-item.active {
+      color: var(--text);
+      background: #29352d;
+      border-color: #596454;
+      box-shadow: inset 3px 0 0 var(--gold);
+    }
+
+    .content {
+      display: grid;
+      grid-template-rows: auto 1fr;
+      min-width: 0;
+      background:
+        linear-gradient(rgba(255, 255, 255, .025) 1px, transparent 1px) 0 0 / 28px 28px,
+        #1a211d;
+    }
+
+    .screen-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: start;
+      gap: 18px;
+      padding: 18px 20px 14px;
+      border-bottom: 1px solid var(--line-soft);
+      background: #202720;
+    }
+
+    .title-block {
+      display: grid;
+      gap: 5px;
+    }
+
+    .eyebrow {
+      color: var(--gold);
+      text-transform: uppercase;
+      font-size: 11px;
+      font-weight: 800;
+    }
+
+    h2 {
+      font-size: 24px;
+      line-height: 1.15;
+      letter-spacing: 0;
+    }
+
+    .subhead {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .header-actions {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+      justify-content: end;
+    }
+
+    button,
+    .button {
+      height: 34px;
+      border: 1px solid var(--button-border);
+      background: var(--button);
+      color: var(--text);
+      padding: 0 12px;
+      font: inherit;
+      font-size: 13px;
+      font-weight: 700;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, .08);
+    }
+
+    .primary {
+      background: #9b7430;
+      border-color: #e0b65d;
+      color: #15110a;
+    }
+
+    .danger {
+      border-color: #9d5a4c;
+      color: #f3c2b9;
+    }
+
+    .page-grid {
+      display: grid;
+      grid-template-columns: minmax(580px, 1fr) 320px;
+      gap: 16px;
+      padding: 16px 20px 20px;
+      align-items: start;
+    }
+
+    .main-column,
+    .side-column {
+      display: grid;
+      gap: 14px;
+      min-width: 0;
+    }
+
+    .side-column {
+      position: sticky;
+      top: 16px;
+    }
+
+    .panel {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      box-shadow: 0 8px 20px rgba(0, 0, 0, .22);
+    }
+
+    .panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      min-height: 42px;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--line-soft);
+      background: var(--panel-2);
+    }
+
+    .panel-header h3 {
+      font-size: 15px;
+      letter-spacing: 0;
+    }
+
+    .panel-body {
+      padding: 12px;
+    }
+
+    .form-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    .field {
+      display: grid;
+      gap: 5px;
+      min-width: 0;
+    }
+
+    label {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .input,
+    .select {
+      min-height: 34px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 0 10px;
+      border: 1px solid #5b6256;
+      background: #121815;
+      color: var(--text);
+      font-size: 14px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .full {
+      grid-column: 1 / -1;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    th,
+    td {
+      padding: 8px 8px;
+      border-bottom: 1px solid var(--line-soft);
+      text-align: left;
+      vertical-align: middle;
+    }
+
+    th {
+      color: var(--muted);
+      font-size: 11px;
+      text-transform: uppercase;
+      background: #161c18;
+    }
+
+    tr.selected {
+      background: rgba(217, 170, 78, .09);
+      box-shadow: inset 3px 0 0 var(--gold);
+    }
+
+    .num {
+      font-variant-numeric: tabular-nums;
+      text-align: right;
+      white-space: nowrap;
+    }
+
+    .skill-list {
+      max-width: 220px;
+      color: var(--muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .stepper {
+      display: inline-grid;
+      grid-template-columns: 28px 38px 28px;
+      height: 28px;
+      border: 1px solid #697161;
+      background: #121815;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .stepper span {
+      display: grid;
+      place-items: center;
+      border-right: 1px solid #40483f;
+    }
+
+    .stepper span:last-child {
+      border-right: 0;
+    }
+
+    .stepper .disabled {
+      color: #696f67;
+      background: #1a1f1b;
+    }
+
+    .asset-grid {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(120px, 1fr));
+      gap: 10px;
+    }
+
+    .asset {
+      display: grid;
+      gap: 7px;
+      padding: 10px;
+      border: 1px solid var(--line-soft);
+      background: #181e1a;
+    }
+
+    .budget-list,
+    .status-list,
+    .mini-list {
+      display: grid;
+      gap: 9px;
+    }
+
+    .budget-row,
+    .status-row,
+    .mini-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+      min-height: 24px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .budget-row strong,
+    .status-row strong,
+    .mini-row strong {
+      color: var(--text);
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+
+    .remaining {
+      margin-top: 7px;
+      padding-top: 10px;
+      border-top: 1px solid var(--line);
+      color: var(--text);
+      font-size: 15px;
+    }
+
+    .meter {
+      height: 10px;
+      border: 1px solid #5c6558;
+      background: #121815;
+      overflow: hidden;
+      margin: 10px 0 4px;
+    }
+
+    .meter > span {
+      display: block;
+      height: 100%;
+      width: 97%;
+      background: linear-gradient(90deg, var(--good), var(--amber), var(--risk));
+    }
+
+    .callout {
+      padding: 10px;
+      border: 1px solid #7a6641;
+      background: rgba(217, 170, 78, .1);
+      color: #ead9a7;
+      font-size: 13px;
+      line-height: 1.35;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      min-height: 22px;
+      padding: 0 7px;
+      border: 1px solid #697161;
+      background: #151b18;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .badge.good {
+      color: #d8f2d2;
+      border-color: #66865d;
+      background: #223321;
+    }
+
+    .badge.warn {
+      color: #f3d99d;
+      border-color: #8c7138;
+      background: #352a18;
+    }
+
+    .team-strip {
+      display: grid;
+      grid-template-columns: 76px 1fr;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .team-token {
+      width: 76px;
+      aspect-ratio: 1;
+      border: 2px solid #d8cfb9;
+      background:
+        linear-gradient(135deg, transparent 0 45%, rgba(255, 255, 255, .22) 45% 53%, transparent 53%),
+        linear-gradient(90deg, var(--home) 0 50%, #e1d4b7 50% 58%, var(--away) 58%);
+      box-shadow: inset 0 0 0 8px rgba(0, 0, 0, .16);
+    }
+
+    .compact-stats {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .stat {
+      padding: 8px;
+      border: 1px solid var(--line-soft);
+      background: #171d19;
+      display: grid;
+      gap: 3px;
+    }
+
+    .stat span {
+      color: var(--muted);
+      font-size: 11px;
+      text-transform: uppercase;
+    }
+
+    .stat strong {
+      font-variant-numeric: tabular-nums;
+    }
+
+    .action-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .action-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 12px;
+      align-items: center;
+      padding: 10px;
+      border: 1px solid var(--line-soft);
+      background: #171d19;
+    }
+
+    .action-row p {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+      margin-top: 3px;
+    }
+
+    .player-layout {
+      display: grid;
+      grid-template-columns: minmax(520px, 1fr) 360px;
+      gap: 16px;
+      padding: 16px 20px 20px;
+      align-items: start;
+    }
+
+    .player-name {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .player-number {
+      width: 28px;
+      height: 28px;
+      display: grid;
+      place-items: center;
+      border: 1px solid #786d53;
+      background: #302816;
+      color: var(--gold);
+      font-weight: 800;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .spp-bar {
+      min-width: 130px;
+      display: grid;
+      gap: 4px;
+    }
+
+    .spp-bar .meter {
+      margin: 0;
+      height: 8px;
+    }
+
+    .inspector-title {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+
+    .portrait {
+      width: 54px;
+      height: 54px;
+      border: 2px solid #d8cfb9;
+      background:
+        radial-gradient(circle at 50% 30%, #d8cfb9 0 12%, transparent 13%),
+        linear-gradient(150deg, var(--home) 0 46%, #1b211d 46% 56%, var(--away) 56%);
+    }
+
+    .tabs {
+      display: flex;
+      gap: 6px;
+    }
+
+    .tab {
+      min-height: 28px;
+      padding: 0 10px;
+      display: inline-flex;
+      align-items: center;
+      border: 1px solid #5e6659;
+      background: #171d19;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .tab.active {
+      color: var(--text);
+      border-color: var(--gold);
+      background: #302816;
+    }
+
+    .footer-note {
+      color: var(--dim);
+      font-size: 12px;
+      line-height: 1.35;
+      padding: 10px 12px 12px;
+      border-top: 1px solid var(--line-soft);
+    }
+
+    @media (max-width: 980px) {
+      .mockup-sheet {
+        width: min(100vw - 20px, 760px);
+      }
+
+      .body {
+        grid-template-columns: 1fr;
+      }
+
+      .nav {
+        display: none;
+      }
+
+      .page-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .player-layout {
+        grid-template-columns: 1fr;
+      }
+
+      .side-column {
+        position: static;
+      }
+
+      .asset-grid,
+      .compact-stats {
+        grid-template-columns: 1fr 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="mockup-sheet">
+    <div class="sheet-header">
+      <div>
+        <p class="eyebrow">SoloBB UX mockups</p>
+        <h1>Team Creation and Team Edit Redesign</h1>
+      </div>
+      <p>Dense league tool layout with a worn pitch-table feel: charcoal green background, dark neutral panels, brass primary actions, tabular money, team-color accents, and no oversized marketing treatment.</p>
+    </div>
+
+    <section class="screens">
+      <article class="app" aria-label="Create team mockup">
+        <header class="topbar">
+          <div class="brand"><span class="mark" aria-hidden="true"></span>SoloBB</div>
+          <div class="save-state">League: Reikland Cup&nbsp;&nbsp;|&nbsp;&nbsp;Saved 7:42 PM</div>
+        </header>
+        <div class="body">
+          <aside class="nav">
+            <h3>League</h3>
+            <div class="nav-item">League Home</div>
+            <div class="nav-item active">Teams</div>
+            <div class="nav-item">Schedule</div>
+            <div class="nav-item">Rules</div>
+            <h3>System</h3>
+            <div class="nav-item">New League</div>
+            <div class="nav-item">Load League</div>
+            <div class="nav-item">Back / Exit</div>
+          </aside>
+          <section class="content">
+            <header class="screen-header">
+              <div class="title-block">
+                <div class="eyebrow">Team builder</div>
+                <h2>Create Team</h2>
+                <p class="subhead">Draft players, staff, and assets against the starting treasury.</p>
+              </div>
+              <div class="header-actions">
+                <button>Back</button>
+                <button class="primary">Save Team</button>
+              </div>
+            </header>
+
+            <div class="page-grid">
+              <div class="main-column">
+                <section class="panel">
+                  <div class="panel-header">
+                    <h3>Identity</h3>
+                    <span class="badge good">11 players ready</span>
+                  </div>
+                  <div class="panel-body form-grid">
+                    <div class="field">
+                      <label>Team Name</label>
+                      <div class="input">Middenheim Maulers</div>
+                    </div>
+                    <div class="field">
+                      <label>Coach</label>
+                      <div class="input">Hotseat</div>
+                    </div>
+                    <div class="field full">
+                      <label>Roster</label>
+                      <div class="select">Human <span>v</span></div>
+                    </div>
+                  </div>
+                </section>
+
+                <section class="panel">
+                  <div class="panel-header">
+                    <h3>Position Draft</h3>
+                    <span class="badge">Human roster</span>
+                  </div>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Min-Max</th>
+                        <th>Position</th>
+                        <th class="num">Cost</th>
+                        <th>Stats</th>
+                        <th>Skills</th>
+                        <th class="num">Count</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td>0-16</td>
+                        <td>Lineman</td>
+                        <td class="num">50k</td>
+                        <td>6 3 3+ 4+ 9+</td>
+                        <td class="skill-list">-</td>
+                        <td class="num"><span class="stepper"><span>-</span><span>7</span><span>+</span></span></td>
+                      </tr>
+                      <tr class="selected">
+                        <td>0-4</td>
+                        <td>Blitzer</td>
+                        <td class="num">85k</td>
+                        <td>7 3 3+ 4+ 9+</td>
+                        <td class="skill-list">Block</td>
+                        <td class="num"><span class="stepper"><span>-</span><span>2</span><span>+</span></span></td>
+                      </tr>
+                      <tr>
+                        <td>0-2</td>
+                        <td>Thrower</td>
+                        <td class="num">80k</td>
+                        <td>6 3 3+ 2+ 9+</td>
+                        <td class="skill-list">Pass, Sure Hands</td>
+                        <td class="num"><span class="stepper"><span>-</span><span>1</span><span>+</span></span></td>
+                      </tr>
+                      <tr>
+                        <td>0-4</td>
+                        <td>Catcher</td>
+                        <td class="num">65k</td>
+                        <td>8 2 3+ 5+ 8+</td>
+                        <td class="skill-list">Catch, Dodge</td>
+                        <td class="num"><span class="stepper"><span>-</span><span>1</span><span>+</span></span></td>
+                      </tr>
+                      <tr>
+                        <td>0-1</td>
+                        <td>Ogre</td>
+                        <td class="num">140k</td>
+                        <td>5 5 4+ 5+ 10+</td>
+                        <td class="skill-list">Bone-head, Mighty Blow, Throw Team-Mate</td>
+                        <td class="num"><span class="stepper"><span>-</span><span>0</span><span class="disabled">+</span></span></td>
+                      </tr>
+                    </tbody>
+                  </table>
+                  <div class="footer-note">Selected row can expose full skill text in a tooltip or inspector. The plus stepper is disabled when the player cap or budget blocks it.</div>
+                </section>
+
+                <section class="panel">
+                  <div class="panel-header">
+                    <h3>Team Assets</h3>
+                    <span class="badge">Staff and sideline</span>
+                  </div>
+                  <div class="panel-body asset-grid">
+                    <div class="asset"><label>Rerolls</label><span class="stepper"><span>-</span><span>3</span><span>+</span></span></div>
+                    <div class="asset"><label>Fan Factor</label><span class="stepper"><span>-</span><span>1</span><span>+</span></span></div>
+                    <div class="asset"><label>Assistants</label><span class="stepper"><span>-</span><span>1</span><span>+</span></span></div>
+                    <div class="asset"><label>Cheerleaders</label><span class="stepper"><span>-</span><span>0</span><span>+</span></span></div>
+                    <div class="asset"><label>Apothecary</label><span class="stepper"><span>-</span><span>1</span><span class="disabled">+</span></span></div>
+                  </div>
+                </section>
+              </div>
+
+              <aside class="side-column">
+                <section class="panel">
+                  <div class="panel-header">
+                    <h3>Budget</h3>
+                    <span class="badge warn">30k left</span>
+                  </div>
+                  <div class="panel-body budget-list">
+                    <div class="budget-row"><span>Starting</span><strong>1,000,000 gp</strong></div>
+                    <div class="budget-row"><span>Players</span><strong>760,000 gp</strong></div>
+                    <div class="budget-row"><span>Rerolls</span><strong>150,000 gp</strong></div>
+                    <div class="budget-row"><span>Staff</span><strong>60,000 gp</strong></div>
+                    <div class="budget-row remaining"><span>Remaining</span><strong>30,000 gp</strong></div>
+                    <div class="meter"><span></span></div>
+                  </div>
+                </section>
+                <section class="panel">
+                  <div class="panel-header">
+                    <h3>Status</h3>
+                    <span class="badge good">Ready</span>
+                  </div>
+                  <div class="panel-body status-list">
+                    <div class="status-row"><span>Roster size</span><strong>11 / 16</strong></div>
+                    <div class="status-row"><span>Minimum players</span><strong>Met</strong></div>
+                    <div class="status-row"><span>Team value</span><strong>970,000 gp</strong></div>
+                    <div class="callout">Ogre cannot be added: only 30,000 gp remains and the position costs 140,000 gp.</div>
+                  </div>
+                </section>
+                <section class="panel">
+                  <div class="panel-header">
+                    <h3>Roster Preview</h3>
+                  </div>
+                  <div class="panel-body mini-list">
+                    <div class="mini-row"><span>Lineman</span><strong>x7</strong></div>
+                    <div class="mini-row"><span>Blitzer</span><strong>x2</strong></div>
+                    <div class="mini-row"><span>Thrower</span><strong>x1</strong></div>
+                    <div class="mini-row"><span>Catcher</span><strong>x1</strong></div>
+                  </div>
+                </section>
+              </aside>
+            </div>
+          </section>
+        </div>
+      </article>
+
+      <article class="app" aria-label="Edit team mockup">
+        <header class="topbar">
+          <div class="brand"><span class="mark" aria-hidden="true"></span>SoloBB</div>
+          <div class="save-state">League: Reikland Cup&nbsp;&nbsp;|&nbsp;&nbsp;Unsaved changes</div>
+        </header>
+        <div class="body">
+          <aside class="nav">
+            <h3>League</h3>
+            <div class="nav-item">League Home</div>
+            <div class="nav-item active">Teams</div>
+            <div class="nav-item">Schedule</div>
+            <div class="nav-item">Rules</div>
+            <h3>System</h3>
+            <div class="nav-item">New League</div>
+            <div class="nav-item">Load League</div>
+            <div class="nav-item">Back / Exit</div>
+          </aside>
+          <section class="content">
+            <header class="screen-header">
+              <div class="title-block">
+                <div class="eyebrow">Team management</div>
+                <h2>Edit Middenheim Maulers</h2>
+                <p class="subhead">Update team identity, staff, assets, and league-facing value without mixing in player progression.</p>
+              </div>
+              <div class="header-actions">
+                <button>Back</button>
+                <button class="danger">Discard</button>
+                <button class="primary">Save Changes</button>
+              </div>
+            </header>
+
+            <div class="page-grid">
+              <div class="main-column">
+                <section class="panel">
+                  <div class="panel-header">
+                    <h3>Team Snapshot</h3>
+                    <span class="badge">Human roster</span>
+                  </div>
+                  <div class="panel-body">
+                    <div class="team-strip">
+                      <div class="team-token" aria-hidden="true"></div>
+                      <div>
+                        <div class="form-grid">
+                          <div class="field">
+                            <label>Team Name</label>
+                            <div class="input">Middenheim Maulers</div>
+                          </div>
+                          <div class="field">
+                            <label>Coach</label>
+                            <div class="input">Hotseat</div>
+                          </div>
+                        </div>
+                        <div class="compact-stats">
+                          <div class="stat"><span>TV</span><strong>1,050,000</strong></div>
+                          <div class="stat"><span>Treasury</span><strong>80,000</strong></div>
+                          <div class="stat"><span>Players</span><strong>12</strong></div>
+                          <div class="stat"><span>Record</span><strong>2-0-0</strong></div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+
+                <section class="panel">
+                  <div class="panel-header">
+                    <h3>Team Assets</h3>
+                    <span class="badge">Staff and sideline</span>
+                  </div>
+                  <div class="panel-body asset-grid">
+                    <div class="asset"><label>Rerolls</label><span class="stepper"><span>-</span><span>3</span><span>+</span></span></div>
+                    <div class="asset"><label>Fan Factor</label><span class="stepper"><span>-</span><span>2</span><span>+</span></span></div>
+                    <div class="asset"><label>Assistants</label><span class="stepper"><span>-</span><span>1</span><span>+</span></span></div>
+                    <div class="asset"><label>Cheerleaders</label><span class="stepper"><span>-</span><span>0</span><span>+</span></span></div>
+                    <div class="asset"><label>Apothecary</label><span class="stepper"><span>-</span><span>1</span><span class="disabled">+</span></span></div>
+                  </div>
+                  <div class="footer-note">Existing-team edit stays at the team level. Player names, skills, SPP, and injuries live on the roster page.</div>
+                </section>
+
+                <section class="panel">
+                  <div class="panel-header">
+                    <h3>Team Actions</h3>
+                    <span class="badge warn">Roster attention</span>
+                  </div>
+                  <div class="panel-body action-list">
+                    <div class="action-row">
+                      <div>
+                        <strong>Open Roster</strong>
+                        <p>Manage player names, numbers, SPP spending, level-ups, injuries, and retirements.</p>
+                      </div>
+                      <button class="primary">Open Roster</button>
+                    </div>
+                    <div class="action-row">
+                      <div>
+                        <strong>Hire or Fire Players</strong>
+                        <p>Use a focused transaction flow when league treasury and roster legality need review.</p>
+                      </div>
+                      <button>Transactions</button>
+                    </div>
+                  </div>
+                </section>
+              </div>
+
+              <aside class="side-column">
+                <section class="panel">
+                  <div class="panel-header">
+                    <h3>Team Value</h3>
+                    <span class="badge">Preview</span>
+                  </div>
+                  <div class="panel-body budget-list">
+                    <div class="budget-row"><span>Current TV</span><strong>1,050,000 gp</strong></div>
+                    <div class="budget-row"><span>Player delta</span><strong>+140,000 gp</strong></div>
+                    <div class="budget-row"><span>Staff delta</span><strong>0 gp</strong></div>
+                    <div class="budget-row remaining"><span>New TV</span><strong>1,190,000 gp</strong></div>
+                    <div class="meter"><span style="width: 88%"></span></div>
+                  </div>
+                </section>
+                <section class="panel">
+                  <div class="panel-header">
+                    <h3>Roster Summary</h3>
+                  </div>
+                  <div class="panel-body mini-list">
+                    <div class="mini-row"><span>Ready players</span><strong>11</strong></div>
+                    <div class="mini-row"><span>Missing next game</span><strong>1</strong></div>
+                    <div class="mini-row"><span>Can level up</span><strong>2</strong></div>
+                    <div class="mini-row"><span>Open roster page</span><button>Open</button></div>
+                  </div>
+                </section>
+                <section class="panel">
+                  <div class="panel-header">
+                    <h3>Save Status</h3>
+                    <span class="badge warn">Changed</span>
+                  </div>
+                  <div class="panel-body status-list">
+                    <div class="status-row"><span>Roster size</span><strong>12 / 16</strong></div>
+                    <div class="status-row"><span>Treasury</span><strong>80,000 gp</strong></div>
+                    <div class="status-row"><span>Validation</span><strong>Legal</strong></div>
+                    <div class="callout">Team edit deliberately does not expose player progression. Roster alerts are summarized here and resolved on the roster page.</div>
+                  </div>
+                </section>
+              </aside>
+            </div>
+          </section>
+        </div>
+      </article>
+
+      <article class="app" aria-label="Roster management mockup">
+        <header class="topbar">
+          <div class="brand"><span class="mark" aria-hidden="true"></span>SoloBB</div>
+          <div class="save-state">League: Reikland Cup&nbsp;&nbsp;|&nbsp;&nbsp;Saved 7:48 PM</div>
+        </header>
+        <div class="body">
+          <aside class="nav">
+            <h3>League</h3>
+            <div class="nav-item">League Home</div>
+            <div class="nav-item active">Teams</div>
+            <div class="nav-item">Schedule</div>
+            <div class="nav-item">Rules</div>
+            <h3>Team</h3>
+            <div class="nav-item">Team Edit</div>
+            <div class="nav-item active">Roster</div>
+            <div class="nav-item">Transactions</div>
+          </aside>
+          <section class="content">
+            <header class="screen-header">
+              <div class="title-block">
+                <div class="eyebrow">Roster management</div>
+                <h2>Middenheim Maulers Roster</h2>
+                <p class="subhead">Manage players as individuals: names, numbers, SPP, level-ups, status, and retirement decisions.</p>
+              </div>
+              <div class="header-actions">
+                <button>Back to Team</button>
+                <button class="primary">Save Roster</button>
+              </div>
+            </header>
+
+            <div class="player-layout">
+              <div class="main-column">
+                <section class="panel">
+                  <div class="panel-header">
+                    <h3>Players</h3>
+                    <div class="tabs">
+                      <span class="tab active">All</span>
+                      <span class="tab">Can Level</span>
+                      <span class="tab">Injured</span>
+                      <span class="tab">Journeymen</span>
+                    </div>
+                  </div>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Player</th>
+                        <th>Position</th>
+                        <th>Status</th>
+                        <th class="num">SPP</th>
+                        <th>Progress</th>
+                        <th>Next Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr class="selected">
+                        <td><span class="player-name"><span class="player-number">2</span>Bruno Falk</span></td>
+                        <td>Blitzer</td>
+                        <td><span class="badge good">Ready</span></td>
+                        <td class="num">8</td>
+                        <td><span class="spp-bar"><span class="meter"><span style="width: 80%"></span></span><small>8 / 10</small></span></td>
+                        <td><button>Rename</button></td>
+                      </tr>
+                      <tr>
+                        <td><span class="player-name"><span class="player-number">3</span>Blitzer 2</span></td>
+                        <td>Blitzer</td>
+                        <td><span class="badge good">Ready</span></td>
+                        <td class="num">12</td>
+                        <td><span class="spp-bar"><span class="meter"><span style="width: 100%"></span></span><small>Level available</small></span></td>
+                        <td><button class="primary">Spend SPP</button></td>
+                      </tr>
+                      <tr>
+                        <td><span class="player-name"><span class="player-number">7</span>Karl Brenner</span></td>
+                        <td>Catcher</td>
+                        <td><span class="badge warn">MNG</span></td>
+                        <td class="num">6</td>
+                        <td><span class="spp-bar"><span class="meter"><span style="width: 60%"></span></span><small>6 / 10</small></span></td>
+                        <td><button>View Injury</button></td>
+                      </tr>
+                      <tr>
+                        <td><span class="player-name"><span class="player-number">9</span>Thrower 1</span></td>
+                        <td>Thrower</td>
+                        <td><span class="badge good">Ready</span></td>
+                        <td class="num">10</td>
+                        <td><span class="spp-bar"><span class="meter"><span style="width: 100%"></span></span><small>Level available</small></span></td>
+                        <td><button class="primary">Spend SPP</button></td>
+                      </tr>
+                    </tbody>
+                  </table>
+                  <div class="footer-note">Selecting a player opens the inspector. Level-up controls should stay disabled until the player has enough SPP and a legal advancement choice is selected.</div>
+                </section>
+
+                <section class="panel">
+                  <div class="panel-header">
+                    <h3>SPP and Level Queue</h3>
+                    <span class="badge warn">2 available</span>
+                  </div>
+                  <div class="panel-body action-list">
+                    <div class="action-row">
+                      <div>
+                        <strong>Blitzer 2 can take a chosen primary skill</strong>
+                        <p>12 SPP available. Primary categories: General, Strength.</p>
+                      </div>
+                      <button class="primary">Choose Skill</button>
+                    </div>
+                    <div class="action-row">
+                      <div>
+                        <strong>Thrower 1 can take a random primary skill</strong>
+                        <p>10 SPP available. Random skill purchase leaves more SPP for later development.</p>
+                      </div>
+                      <button>Roll Skill</button>
+                    </div>
+                  </div>
+                </section>
+              </div>
+
+              <aside class="side-column">
+                <section class="panel">
+                  <div class="panel-header">
+                    <h3>Player Inspector</h3>
+                    <span class="badge good">Ready</span>
+                  </div>
+                  <div class="panel-body">
+                    <div class="inspector-title">
+                      <div class="portrait" aria-hidden="true"></div>
+                      <div>
+                        <h3>Bruno Falk</h3>
+                        <p class="subhead">#2 Blitzer</p>
+                      </div>
+                    </div>
+                    <div class="form-grid">
+                      <div class="field">
+                        <label>Display Name</label>
+                        <div class="input">Bruno Falk</div>
+                      </div>
+                      <div class="field">
+                        <label>Number</label>
+                        <div class="input">2</div>
+                      </div>
+                    </div>
+                    <div class="compact-stats">
+                      <div class="stat"><span>MA</span><strong>7</strong></div>
+                      <div class="stat"><span>ST</span><strong>3</strong></div>
+                      <div class="stat"><span>AG</span><strong>3+</strong></div>
+                      <div class="stat"><span>AV</span><strong>9+</strong></div>
+                    </div>
+                  </div>
+                </section>
+
+                <section class="panel">
+                  <div class="panel-header">
+                    <h3>Development</h3>
+                  </div>
+                  <div class="panel-body status-list">
+                    <div class="status-row"><span>SPP</span><strong>8</strong></div>
+                    <div class="status-row"><span>Next threshold</span><strong>10</strong></div>
+                    <div class="status-row"><span>Skills</span><strong>Block</strong></div>
+                    <div class="callout">Two more SPP unlock this player's next advancement. The spend flow should show legal choices, TV impact, and confirm before saving.</div>
+                  </div>
+                </section>
+
+                <section class="panel">
+                  <div class="panel-header">
+                    <h3>Roster Health</h3>
+                    <span class="badge warn">1 MNG</span>
+                  </div>
+                  <div class="panel-body mini-list">
+                    <div class="mini-row"><span>Ready</span><strong>11</strong></div>
+                    <div class="mini-row"><span>Missing next game</span><strong>1</strong></div>
+                    <div class="mini-row"><span>Journeymen</span><strong>0</strong></div>
+                    <div class="mini-row"><span>Total SPP</span><strong>44</strong></div>
+                  </div>
+                </section>
+              </aside>
+            </div>
+          </section>
+        </div>
+      </article>
+    </section>
+  </main>
+</body>
+</html>
