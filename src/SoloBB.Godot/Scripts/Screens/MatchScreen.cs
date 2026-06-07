@@ -46,6 +46,8 @@ public partial class MatchScreen : VBoxContainer
     private Button _doneButton = null!;
     private Texture2D? _humanSpriteSheet;
     private Texture2D? _orcSpriteSheet;
+    private Texture2D? _dwarfSpriteSheet;
+    private Texture2D? _shamblingUndeadSpriteSheet;
     private Texture2D? _pitchObjectSheet;
     private Texture2D? _blockDiceSheet;
     private Texture2D? _pitchTileSheet;
@@ -722,6 +724,8 @@ public partial class MatchScreen : VBoxContainer
         _atlasCache.Clear();
         _humanSpriteSheet = GD.Load<Texture2D>("res://assets/sprites/human_team_32.png");
         _orcSpriteSheet = GD.Load<Texture2D>("res://assets/sprites/orc_team_32.png");
+        _dwarfSpriteSheet = GD.Load<Texture2D>("res://assets/sprites/dwarf_team_32.png");
+        _shamblingUndeadSpriteSheet = GD.Load<Texture2D>("res://assets/sprites/shambling_undead_team_32.png");
         _pitchObjectSheet = GD.Load<Texture2D>("res://assets/sprites/pitch_objects_32.png");
         _blockDiceSheet = GD.Load<Texture2D>("res://assets/sprites/block_dice_32.png");
         _pitchTileSheet = GD.Load<Texture2D>("res://assets/sprites/pitch_tiles_32.png");
@@ -780,6 +784,31 @@ public partial class MatchScreen : VBoxContainer
                 _ => 3
             };
             return AtlasCell(_orcSpriteSheet, $"orc:{column}:{row}", column, row);
+        }
+
+        if (string.Equals(team.RosterId, "dwarf", StringComparison.OrdinalIgnoreCase))
+        {
+            var column = player.PositionId switch
+            {
+                "runner" => 0,
+                "blitzer" => 1,
+                "troll-slayer" => 2,
+                _ => 3
+            };
+            return AtlasCell(_dwarfSpriteSheet, $"dwarf:{column}:{row}", column, row);
+        }
+
+        if (string.Equals(team.RosterId, "shambling-undead", StringComparison.OrdinalIgnoreCase))
+        {
+            var column = player.PositionId switch
+            {
+                "zombie" => 1,
+                "ghoul" => 2,
+                "wight" => 3,
+                "mummy" => 4,
+                _ => 0
+            };
+            return AtlasCell(_shamblingUndeadSpriteSheet, $"shambling-undead:{column}:{row}", column, row);
         }
 
         var humanColumn = player.PositionId switch

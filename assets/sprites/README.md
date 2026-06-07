@@ -28,6 +28,33 @@ Layout: `4 columns x 2 rows`
 | 2 | Big un | Big un prone |
 | 3 | Lineman | Lineman prone |
 
+## `dwarf_team_32.png`
+
+Size: `128x64`
+Cell size: `32x32`
+Layout: `4 columns x 2 rows`
+
+| Cell | Standing Row | Prone Row |
+| --- | --- | --- |
+| 0 | Runner | Runner prone |
+| 1 | Blitzer | Blitzer prone |
+| 2 | Troll Slayer | Troll Slayer prone |
+| 3 | Blocker Lineman | Blocker Lineman prone |
+
+## `shambling_undead_team_32.png`
+
+Size: `160x64`
+Cell size: `32x32`
+Layout: `5 columns x 2 rows`
+
+| Cell | Standing Row | Prone Row |
+| --- | --- | --- |
+| 0 | Skeleton Lineman | Skeleton Lineman prone |
+| 1 | Zombie Lineman | Zombie Lineman prone |
+| 2 | Ghoul Runner | Ghoul Runner prone |
+| 3 | Wight Blitzer | Wight Blitzer prone |
+| 4 | Mummy | Mummy prone |
+
 ## `pitch_objects_32.png`
 
 Size: `192x128`
