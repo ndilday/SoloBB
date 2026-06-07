@@ -1,0 +1,1247 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SoloBB Pre-Game UI Mockups</title>
+  <style>
+    :root {
+      --ink: #f3ead6;
+      --muted: #bfb39c;
+      --field: #1f3b2b;
+      --field-dark: #13261d;
+      --panel: #211b17;
+      --panel-2: #2b241e;
+      --line: #6f5a3f;
+      --gold: #d8a43f;
+      --red: #9c2f28;
+      --blue: #27506e;
+      --green: #578042;
+      --black: #0d0c0b;
+      --paper: #ead9b7;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--ink);
+      font-family: "Segoe UI", Arial, sans-serif;
+      background:
+        linear-gradient(90deg, rgba(255,255,255,.035) 1px, transparent 1px) 0 0 / 56px 56px,
+        radial-gradient(circle at 20% 0%, rgba(156,47,40,.35), transparent 38%),
+        radial-gradient(circle at 82% 12%, rgba(216,164,63,.16), transparent 30%),
+        linear-gradient(135deg, #13110f, #241c17 52%, #101615);
+    }
+
+    main {
+      width: min(1440px, calc(100vw - 40px));
+      margin: 0 auto;
+      padding: 28px 0 44px;
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin: 0;
+    }
+
+    h1 {
+      font-size: 30px;
+      letter-spacing: 0;
+      margin-bottom: 8px;
+    }
+
+    .intro {
+      max-width: 980px;
+      color: var(--muted);
+      line-height: 1.45;
+      margin-bottom: 22px;
+    }
+
+    .mockup {
+      overflow: hidden;
+      border: 1px solid rgba(216,164,63,.34);
+      background: rgba(13,12,11,.72);
+      box-shadow: 0 24px 60px rgba(0,0,0,.38);
+      margin-top: 28px;
+    }
+
+    .mockup-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      padding: 16px 18px;
+      background: linear-gradient(90deg, #15120f, #2d241c);
+      border-bottom: 1px solid rgba(216,164,63,.28);
+    }
+
+    .mockup-title h2 {
+      font-size: 19px;
+    }
+
+    .tag {
+      color: #1a1207;
+      background: var(--gold);
+      border: 1px solid #f2cf76;
+      padding: 4px 10px;
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .screen {
+      min-height: 760px;
+      padding: 22px;
+      background:
+        linear-gradient(0deg, rgba(255,255,255,.04) 1px, transparent 1px) 0 0 / 100% 48px,
+        linear-gradient(90deg, rgba(255,255,255,.035) 1px, transparent 1px) 0 0 / 64px 100%,
+        linear-gradient(160deg, var(--field), var(--field-dark));
+    }
+
+    .topbar,
+    .footerbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      background: rgba(12,10,8,.82);
+      border: 1px solid rgba(234,217,183,.2);
+      padding: 14px 16px;
+    }
+
+    .crumb {
+      color: var(--gold);
+      font-size: 13px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .match-title {
+      font-size: 26px;
+      font-weight: 900;
+    }
+
+    .button-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    button {
+      color: var(--ink);
+      border: 1px solid rgba(234,217,183,.28);
+      background: #312821;
+      padding: 10px 14px;
+      font: inherit;
+      font-weight: 800;
+    }
+
+    .primary {
+      color: #130c05;
+      background: linear-gradient(#f1c865, #b97824);
+      border-color: #ffd884;
+    }
+
+    .ghost {
+      background: rgba(0,0,0,.2);
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      color: var(--ink);
+      border: 1px solid rgba(234,217,183,.18);
+      background: rgba(0,0,0,.25);
+      padding: 4px 9px;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .grid-two {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-top: 16px;
+    }
+
+    .grid-main {
+      display: grid;
+      grid-template-columns: minmax(0, 1.05fr) minmax(340px, .65fr);
+      gap: 16px;
+      margin-top: 16px;
+    }
+
+    .panel,
+    .team-card,
+    .star-card {
+      border: 1px solid rgba(234,217,183,.18);
+      background: linear-gradient(180deg, rgba(43,36,30,.94), rgba(28,23,19,.95));
+    }
+
+    .panel {
+      padding: 15px;
+    }
+
+    .team-card {
+      overflow: hidden;
+    }
+
+    .team-head {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      align-items: start;
+      gap: 12px;
+      padding: 15px;
+      border-bottom: 1px solid rgba(234,217,183,.14);
+    }
+
+    .team-head.home {
+      background: linear-gradient(90deg, rgba(156,47,40,.56), rgba(35,28,22,.3));
+    }
+
+    .team-head.away {
+      background: linear-gradient(90deg, rgba(39,80,110,.62), rgba(35,28,22,.3));
+    }
+
+    .team-name {
+      font-size: 24px;
+      font-weight: 900;
+    }
+
+    .small {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .numbers {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+      padding: 15px;
+    }
+
+    .stat {
+      min-height: 68px;
+      border: 1px solid rgba(234,217,183,.13);
+      background: rgba(0,0,0,.2);
+      padding: 9px;
+    }
+
+    .label {
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      font-weight: 800;
+    }
+
+    .value {
+      margin-top: 6px;
+      font-size: 18px;
+      font-weight: 900;
+    }
+
+    .gold {
+      color: var(--gold);
+    }
+
+    .controls {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      padding: 0 15px 15px;
+    }
+
+    .control {
+      display: grid;
+      gap: 8px;
+    }
+
+    .stepper,
+    .money-input {
+      display: grid;
+      grid-template-columns: 36px 1fr 36px;
+      align-items: center;
+      min-height: 42px;
+      border: 1px solid rgba(234,217,183,.22);
+      background: rgba(0,0,0,.28);
+    }
+
+    .stepper span,
+    .money-input span {
+      text-align: center;
+      font-weight: 900;
+    }
+
+    .stepper b,
+    .money-input b {
+      text-align: center;
+      color: var(--ink);
+      font-size: 17px;
+    }
+
+    .meter {
+      height: 12px;
+      overflow: hidden;
+      border: 1px solid rgba(234,217,183,.2);
+      background: rgba(0,0,0,.38);
+    }
+
+    .meter > div {
+      height: 100%;
+      background: linear-gradient(90deg, var(--gold), #f3d88a);
+    }
+
+    .ledger {
+      display: grid;
+      gap: 10px;
+    }
+
+    .ledger-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 12px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid rgba(234,217,183,.12);
+    }
+
+    .ledger-row:last-child {
+      border-bottom: 0;
+      padding-bottom: 0;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 16px;
+    }
+
+    .tab {
+      padding: 10px 13px;
+      border: 1px solid rgba(234,217,183,.18);
+      background: rgba(0,0,0,.28);
+      color: var(--muted);
+      font-weight: 800;
+    }
+
+    .tab.active {
+      color: #130c05;
+      background: var(--gold);
+      border-color: #f2cf76;
+    }
+
+    .stars-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 14px;
+    }
+
+    .star-card {
+      min-height: 170px;
+      padding: 13px;
+    }
+
+    .star-card.disabled {
+      opacity: .46;
+    }
+
+    .star-top {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      align-items: start;
+    }
+
+    .star-name {
+      font-size: 17px;
+      font-weight: 900;
+    }
+
+    .stats-line {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 4px;
+      margin: 11px 0;
+    }
+
+    .stats-line span {
+      text-align: center;
+      background: rgba(0,0,0,.28);
+      border: 1px solid rgba(234,217,183,.12);
+      padding: 5px 2px;
+      font-size: 12px;
+      font-weight: 900;
+    }
+
+    .chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+    }
+
+    .chip {
+      color: var(--paper);
+      border: 1px solid rgba(234,217,183,.16);
+      background: rgba(255,255,255,.06);
+      padding: 4px 7px;
+      font-size: 12px;
+    }
+
+    .split-versus {
+      display: grid;
+      grid-template-columns: 1fr 96px 1fr;
+      gap: 12px;
+      align-items: stretch;
+      margin-top: 16px;
+    }
+
+    .versus {
+      display: grid;
+      place-items: center;
+      color: #140d05;
+      background: var(--gold);
+      border: 2px solid #f2cf76;
+      font-size: 26px;
+      font-weight: 1000;
+    }
+
+    .coach-column {
+      min-height: 612px;
+      border: 1px solid rgba(234,217,183,.18);
+      background: rgba(13,12,11,.68);
+      padding: 14px;
+    }
+
+    .actions-list {
+      display: grid;
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .action-tile {
+      display: grid;
+      grid-template-columns: 42px 1fr auto;
+      gap: 10px;
+      align-items: center;
+      border: 1px solid rgba(234,217,183,.14);
+      background: rgba(43,36,30,.82);
+      padding: 10px;
+    }
+
+    .icon-box {
+      display: grid;
+      place-items: center;
+      width: 42px;
+      height: 42px;
+      color: #150d05;
+      background: var(--gold);
+      font-weight: 1000;
+    }
+
+    .compact-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 12px;
+    }
+
+    .compact-table th,
+    .compact-table td {
+      border-bottom: 1px solid rgba(234,217,183,.12);
+      padding: 9px 8px;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    .compact-table th {
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+    }
+
+    .timeline {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+      margin-top: 16px;
+    }
+
+    .timeline-step {
+      border: 1px solid rgba(234,217,183,.16);
+      background: rgba(0,0,0,.26);
+      padding: 11px;
+    }
+
+    .timeline-step.active {
+      border-color: rgba(216,164,63,.72);
+      box-shadow: inset 0 0 0 1px rgba(216,164,63,.2);
+    }
+
+    .roster-strip {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-top: 14px;
+    }
+
+    .note {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.45;
+      margin-top: 10px;
+    }
+
+    .market-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 9px;
+      margin-top: 12px;
+    }
+
+    .market-item {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 8px;
+      align-items: start;
+      border: 1px solid rgba(234,217,183,.14);
+      background: rgba(0,0,0,.22);
+      padding: 9px;
+      min-height: 84px;
+    }
+
+    .market-item.disabled {
+      opacity: .52;
+    }
+
+    .market-name {
+      font-weight: 900;
+      font-size: 14px;
+    }
+
+    .price {
+      color: var(--gold);
+      font-size: 13px;
+      font-weight: 900;
+      white-space: nowrap;
+    }
+
+    .qty {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 48px;
+      height: 28px;
+      border: 1px solid rgba(234,217,183,.18);
+      background: rgba(0,0,0,.28);
+      color: var(--ink);
+      font-size: 12px;
+      font-weight: 900;
+    }
+
+    .status-dot {
+      display: inline-flex;
+      align-items: center;
+      min-height: 22px;
+      padding: 2px 7px;
+      border: 1px solid rgba(234,217,183,.14);
+      background: rgba(255,255,255,.055);
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .status-dot.live {
+      color: #17200f;
+      background: #9ec36b;
+      border-color: #c7e88b;
+    }
+
+    .status-dot.locked {
+      color: #2a1714;
+      background: #d18a75;
+      border-color: #f0b19c;
+    }
+
+    .category-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px;
+      margin-top: 10px;
+    }
+
+    .flow-pair {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-top: 16px;
+    }
+
+    .screenlet {
+      min-height: 660px;
+      border: 1px solid rgba(234,217,183,.18);
+      background:
+        linear-gradient(0deg, rgba(255,255,255,.03) 1px, transparent 1px) 0 0 / 100% 44px,
+        linear-gradient(160deg, rgba(31,59,43,.92), rgba(19,38,29,.98));
+      padding: 16px;
+    }
+
+    .handoff {
+      border: 1px solid rgba(216,164,63,.5);
+      background: rgba(216,164,63,.12);
+      padding: 12px;
+      margin-top: 12px;
+    }
+
+    .formula {
+      display: grid;
+      gap: 7px;
+      margin-top: 10px;
+      color: var(--paper);
+      font-size: 14px;
+    }
+
+    .formula-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 10px;
+      border-bottom: 1px solid rgba(234,217,183,.12);
+      padding-bottom: 7px;
+    }
+
+    .formula-row.total {
+      color: var(--gold);
+      border-bottom: 0;
+      font-weight: 900;
+      padding-bottom: 0;
+    }
+
+    @media (max-width: 980px) {
+      main {
+        width: min(100vw - 20px, 720px);
+      }
+
+      .screen {
+        padding: 14px;
+      }
+
+      .grid-two,
+      .grid-main,
+      .split-versus,
+      .roster-strip {
+        grid-template-columns: 1fr;
+      }
+
+      .versus {
+        min-height: 62px;
+      }
+
+      .stars-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .market-grid,
+      .numbers,
+      .timeline,
+      .flow-pair {
+        grid-template-columns: 1fr 1fr;
+      }
+    }
+
+    @media (max-width: 720px) {
+      .flow-pair,
+      .market-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Pre-Game UI Mockups</h1>
+    <p class="intro">Layout directions for SoloBB's inducement flow. The lead concept uses two team-specific marketplace screens: the higher-TV team buys first from treasury, then the lower-TV team's petty cash is recalculated from the TV gap plus that higher-TV treasury spend.</p>
+
+    <section class="mockup">
+      <div class="mockup-title">
+        <h2>Lead Concept: Two-Screen Inducement Flow</h2>
+        <span class="tag">Rules-first</span>
+      </div>
+      <div class="screen">
+        <header class="topbar">
+          <div>
+            <div class="crumb">Week 1 - Pre-Game Sequence</div>
+            <div class="match-title">Outriders spend, then Hammers spend</div>
+          </div>
+          <div class="button-row">
+            <span class="pill">Higher TV: Outriders</span>
+            <span class="pill">Lower TV: Hammers</span>
+          </div>
+        </header>
+
+        <div class="flow-pair">
+          <section class="screenlet">
+            <div class="crumb">Screen 1 of 2</div>
+            <div class="team-head away" style="margin-top: 10px;">
+              <div>
+                <div class="team-name">Outriders</div>
+                <div class="small">Higher TV team buys inducements first</div>
+              </div>
+              <span class="pill">TV 1,000k</span>
+            </div>
+
+            <div class="numbers">
+              <div class="stat"><div class="label">Outriders TV</div><div class="value">1,000k</div></div>
+              <div class="stat"><div class="label">Hammers TV</div><div class="value">995k</div></div>
+              <div class="stat"><div class="label">TV Gap</div><div class="value gold">5k</div></div>
+              <div class="stat"><div class="label">Treasury</div><div class="value">0</div></div>
+            </div>
+
+            <div class="panel" style="margin-top: 12px;">
+              <h3>Treasury Budget</h3>
+              <p class="note">Outriders can buy from the same market as Hammers. Any treasury committed here is added to Hammers' petty cash on the next screen.</p>
+              <div class="control" style="margin-top: 12px;">
+                <div class="label">Outriders treasury spend</div>
+                <div class="money-input"><span>-</span><b>0 gp</b><span>+</span></div>
+              </div>
+            </div>
+
+            <div class="panel" style="margin-top: 12px;">
+              <h3>Inducement Market</h3>
+              <div class="category-row">
+                <span class="tab active">Core Staff</span>
+                <span class="tab">Recovery</span>
+                <span class="tab">Tricks</span>
+                <span class="tab">Players</span>
+              </div>
+              <div class="market-grid">
+                <div class="market-item">
+                  <div>
+                    <div class="market-name">Temp Agency Cheerleaders</div>
+                    <div class="small">Kickoff table contests</div>
+                    <span class="status-dot live">implemented</span>
+                  </div>
+                  <div><div class="price">20k each</div><div class="qty">0 / 4</div></div>
+                </div>
+                <div class="market-item">
+                  <div>
+                    <div class="market-name">Extra Team Training</div>
+                    <div class="small">Temporary team rerolls</div>
+                    <span class="status-dot live">implemented</span>
+                  </div>
+                  <div><div class="price">100k each</div><div class="qty">0 / 8</div></div>
+                </div>
+                <div class="market-item">
+                  <div>
+                    <div class="market-name">Bribes</div>
+                    <div class="small">Badlands teams pay normal rate unless they have Bribery and Corruption</div>
+                    <span class="status-dot live">implemented</span>
+                  </div>
+                  <div><div class="price">100k each</div><div class="qty">0 / 3</div></div>
+                </div>
+                <div class="market-item">
+                  <div>
+                    <div class="market-name">Bloodweiser Kegs</div>
+                    <div class="small">KO recovery support</div>
+                    <span class="status-dot">selection only</span>
+                  </div>
+                  <div><div class="price">50k each</div><div class="qty">0 / 2</div></div>
+                </div>
+                <div class="market-item">
+                  <div>
+                    <div class="market-name">Special Plays</div>
+                    <div class="small">0-5 fixed-price plays</div>
+                    <span class="status-dot">selection only</span>
+                  </div>
+                  <div><div class="price">100k each</div><div class="qty">0 / 5</div></div>
+                </div>
+                <div class="market-item disabled">
+                  <div>
+                    <div class="market-name">Stars, Mercs, Staff</div>
+                    <div class="small">Variable cost detail picker</div>
+                    <span class="status-dot locked">needs picker</span>
+                  </div>
+                  <div><div class="price">varies</div><div class="qty">details</div></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="handoff">
+              <strong>Handoff to lower-TV team</strong>
+              <div class="formula">
+                <div class="formula-row"><span>Starting TV difference</span><span>5,000 gp</span></div>
+                <div class="formula-row"><span>Outriders treasury spent on inducements</span><span>0 gp</span></div>
+                <div class="formula-row total"><span>Hammers petty cash next</span><span>5,000 gp</span></div>
+              </div>
+            </div>
+
+            <footer class="footerbar" style="margin-top: 14px;">
+              <button class="ghost">Back</button>
+              <button class="primary">Continue to Hammers</button>
+            </footer>
+          </section>
+
+          <section class="screenlet">
+            <div class="crumb">Screen 2 of 2</div>
+            <div class="team-head home" style="margin-top: 10px;">
+              <div>
+                <div class="team-name">Hammers</div>
+                <div class="small">Lower TV team spends final petty cash</div>
+              </div>
+              <span class="pill">TV 995k</span>
+            </div>
+
+            <div class="numbers">
+              <div class="stat"><div class="label">TV Gap</div><div class="value">5k</div></div>
+              <div class="stat"><div class="label">From Outriders</div><div class="value">0</div></div>
+              <div class="stat"><div class="label">Own Treasury</div><div class="value">5k</div></div>
+              <div class="stat"><div class="label">Budget</div><div class="value gold">5k</div></div>
+            </div>
+
+            <div class="panel" style="margin-top: 12px;">
+              <h3>Inducement Market</h3>
+              <div class="category-row">
+                <span class="tab active">Core Staff</span>
+                <span class="tab">Recovery</span>
+                <span class="tab">Tricks</span>
+                <span class="tab">Players</span>
+                <span class="tab">Restricted</span>
+              </div>
+              <div class="market-grid">
+                <div class="market-item">
+                  <div>
+                    <div class="market-name">Temp Agency Cheerleaders</div>
+                    <div class="small">Kickoff table contests</div>
+                    <span class="status-dot live">implemented</span>
+                  </div>
+                  <div><div class="price">20k each</div><div class="qty">0 / 4</div></div>
+                </div>
+                <div class="market-item">
+                  <div>
+                    <div class="market-name">Part-time Assistant Coaches</div>
+                    <div class="small">Kickoff table contests</div>
+                    <span class="status-dot live">implemented</span>
+                  </div>
+                  <div><div class="price">20k each</div><div class="qty">0 / 3</div></div>
+                </div>
+                <div class="market-item">
+                  <div>
+                    <div class="market-name">Extra Team Training</div>
+                    <div class="small">Temporary team rerolls</div>
+                    <span class="status-dot live">implemented</span>
+                  </div>
+                  <div><div class="price">100k each</div><div class="qty">0 / 8</div></div>
+                </div>
+                <div class="market-item">
+                  <div>
+                    <div class="market-name">Bribes</div>
+                    <div class="small">50k with Bribery and Corruption</div>
+                    <span class="status-dot live">implemented</span>
+                  </div>
+                  <div><div class="price">100k each</div><div class="qty">0 / 3</div></div>
+                </div>
+                <div class="market-item">
+                  <div>
+                    <div class="market-name">Bloodweiser Kegs</div>
+                    <div class="small">KO recovery support</div>
+                    <span class="status-dot">selection only</span>
+                  </div>
+                  <div><div class="price">50k each</div><div class="qty">0 / 2</div></div>
+                </div>
+                <div class="market-item">
+                  <div>
+                    <div class="market-name">Wandering Apothecaries</div>
+                    <div class="small">Unavailable to teams without apothecary access</div>
+                    <span class="status-dot live">implemented</span>
+                  </div>
+                  <div><div class="price">100k each</div><div class="qty">0 / 2</div></div>
+                </div>
+                <div class="market-item">
+                  <div>
+                    <div class="market-name">Weather Mage</div>
+                    <div class="small">Weather control choice</div>
+                    <span class="status-dot">selection only</span>
+                  </div>
+                  <div><div class="price">30k</div><div class="qty">0 / 1</div></div>
+                </div>
+                <div class="market-item disabled">
+                  <div>
+                    <div class="market-name">Mercenaries, Wizard, Referee</div>
+                    <div class="small">Needs detail picker because price varies</div>
+                    <span class="status-dot locked">needs picker</span>
+                  </div>
+                  <div><div class="price">varies</div><div class="qty">locked</div></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="grid-two">
+              <div class="panel">
+                <h3>Treasury</h3>
+                <div class="control" style="margin-top: 12px;">
+                  <div class="label">Add own treasury</div>
+                  <div class="money-input"><span>-</span><b>0 gp</b><span>+</span></div>
+                </div>
+              </div>
+
+              <div class="panel">
+                <h3>Spend Summary</h3>
+                <div class="ledger" style="margin-top: 12px;">
+                  <div class="ledger-row"><span>Petty cash</span><strong>5,000 gp</strong></div>
+                  <div class="ledger-row"><span>Own treasury added</span><strong>0 gp</strong></div>
+                  <div class="ledger-row"><span>Core inducements</span><strong>0 gp</strong></div>
+                  <div class="ledger-row"><span>Stars and staff</span><strong>0 gp</strong></div>
+                  <div class="ledger-row"><span>Remaining</span><strong class="gold">5,000 gp</strong></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="panel" style="margin-top: 12px;">
+              <h3>Players and Named Help</h3>
+              <p class="note">Star players, mercenaries, famous coaching staff, wizards, and biased referees need detail pickers because cost varies. Fixed-price and implemented inducements can be bought directly above.</p>
+              <div class="chips" style="margin-top: 10px;">
+                <span class="chip">Old World Classic</span>
+                <span class="chip">0 affordable stars</span>
+                <span class="chip">3 eligible stars</span>
+                <span class="chip">Wizard: varies</span>
+                <span class="chip">Mercenaries: unlimited</span>
+              </div>
+            </div>
+
+            <footer class="footerbar" style="margin-top: 14px;">
+              <button class="ghost">Back to Outriders</button>
+              <button class="primary">Confirm Pre-Game</button>
+            </footer>
+          </section>
+        </div>
+      </div>
+    </section>
+
+    <section class="mockup">
+      <div class="mockup-title">
+        <h2>Mockup 1: Dugout Dashboard</h2>
+        <span class="tag">Recommended</span>
+      </div>
+      <div class="screen">
+        <header class="topbar">
+          <div>
+            <div class="crumb">Week 1 - Pre-Game Inducements</div>
+            <div class="match-title">Hammers vs Outriders</div>
+          </div>
+          <div class="button-row">
+            <button class="ghost">Back</button>
+            <button class="primary">Kick Off</button>
+          </div>
+        </header>
+
+        <div class="grid-two">
+          <article class="team-card">
+            <div class="team-head home">
+              <div>
+                <div class="team-name">Hammers</div>
+                <div class="small">Old World Classic</div>
+              </div>
+              <span class="pill">Home</span>
+            </div>
+            <div class="numbers">
+              <div class="stat"><div class="label">Team Value</div><div class="value">995k</div></div>
+              <div class="stat"><div class="label">Treasury</div><div class="value">5k</div></div>
+              <div class="stat"><div class="label">Petty Cash</div><div class="value gold">5k</div></div>
+              <div class="stat"><div class="label">Journeymen</div><div class="value">0</div></div>
+            </div>
+            <div class="controls">
+              <div class="control">
+                <div class="label">Bribes</div>
+                <div class="stepper"><span>-</span><b>0</b><span>+</span></div>
+              </div>
+              <div class="control">
+                <div class="label">Treasury Spend</div>
+                <div class="money-input"><span>-</span><b>0 gp</b><span>+</span></div>
+              </div>
+            </div>
+          </article>
+
+          <article class="team-card">
+            <div class="team-head away">
+              <div>
+                <div class="team-name">Outriders</div>
+                <div class="small">Badlands Brawl</div>
+              </div>
+              <span class="pill">Away</span>
+            </div>
+            <div class="numbers">
+              <div class="stat"><div class="label">Team Value</div><div class="value">1,000k</div></div>
+              <div class="stat"><div class="label">Treasury</div><div class="value">0</div></div>
+              <div class="stat"><div class="label">Petty Cash</div><div class="value">0</div></div>
+              <div class="stat"><div class="label">Journeymen</div><div class="value">0</div></div>
+            </div>
+            <div class="controls">
+              <div class="control">
+                <div class="label">Bribes</div>
+                <div class="stepper"><span>-</span><b>0</b><span>+</span></div>
+              </div>
+              <div class="control">
+                <div class="label">Treasury Spend</div>
+                <div class="money-input"><span>-</span><b>0 gp</b><span>+</span></div>
+              </div>
+            </div>
+          </article>
+        </div>
+
+        <div class="grid-main">
+          <section class="panel">
+            <div class="tabs">
+              <div class="tab active">Core Inducements</div>
+              <div class="tab">Stars</div>
+              <div class="tab">Mercenaries</div>
+              <div class="tab">Special Staff</div>
+              <div class="tab">Roster Rules</div>
+            </div>
+            <div class="market-grid">
+              <div class="market-item">
+                <div><div class="market-name">Cheerleaders</div><div class="small">0-4 temporary</div><span class="status-dot live">implemented</span></div>
+                <div><div class="price">20k</div><div class="qty">0 / 4</div></div>
+              </div>
+              <div class="market-item">
+                <div><div class="market-name">Assistant Coaches</div><div class="small">0-3 temporary</div><span class="status-dot live">implemented</span></div>
+                <div><div class="price">20k</div><div class="qty">0 / 3</div></div>
+              </div>
+              <div class="market-item">
+                <div><div class="market-name">Weather Mage</div><div class="small">Weather choice</div><span class="status-dot">selection only</span></div>
+                <div><div class="price">30k</div><div class="qty">0 / 1</div></div>
+              </div>
+              <div class="market-item">
+                <div><div class="market-name">Bloodweiser Kegs</div><div class="small">Recovery</div><span class="status-dot">selection only</span></div>
+                <div><div class="price">50k</div><div class="qty">0 / 2</div></div>
+              </div>
+              <div class="market-item">
+                <div><div class="market-name">Special Plays</div><div class="small">Cards or equivalent</div><span class="status-dot">selection only</span></div>
+                <div><div class="price">100k</div><div class="qty">0 / 5</div></div>
+              </div>
+              <div class="market-item disabled">
+                <div><div class="market-name">Stars / Mercs / Wizard</div><div class="small">Open picker for variable cost</div><span class="status-dot locked">needs picker</span></div>
+                <div><div class="price">varies</div><div class="qty">details</div></div>
+              </div>
+            </div>
+          </section>
+
+          <aside class="panel">
+            <h3>Inducement Ledger</h3>
+            <div class="ledger" style="margin-top: 14px;">
+              <div class="ledger-row"><span>Hammers budget</span><strong>5,000 gp</strong></div>
+              <div class="ledger-row"><span>Core staff</span><strong>0 gp</strong></div>
+              <div class="ledger-row"><span>Recovery and tricks</span><strong>0 gp</strong></div>
+              <div class="ledger-row"><span>Players and named staff</span><strong>0 gp</strong></div>
+              <div class="ledger-row"><span>Remaining</span><strong class="gold">5,000 gp</strong></div>
+            </div>
+            <div class="meter" style="margin-top: 16px;"><div style="width: 8%;"></div></div>
+            <p class="note">The screen can keep this fixed while the star list scrolls, so budget consequences stay visible.</p>
+          </aside>
+        </div>
+      </div>
+    </section>
+
+    <section class="mockup">
+      <div class="mockup-title">
+        <h2>Mockup 2: Versus Prep Sheet</h2>
+        <span class="tag">Fast Compare</span>
+      </div>
+      <div class="screen">
+        <header class="topbar">
+          <div>
+            <div class="crumb">Commissioner's Match Sheet</div>
+            <div class="match-title">Week 1: Hammers vs Outriders</div>
+          </div>
+          <div class="button-row">
+            <span class="pill">Ready</span>
+            <button class="primary">Start Match</button>
+          </div>
+        </header>
+
+        <div class="split-versus">
+          <section class="coach-column">
+            <div class="team-head home">
+              <div>
+                <div class="team-name">Hammers</div>
+                <div class="small">TV 995,000 - Treasury 5,000</div>
+              </div>
+              <span class="pill">+5k petty cash</span>
+            </div>
+            <div class="actions-list">
+              <div class="action-tile">
+                <div class="icon-box">$</div>
+                <div><strong>Treasury</strong><div class="small">Spend match-only gold</div></div>
+                <div class="stepper" style="width: 140px;"><span>-</span><b>0</b><span>+</span></div>
+              </div>
+              <div class="action-tile">
+                <div class="icon-box">!</div>
+                <div><strong>Core Staff</strong><div class="small">Cheerleaders, coaches, bribes, training</div></div>
+                <div class="stepper" style="width: 110px;"><span>-</span><b>0</b><span>+</span></div>
+              </div>
+              <div class="action-tile">
+                <div class="icon-box">*</div>
+                <div><strong>Players and Named Help</strong><div class="small">Stars, mercenaries, wizard, referee</div></div>
+                <button>Browse</button>
+              </div>
+              <div class="action-tile">
+                <div class="icon-box">?</div>
+                <div><strong>Recovery and Tricks</strong><div class="small">Kegs, apothecaries, special plays, mage</div></div>
+                <button>Browse</button>
+              </div>
+            </div>
+            <table class="compact-table">
+              <thead><tr><th>Budget</th><th>Cost</th><th>Left</th></tr></thead>
+              <tbody><tr><td>5,000 gp</td><td>0 gp</td><td class="gold">5,000 gp</td></tr></tbody>
+            </table>
+            <p class="note">Best when the player wants a quick side-by-side decision and fewer scrolling regions.</p>
+          </section>
+
+          <div class="versus">VS</div>
+
+          <section class="coach-column">
+            <div class="team-head away">
+              <div>
+                <div class="team-name">Outriders</div>
+                <div class="small">TV 1,000,000 - Treasury 0</div>
+              </div>
+              <span class="pill">No petty cash</span>
+            </div>
+            <div class="actions-list">
+              <div class="action-tile">
+                <div class="icon-box">$</div>
+                <div><strong>Treasury</strong><div class="small">No gold available</div></div>
+                <div class="stepper" style="width: 140px;"><span>-</span><b>0</b><span>+</span></div>
+              </div>
+              <div class="action-tile">
+                <div class="icon-box">!</div>
+                <div><strong>Core Staff</strong><div class="small">No budget available</div></div>
+                <div class="stepper" style="width: 110px;"><span>-</span><b>0</b><span>+</span></div>
+              </div>
+              <div class="action-tile">
+                <div class="icon-box">*</div>
+                <div><strong>Players and Named Help</strong><div class="small">2 eligible stars, variable-cost picks locked</div></div>
+                <button>Browse</button>
+              </div>
+              <div class="action-tile">
+                <div class="icon-box">?</div>
+                <div><strong>Restricted Inducements</strong><div class="small">Mortuary, plague doctor, rookies by roster rule</div></div>
+                <button>View</button>
+              </div>
+            </div>
+            <table class="compact-table">
+              <thead><tr><th>Budget</th><th>Cost</th><th>Left</th></tr></thead>
+              <tbody><tr><td>0 gp</td><td>0 gp</td><td>0 gp</td></tr></tbody>
+            </table>
+            <p class="note">Controls can disable with clear text instead of silently accepting impossible values.</p>
+          </section>
+        </div>
+
+        <footer class="footerbar" style="margin-top: 16px;">
+          <span>Roster rules: Hammers - Old World Classic. Outriders - Badlands Brawl.</span>
+          <button class="ghost">View Rules</button>
+        </footer>
+      </div>
+    </section>
+
+    <section class="mockup">
+      <div class="mockup-title">
+        <h2>Mockup 3: Matchday Wizard</h2>
+        <span class="tag">Most Guided</span>
+      </div>
+      <div class="screen">
+        <header class="topbar">
+          <div>
+            <div class="crumb">Pre-Game Sequence</div>
+            <div class="match-title">Hammers vs Outriders</div>
+          </div>
+          <div class="button-row">
+            <button class="ghost">Previous</button>
+            <button class="primary">Confirm Inducements</button>
+          </div>
+        </header>
+
+        <div class="timeline">
+          <div class="timeline-step"><div class="label">Step 1</div><strong>Matchup</strong></div>
+          <div class="timeline-step active"><div class="label">Step 2</div><strong>Budget</strong></div>
+          <div class="timeline-step"><div class="label">Step 3</div><strong>Market</strong></div>
+          <div class="timeline-step"><div class="label">Step 4</div><strong>Ready</strong></div>
+        </div>
+
+        <div class="grid-main">
+          <section class="panel">
+            <h3>Budget and Market Preview</h3>
+            <div class="grid-two">
+              <article class="team-card">
+                <div class="team-head home">
+                  <div>
+                    <div class="team-name">Hammers</div>
+                    <div class="small">Underdog by 5,000 gp</div>
+                  </div>
+                  <span class="pill">Budget 5k</span>
+                </div>
+                <div class="numbers">
+                  <div class="stat"><div class="label">Petty Cash</div><div class="value gold">5k</div></div>
+                  <div class="stat"><div class="label">Treasury Added</div><div class="value">0</div></div>
+                  <div class="stat"><div class="label">Bribes</div><div class="value">0</div></div>
+                  <div class="stat"><div class="label">Remaining</div><div class="value gold">5k</div></div>
+                </div>
+              </article>
+              <article class="team-card">
+                <div class="team-head away">
+                  <div>
+                    <div class="team-name">Outriders</div>
+                    <div class="small">Favorite by 5,000 gp</div>
+                  </div>
+                  <span class="pill">Budget 0</span>
+                </div>
+                <div class="numbers">
+                  <div class="stat"><div class="label">Petty Cash</div><div class="value">0</div></div>
+                  <div class="stat"><div class="label">Treasury Added</div><div class="value">0</div></div>
+                  <div class="stat"><div class="label">Bribes</div><div class="value">0</div></div>
+                  <div class="stat"><div class="label">Remaining</div><div class="value">0</div></div>
+                </div>
+              </article>
+            </div>
+
+            <div class="roster-strip">
+              <div class="panel">
+                <h3>Available to Hammers</h3>
+                <p class="note">Fixed-price core items show steppers immediately. Restricted and variable-price items route to a detail picker.</p>
+                <div class="chips" style="margin-top: 10px;"><span class="chip">Old World Classic</span></div>
+                <div class="category-row"><span class="chip">Cheerleaders</span><span class="chip">Coaches</span><span class="chip">Kegs</span><span class="chip">Stars</span><span class="chip">Wizard varies</span></div>
+              </div>
+              <div class="panel">
+                <h3>Outriders Restrictions</h3>
+                <p class="note">Discounts and eligibility are explained at item level, such as cheaper bribes for Bribery and Corruption or Master Chef discount for Halfling Thimble Cup.</p>
+                <div class="chips" style="margin-top: 10px;"><span class="chip">Badlands Brawl</span></div>
+                <div class="category-row"><span class="chip">No petty cash</span><span class="chip">Bribes 100k</span><span class="chip">Rookies locked</span></div>
+              </div>
+            </div>
+          </section>
+
+          <aside class="panel">
+            <h3>Why This Works</h3>
+            <p class="note">This is the clearest for new players because it turns the pre-game into a sequence. It also creates a natural place for validation messages, such as not enough budget or a star already selected by the other team.</p>
+            <table class="compact-table">
+              <thead><tr><th>Check</th><th>Status</th></tr></thead>
+              <tbody>
+                <tr><td>Petty cash calculated</td><td class="gold">Done</td></tr>
+                <tr><td>Fixed-price inducements</td><td class="gold">Budgeted</td></tr>
+                <tr><td>Variable-price pickers</td><td class="gold">Required</td></tr>
+                <tr><td>Roster eligibility</td><td class="gold">Filtered</td></tr>
+              </tbody>
+            </table>
+          </aside>
+        </div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

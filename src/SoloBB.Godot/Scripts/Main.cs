@@ -33,6 +33,8 @@ public partial class Main : Control
 
     public override void _Ready()
     {
+        AddThemeStyleboxOverride("panel", ScreenStyles.FlatStyle(ScreenStyles.ScreenBackground));
+        GetNode<PanelContainer>("Panel").AddThemeStyleboxOverride("panel", ScreenStyles.FlatStyle(new Color("111816"), ScreenStyles.PanelBorder, 2));
         _shellScroll = GetNode<ScrollContainer>("Panel/Margin/Scroll");
         _scrollStack = GetNode<VBoxContainer>("Panel/Margin/Scroll/Stack");
         _matchStack = GetNode<VBoxContainer>("Panel/Margin/MatchStack");
@@ -295,7 +297,35 @@ public partial class Main : Control
             defaultTeamName: team.Name,
             saveTeam: async request => await SaveTeamAsync(request, screen),
             back: ShowLeagueTeamsScreen,
-            editingTeam: team);
+            editingTeam: team,
+            saveManagement: async request => await SaveTeamManagementAsync(request, screen),
+            openRoster: ShowTeamRosterScreen);
+    }
+
+    private void ShowTeamRosterScreen(Guid teamId)
+    {
+        if (_activeLeague is null || _ruleset is null || _rosterSet is null)
+        {
+            ShowLeagueTeamsScreen();
+            return;
+        }
+
+        var team = _activeLeague.Teams.FirstOrDefault(current => current.Id == teamId);
+        if (team is null)
+        {
+            ShowLeagueTeamsScreen();
+            return;
+        }
+
+        var screen = ShowScreen<TeamRosterScreen>("res://scenes/screens/team_roster_screen.tscn");
+        screen.Setup(
+            ruleset: _ruleset,
+            rosterSet: _rosterSet,
+            team: team,
+            renamePlayer: async (playerId, playerName) => await RenamePlayerAsync(team.Id, playerId, playerName, screen),
+            purchaseSelectedSkill: async (playerId, skillId) => await PurchaseSelectedSkillAsync(team.Id, playerId, skillId, screen),
+            purchaseRandomSkill: async playerId => await PurchaseRandomSkillAsync(team.Id, playerId, screen),
+            back: () => ShowTeamEditingScreen(team.Id));
     }
 
     private async Task SaveTeamAsync(TeamDraftRequest request, TeamCreationScreen screen)
@@ -352,6 +382,115 @@ public partial class Main : Control
         catch (Exception ex)
         {
             screen.SetStatus($"Team save failed: {ex.Message}");
+        }
+    }
+
+    private async Task SaveTeamManagementAsync(TeamManagementRequest request, TeamCreationScreen screen)
+    {
+        try
+        {
+            if (_ruleset is null || _activeLeague is null)
+            {
+                throw new InvalidOperationException("League data is not ready.");
+            }
+
+            _activeLeague = _leagueService.UpdateTeamManagement(
+                _activeLeague,
+                _ruleset,
+                request.Roster,
+                request.TeamId,
+                request.TeamName,
+                request.CoachName,
+                request.Rerolls,
+                request.FanFactor,
+                request.Cheerleaders,
+                request.AssistantCoaches,
+                request.Apothecaries);
+
+            await SaveActiveLeagueAsync();
+            ShowLeagueTeamsScreen();
+            if (CurrentScreen is LeagueTeamsScreen leagueTeamsScreen)
+            {
+                var savedTeam = _activeLeague.Teams.First(team => team.Id == request.TeamId);
+                leagueTeamsScreen.SetStatus($"Saved team settings for '{savedTeam.Name}'.");
+            }
+        }
+        catch (Exception ex)
+        {
+            screen.SetStatus($"Team save failed: {ex.Message}");
+        }
+    }
+
+    private async Task RenamePlayerAsync(Guid teamId, Guid playerId, string playerName, TeamRosterScreen screen)
+    {
+        try
+        {
+            if (_activeLeague is null)
+            {
+                throw new InvalidOperationException("League data is not ready.");
+            }
+
+            _activeLeague = _leagueService.RenamePlayer(_activeLeague, teamId, playerId, playerName);
+            await SaveActiveLeagueAsync();
+            ShowTeamRosterScreen(teamId);
+            if (CurrentScreen is TeamRosterScreen rosterScreen)
+            {
+                rosterScreen.SetStatus($"Renamed player to '{playerName.Trim()}'.");
+            }
+        }
+        catch (Exception ex)
+        {
+            screen.SetStatus($"Rename failed: {ex.Message}");
+        }
+    }
+
+    private async Task PurchaseSelectedSkillAsync(Guid teamId, Guid playerId, string skillId, TeamRosterScreen screen)
+    {
+        try
+        {
+            if (_activeLeague is null || _ruleset is null || _rosterSet is null)
+            {
+                throw new InvalidOperationException("League data is not ready.");
+            }
+
+            var team = _activeLeague.Teams.First(current => current.Id == teamId);
+            var roster = _rosterSet.Rosters.First(current => string.Equals(current.Id, team.RosterId, StringComparison.OrdinalIgnoreCase));
+            _activeLeague = _leagueService.PurchaseSelectedSkillAdvancement(_activeLeague, _ruleset, roster, teamId, playerId, skillId);
+            await SaveActiveLeagueAsync();
+            ShowTeamRosterScreen(teamId);
+            if (CurrentScreen is TeamRosterScreen rosterScreen)
+            {
+                rosterScreen.SetStatus("Purchased selected skill advancement.");
+            }
+        }
+        catch (Exception ex)
+        {
+            screen.SetStatus($"Skill purchase failed: {ex.Message}");
+        }
+    }
+
+    private async Task PurchaseRandomSkillAsync(Guid teamId, Guid playerId, TeamRosterScreen screen)
+    {
+        try
+        {
+            if (_activeLeague is null || _ruleset is null || _rosterSet is null)
+            {
+                throw new InvalidOperationException("League data is not ready.");
+            }
+
+            var team = _activeLeague.Teams.First(current => current.Id == teamId);
+            var roster = _rosterSet.Rosters.First(current => string.Equals(current.Id, team.RosterId, StringComparison.OrdinalIgnoreCase));
+            _activeLeague = _leagueService.PurchaseRandomSkillAdvancement(_activeLeague, _ruleset, roster, teamId, playerId);
+            await SaveActiveLeagueAsync();
+            ShowTeamRosterScreen(teamId);
+            if (CurrentScreen is TeamRosterScreen rosterScreen)
+            {
+                rosterScreen.SetStatus("Purchased random primary skill advancement.");
+            }
+        }
+        catch (Exception ex)
+        {
+            screen.SetStatus($"Random skill purchase failed: {ex.Message}");
         }
     }
 

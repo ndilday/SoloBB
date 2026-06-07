@@ -20,6 +20,17 @@ public sealed record TeamDraftRequest(
     int AssistantCoaches,
     int Apothecaries);
 
+public sealed record TeamManagementRequest(
+    Guid TeamId,
+    string TeamName,
+    string CoachName,
+    TeamRoster Roster,
+    int Rerolls,
+    int FanFactor,
+    int Cheerleaders,
+    int AssistantCoaches,
+    int Apothecaries);
+
 public partial class TeamCreationScreen : VBoxContainer
 {
     private const int MaximumRosterPlayers = 16;
@@ -27,14 +38,20 @@ public partial class TeamCreationScreen : VBoxContainer
     private const int CheerleaderCost = 10_000;
     private const int AssistantCoachCost = 10_000;
     private const int ApothecaryCost = 50_000;
+
     private readonly Dictionary<string, SpinBox> _positionCounts = new(StringComparer.OrdinalIgnoreCase);
 
     private Ruleset _ruleset = null!;
     private RosterSet _rosterSet = null!;
     private TeamRoster? _selectedRoster;
+    private LeagueTeam? _editingTeam;
+    private Func<TeamDraftRequest, Task> _saveTeam = _ => Task.CompletedTask;
+    private Func<TeamManagementRequest, Task> _saveManagement = _ => Task.CompletedTask;
+    private Action<Guid> _openRoster = _ => { };
+
     private LineEdit _teamNameEdit = null!;
     private LineEdit _coachNameEdit = null!;
-    private OptionButton? _rosterOption;
+    private OptionButton _rosterOption = null!;
     private Label _rerollCostLabel = null!;
     private SpinBox _rerollsSpin = null!;
     private SpinBox _fanFactorSpin = null!;
@@ -42,11 +59,13 @@ public partial class TeamCreationScreen : VBoxContainer
     private SpinBox _assistantCoachesSpin = null!;
     private SpinBox _apothecariesSpin = null!;
     private GridContainer _positionGrid = null!;
-    private Label _summaryLabel = null!;
-    private Button _saveButton = null!;
+    private Label _budgetPlayersLabel = null!;
+    private Label _budgetRerollsLabel = null!;
+    private Label _budgetStaffLabel = null!;
+    private Label _budgetRemainingLabel = null!;
     private Label _statusLabel = null!;
-    private LeagueTeam? _editingTeam;
-    private Func<TeamDraftRequest, Task> _saveTeam = _ => Task.CompletedTask;
+    private Label _rosterPreviewLabel = null!;
+    private Button _saveButton = null!;
 
     public void Setup(
         Ruleset ruleset,
@@ -54,87 +73,29 @@ public partial class TeamCreationScreen : VBoxContainer
         string defaultTeamName,
         Func<TeamDraftRequest, Task> saveTeam,
         Action back,
-        LeagueTeam? editingTeam = null)
+        LeagueTeam? editingTeam = null,
+        Func<TeamManagementRequest, Task>? saveManagement = null,
+        Action<Guid>? openRoster = null)
     {
         Clear();
+        AddThemeConstantOverride("separation", 14);
+        AddThemeStyleboxOverride("panel", ScreenStyles.FlatStyle(ScreenStyles.ScreenBackground));
 
         _ruleset = ruleset;
         _rosterSet = rosterSet;
         _editingTeam = editingTeam;
         _saveTeam = saveTeam;
+        _saveManagement = saveManagement ?? (_ => Task.CompletedTask);
+        _openRoster = openRoster ?? (_ => { });
 
-        AddTitle(editingTeam is null ? "Create Team" : "Edit Team");
-
-        var identityGrid = new GridContainer { Columns = 2 };
-        AddChild(identityGrid);
-
-        identityGrid.AddChild(new Label { Text = "Team Name" });
-        _teamNameEdit = AddLineEdit(identityGrid, "Team name", editingTeam?.Name ?? defaultTeamName);
-
-        identityGrid.AddChild(new Label { Text = "Coach Name" });
-        _coachNameEdit = AddLineEdit(identityGrid, "Coach name", editingTeam?.CoachName ?? "Hotseat");
-
-        identityGrid.AddChild(new Label { Text = "Roster" });
         if (editingTeam is null)
         {
-            _rosterOption = new OptionButton();
-            _rosterOption.ItemSelected += _ => SelectRosterFromOption();
-            identityGrid.AddChild(_rosterOption);
+            BuildCreateLayout(defaultTeamName, back);
         }
         else
         {
-            var existingRoster = rosterSet.Rosters.FirstOrDefault(r => string.Equals(r.Id, editingTeam.RosterId, StringComparison.OrdinalIgnoreCase));
-            identityGrid.AddChild(new Label { Text = existingRoster?.Name ?? editingTeam.RosterId });
+            BuildEditLayout(editingTeam, back);
         }
-
-        var economyGrid = new GridContainer { Columns = 3 };
-        AddChild(economyGrid);
-        economyGrid.AddChild(new Label { Text = "Item", ThemeTypeVariation = "HeaderSmall" });
-        economyGrid.AddChild(new Label { Text = "Cost", ThemeTypeVariation = "HeaderSmall" });
-        economyGrid.AddChild(new Label { Text = "Count", ThemeTypeVariation = "HeaderSmall" });
-
-        economyGrid.AddChild(new Label { Text = "Rerolls" });
-        _rerollCostLabel = new Label { Text = "Select a roster" };
-        economyGrid.AddChild(_rerollCostLabel);
-        _rerollsSpin = CreateSpinBox(0, _ruleset.RerollCap, editingTeam?.Rerolls ?? 2);
-        economyGrid.AddChild(_rerollsSpin);
-
-        economyGrid.AddChild(new Label { Text = "Fan Factor" });
-        economyGrid.AddChild(new Label { Text = FormatGold(FanFactorCost) });
-        _fanFactorSpin = CreateSpinBox(1, 9, editingTeam?.FanFactor ?? 1);
-        economyGrid.AddChild(_fanFactorSpin);
-
-        economyGrid.AddChild(new Label { Text = "Cheerleaders" });
-        economyGrid.AddChild(new Label { Text = FormatGold(CheerleaderCost) });
-        _cheerleadersSpin = CreateSpinBox(0, 12, editingTeam?.Cheerleaders ?? 0);
-        economyGrid.AddChild(_cheerleadersSpin);
-
-        economyGrid.AddChild(new Label { Text = "Assistant Coaches" });
-        economyGrid.AddChild(new Label { Text = FormatGold(AssistantCoachCost) });
-        _assistantCoachesSpin = CreateSpinBox(0, 12, editingTeam?.AssistantCoaches ?? 0);
-        economyGrid.AddChild(_assistantCoachesSpin);
-
-        economyGrid.AddChild(new Label { Text = "Apothecary" });
-        economyGrid.AddChild(new Label { Text = FormatGold(ApothecaryCost) });
-        _apothecariesSpin = CreateSpinBox(0, 1, editingTeam?.Apothecaries ?? 0);
-        economyGrid.AddChild(_apothecariesSpin);
-
-        _positionGrid = new GridContainer { Columns = 10 };
-        AddChild(_positionGrid);
-
-        _summaryLabel = new Label { AutowrapMode = TextServer.AutowrapMode.WordSmart };
-        AddChild(_summaryLabel);
-
-        _saveButton = AddButton("Save Team", async () => await SaveAsync(), disabled: true);
-        AddButton("Back", back);
-
-        _statusLabel = new Label
-        {
-            AutowrapMode = TextServer.AutowrapMode.WordSmart
-        };
-        AddChild(_statusLabel);
-
-        PopulateRosterOptions();
     }
 
     public void SetStatus(string status)
@@ -145,19 +106,352 @@ public partial class TeamCreationScreen : VBoxContainer
         }
     }
 
-    private void PopulateRosterOptions()
+    private void BuildCreateLayout(string defaultTeamName, Action back)
     {
-        if (_rosterOption is null)
+        AddScreenHeader("Team builder", "Create Team", "Draft players, staff, and assets against the starting treasury.", "Save Team", async () => await SaveDraftAsync(), back);
+
+        var body = new HBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        body.AddThemeConstantOverride("separation", 16);
+        AddChild(body);
+
+        var mainColumn = new VBoxContainer
         {
-            // Edit mode: resolve the roster directly from the editing team
-            _selectedRoster = _editingTeam is null ? null
-                : _rosterSet.Rosters.FirstOrDefault(r => string.Equals(r.Id, _editingTeam.RosterId, StringComparison.OrdinalIgnoreCase));
-            UpdateRerollCostLabel();
-            BuildPositionRows();
-            UpdateDraftSummary();
-            return;
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            SizeFlagsStretchRatio = 1.9f
+        };
+        mainColumn.AddThemeConstantOverride("separation", 14);
+        body.AddChild(mainColumn);
+
+        var sideColumn = new VBoxContainer
+        {
+            CustomMinimumSize = new Vector2(300, 0),
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            SizeFlagsStretchRatio = 0.8f
+        };
+        sideColumn.AddThemeConstantOverride("separation", 14);
+        body.AddChild(sideColumn);
+
+        mainColumn.AddChild(ScreenStyles.Panel("Identity", BuildIdentityPanel(defaultTeamName, "Hotseat", showRosterPicker: true), "11 players ready", ScreenStyles.Good));
+        mainColumn.AddChild(ScreenStyles.Panel("Position Draft", BuildPositionDraftPanel(), "Select roster"));
+        mainColumn.AddChild(ScreenStyles.Panel("Team Assets", BuildAssetPanel(), "Staff and sideline"));
+
+        sideColumn.AddChild(ScreenStyles.Panel("Budget", BuildBudgetPanel(), "Preview", ScreenStyles.Warning));
+        sideColumn.AddChild(ScreenStyles.Panel("Status", BuildStatusPanel(), "Needs work", ScreenStyles.Warning));
+        sideColumn.AddChild(ScreenStyles.Panel("Roster Preview", BuildRosterPreviewPanel()));
+
+        PopulateRosterOptions();
+    }
+
+    private void BuildEditLayout(LeagueTeam team, Action back)
+    {
+        AddScreenHeader("Team management", $"Edit {team.Name}", "Update team identity, staff, assets, and league-facing value.", "Save Changes", async () => await SaveManagementAsync(), back);
+
+        _selectedRoster = FindRoster(team.RosterId);
+
+        var body = new HBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        body.AddThemeConstantOverride("separation", 16);
+        AddChild(body);
+
+        var mainColumn = new VBoxContainer
+        {
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            SizeFlagsStretchRatio = 1.8f
+        };
+        mainColumn.AddThemeConstantOverride("separation", 14);
+        body.AddChild(mainColumn);
+
+        var sideColumn = new VBoxContainer
+        {
+            CustomMinimumSize = new Vector2(300, 0),
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            SizeFlagsStretchRatio = 0.8f
+        };
+        sideColumn.AddThemeConstantOverride("separation", 14);
+        body.AddChild(sideColumn);
+
+        mainColumn.AddChild(ScreenStyles.Panel("Team Snapshot", BuildTeamSnapshotPanel(team), _selectedRoster?.Name ?? team.RosterId));
+        mainColumn.AddChild(ScreenStyles.Panel("Team Assets", BuildAssetPanel(), "Staff and sideline"));
+        mainColumn.AddChild(ScreenStyles.Panel("Team Actions", BuildTeamActionsPanel(team), RosterAttentionBadge(team), ScreenStyles.Warning));
+
+        sideColumn.AddChild(ScreenStyles.Panel("Team Value", BuildEditValuePanel(team), "Preview"));
+        sideColumn.AddChild(ScreenStyles.Panel("Roster Summary", BuildRosterSummaryPanel(team)));
+        sideColumn.AddChild(ScreenStyles.Panel("Save Status", BuildStatusPanel(), "Changed", ScreenStyles.Warning));
+
+        _rerollsSpin.Value = team.Rerolls;
+        _fanFactorSpin.Value = team.FanFactor;
+        _cheerleadersSpin.Value = team.Cheerleaders;
+        _assistantCoachesSpin.Value = team.AssistantCoaches;
+        _apothecariesSpin.Value = team.Apothecaries;
+        UpdateDraftSummary();
+    }
+
+    private void AddScreenHeader(string eyebrow, string title, string subhead, string primaryAction, Func<Task> save, Action back)
+    {
+        var panel = new PanelContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        panel.AddThemeStyleboxOverride("panel", ScreenStyles.FlatStyle(new Color("202720"), ScreenStyles.PanelBorderSoft));
+        AddChild(panel);
+
+        var row = new HBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        row.AddThemeConstantOverride("separation", 12);
+        panel.AddChild(row);
+
+        var copy = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        copy.AddThemeConstantOverride("separation", 4);
+        row.AddChild(copy);
+
+        var eyebrowLabel = ScreenStyles.MutedLabel(eyebrow.ToUpperInvariant());
+        eyebrowLabel.AddThemeColorOverride("font_color", ScreenStyles.Brass);
+        copy.AddChild(eyebrowLabel);
+        copy.AddChild(ScreenStyles.Title(title));
+        copy.AddChild(ScreenStyles.MutedLabel(subhead));
+
+        var actions = new HBoxContainer { Alignment = BoxContainer.AlignmentMode.End };
+        actions.AddThemeConstantOverride("separation", 8);
+        row.AddChild(actions);
+
+        var texture = GD.Load<Texture2D>(ScreenStyles.TeamManagementTexturePath);
+        if (texture is not null)
+        {
+            var stamp = new TextureRect
+            {
+                Texture = texture,
+                CustomMinimumSize = new Vector2(92, 52),
+                StretchMode = TextureRect.StretchModeEnum.Scale,
+                Modulate = new Color(1, 1, 1, 0.28f)
+            };
+            actions.AddChild(stamp);
         }
 
+        var backButton = ScreenStyles.StyledButton("Back");
+        backButton.Pressed += back;
+        actions.AddChild(backButton);
+
+        _saveButton = ScreenStyles.StyledButton(primaryAction, primary: true, disabled: true);
+        _saveButton.Pressed += async () => await save();
+        actions.AddChild(_saveButton);
+    }
+
+    private Control BuildIdentityPanel(string teamName, string coachName, bool showRosterPicker)
+    {
+        var grid = new GridContainer { Columns = 2, SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        grid.AddThemeConstantOverride("h_separation", 12);
+        grid.AddThemeConstantOverride("v_separation", 8);
+
+        grid.AddChild(ScreenStyles.MutedLabel("Team Name"));
+        _teamNameEdit = AddLineEdit(grid, "Team name", _editingTeam?.Name ?? teamName);
+
+        grid.AddChild(ScreenStyles.MutedLabel("Coach"));
+        _coachNameEdit = AddLineEdit(grid, "Coach name", _editingTeam?.CoachName ?? coachName);
+
+        if (showRosterPicker)
+        {
+            grid.AddChild(ScreenStyles.MutedLabel("Roster"));
+            _rosterOption = new OptionButton();
+            _rosterOption.ItemSelected += _ => SelectRosterFromOption();
+            grid.AddChild(_rosterOption);
+        }
+
+        return grid;
+    }
+
+    private Control BuildTeamSnapshotPanel(LeagueTeam team)
+    {
+        var stack = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        stack.AddThemeConstantOverride("separation", 10);
+        stack.AddChild(BuildIdentityPanel(team.Name, team.CoachName, showRosterPicker: false));
+
+        var stats = new GridContainer { Columns = 4, SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        stats.AddThemeConstantOverride("h_separation", 8);
+        stats.AddThemeConstantOverride("v_separation", 8);
+        stats.AddChild(Metric("TV", FormatGold(team.TeamValue)));
+        stats.AddChild(Metric("Treasury", FormatGold(team.Treasury)));
+        stats.AddChild(Metric("Players", team.Players.Count.ToString()));
+        stats.AddChild(Metric("Record", "0-0-0"));
+        stack.AddChild(stats);
+
+        return stack;
+    }
+
+    private Control BuildPositionDraftPanel()
+    {
+        _positionGrid = new GridContainer { Columns = 6, SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        _positionGrid.AddThemeConstantOverride("h_separation", 8);
+        _positionGrid.AddThemeConstantOverride("v_separation", 5);
+        return _positionGrid;
+    }
+
+    private Control BuildAssetPanel()
+    {
+        var grid = new GridContainer { Columns = 5, SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        grid.AddThemeConstantOverride("h_separation", 10);
+        grid.AddThemeConstantOverride("v_separation", 10);
+
+        _rerollCostLabel = ScreenStyles.MutedLabel("Select a roster");
+        _rerollsSpin = CreateSpinBox(0, _ruleset.RerollCap, _editingTeam?.Rerolls ?? 2);
+        grid.AddChild(AssetControl("Rerolls", _rerollCostLabel, _rerollsSpin));
+
+        _fanFactorSpin = CreateSpinBox(1, 9, _editingTeam?.FanFactor ?? 1);
+        grid.AddChild(AssetControl("Fan Factor", ScreenStyles.MutedLabel(FormatGold(FanFactorCost)), _fanFactorSpin));
+
+        _assistantCoachesSpin = CreateSpinBox(0, 12, _editingTeam?.AssistantCoaches ?? 0);
+        grid.AddChild(AssetControl("Assistants", ScreenStyles.MutedLabel(FormatGold(AssistantCoachCost)), _assistantCoachesSpin));
+
+        _cheerleadersSpin = CreateSpinBox(0, 12, _editingTeam?.Cheerleaders ?? 0);
+        grid.AddChild(AssetControl("Cheerleaders", ScreenStyles.MutedLabel(FormatGold(CheerleaderCost)), _cheerleadersSpin));
+
+        _apothecariesSpin = CreateSpinBox(0, 1, _editingTeam?.Apothecaries ?? 0);
+        grid.AddChild(AssetControl("Apothecary", ScreenStyles.MutedLabel(FormatGold(ApothecaryCost)), _apothecariesSpin));
+
+        return grid;
+    }
+
+    private Control BuildBudgetPanel()
+    {
+        var stack = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        stack.AddThemeConstantOverride("separation", 8);
+        stack.AddChild(BudgetRow("Starting", FormatGold(_ruleset.StartingTreasury)));
+        _budgetPlayersLabel = AddBudgetValue(stack, "Players");
+        _budgetRerollsLabel = AddBudgetValue(stack, "Rerolls");
+        _budgetStaffLabel = AddBudgetValue(stack, "Staff");
+        _budgetRemainingLabel = AddBudgetValue(stack, "Remaining");
+        return stack;
+    }
+
+    private Control BuildEditValuePanel(LeagueTeam team)
+    {
+        var stack = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        stack.AddThemeConstantOverride("separation", 8);
+        stack.AddChild(BudgetRow("Current TV", FormatGold(team.TeamValue)));
+        _budgetPlayersLabel = AddBudgetValue(stack, "Players");
+        _budgetRerollsLabel = AddBudgetValue(stack, "Rerolls");
+        _budgetStaffLabel = AddBudgetValue(stack, "Staff");
+        _budgetRemainingLabel = AddBudgetValue(stack, "New TV");
+        return stack;
+    }
+
+    private Control BuildStatusPanel()
+    {
+        _statusLabel = new Label
+        {
+            Text = _editingTeam is null ? "Build a legal roster before saving." : "Review team-level changes before saving.",
+            AutowrapMode = TextServer.AutowrapMode.WordSmart
+        };
+        _statusLabel.AddThemeColorOverride("font_color", ScreenStyles.MutedText);
+        return _statusLabel;
+    }
+
+    private Control BuildRosterPreviewPanel()
+    {
+        _rosterPreviewLabel = new Label
+        {
+            Text = "Select a roster to preview position counts.",
+            AutowrapMode = TextServer.AutowrapMode.WordSmart
+        };
+        _rosterPreviewLabel.AddThemeColorOverride("font_color", ScreenStyles.MutedText);
+        return _rosterPreviewLabel;
+    }
+
+    private Control BuildRosterSummaryPanel(LeagueTeam team)
+    {
+        var stack = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        stack.AddThemeConstantOverride("separation", 8);
+        stack.AddChild(BudgetRow("Ready players", team.Players.Count(player => player.Status == PlayerStatus.Available).ToString()));
+        stack.AddChild(BudgetRow("Missing next game", team.Players.Count(player => player.Status == PlayerStatus.MissNextGame).ToString()));
+        stack.AddChild(BudgetRow("Can level up", team.Players.Count(CanLevelUp).ToString()));
+        var openButton = ScreenStyles.StyledButton("Open Roster", primary: true);
+        openButton.Pressed += () => _openRoster(team.Id);
+        stack.AddChild(openButton);
+        return stack;
+    }
+
+    private Control BuildTeamActionsPanel(LeagueTeam team)
+    {
+        var stack = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        stack.AddThemeConstantOverride("separation", 10);
+        stack.AddChild(ActionRow("Open Roster", "Manage player names, numbers, SPP spending, level-ups, injuries, and retirements.", () => _openRoster(team.Id), primary: true));
+        stack.AddChild(ActionRow("Transactions", "Hire and fire player flow will live here once treasury purchases are split from setup drafting.", () => SetStatus("Transactions are planned as a dedicated follow-up flow.")));
+        return stack;
+    }
+
+    private Control ActionRow(string title, string detail, Action pressed, bool primary = false)
+    {
+        var row = new HBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        row.AddThemeConstantOverride("separation", 10);
+
+        var copy = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        copy.AddChild(new Label { Text = title });
+        copy.AddChild(ScreenStyles.MutedLabel(detail));
+        row.AddChild(copy);
+
+        var button = ScreenStyles.StyledButton(title, primary);
+        button.Pressed += pressed;
+        row.AddChild(button);
+        return row;
+    }
+
+    private Control AssetControl(string title, Label costLabel, SpinBox spinBox)
+    {
+        var panel = new PanelContainer { CustomMinimumSize = new Vector2(120, 0), SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        panel.AddThemeStyleboxOverride("panel", ScreenStyles.FlatStyle(new Color("181e1a"), ScreenStyles.PanelBorderSoft));
+
+        var stack = new VBoxContainer();
+        stack.AddThemeConstantOverride("separation", 6);
+        panel.AddChild(stack);
+        stack.AddChild(ScreenStyles.MutedLabel(title));
+        stack.AddChild(costLabel);
+        stack.AddChild(spinBox);
+        return panel;
+    }
+
+    private Control Metric(string label, string value)
+    {
+        var panel = new PanelContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        panel.AddThemeStyleboxOverride("panel", ScreenStyles.FlatStyle(new Color("171d19"), ScreenStyles.PanelBorderSoft));
+
+        var stack = new VBoxContainer();
+        stack.AddThemeConstantOverride("separation", 3);
+        panel.AddChild(stack);
+        stack.AddChild(ScreenStyles.MutedLabel(label.ToUpperInvariant()));
+        var valueLabel = new Label { Text = value };
+        valueLabel.AddThemeColorOverride("font_color", ScreenStyles.Text);
+        stack.AddChild(valueLabel);
+        return panel;
+    }
+
+    private Label AddBudgetValue(VBoxContainer stack, string label)
+    {
+        var value = new Label
+        {
+            Text = "0 gp",
+            HorizontalAlignment = HorizontalAlignment.Right,
+            SizeFlagsHorizontal = SizeFlags.ExpandFill
+        };
+        stack.AddChild(BudgetRow(label, value));
+        return value;
+    }
+
+    private Control BudgetRow(string label, string value)
+    {
+        var valueLabel = new Label
+        {
+            Text = value,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            SizeFlagsHorizontal = SizeFlags.ExpandFill
+        };
+        return BudgetRow(label, valueLabel);
+    }
+
+    private Control BudgetRow(string label, Label value)
+    {
+        var row = new HBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        row.AddChild(ScreenStyles.MutedLabel(label));
+        value.AddThemeColorOverride("font_color", ScreenStyles.Text);
+        row.AddChild(value);
+        return row;
+    }
+
+    private void PopulateRosterOptions()
+    {
         _rosterOption.Clear();
         var rosterOptions = _rosterSet.Rosters
             .Select((roster, index) => (Roster: roster, Index: index))
@@ -175,7 +469,7 @@ public partial class TeamCreationScreen : VBoxContainer
 
     private void SelectRosterFromOption()
     {
-        if (_rosterOption is null || _rosterOption.Selected < 0)
+        if (_rosterOption.Selected < 0)
         {
             return;
         }
@@ -208,11 +502,7 @@ public partial class TeamCreationScreen : VBoxContainer
         AddPositionHeader("Min-Max");
         AddPositionHeader("Position");
         AddPositionHeader("Cost");
-        AddPositionHeader("MA");
-        AddPositionHeader("ST");
-        AddPositionHeader("AG");
-        AddPositionHeader("PA");
-        AddPositionHeader("AV");
+        AddPositionHeader("Stats");
         AddPositionHeader("Skills");
         AddPositionHeader("Count");
 
@@ -221,24 +511,22 @@ public partial class TeamCreationScreen : VBoxContainer
             _positionGrid.AddChild(new Label { Text = $"{position.Min}-{position.Max}" });
             _positionGrid.AddChild(new Label { Text = position.Name });
             _positionGrid.AddChild(new Label { Text = FormatGold(position.Cost) });
-            _positionGrid.AddChild(new Label { Text = position.Stats.Movement.ToString() });
-            _positionGrid.AddChild(new Label { Text = position.Stats.Strength.ToString() });
-            _positionGrid.AddChild(new Label { Text = $"{position.Stats.Agility}+" });
-            _positionGrid.AddChild(new Label { Text = $"{position.Stats.Passing}+" });
-            _positionGrid.AddChild(new Label { Text = $"{position.Stats.Armor}+" });
-            _positionGrid.AddChild(new Label { Text = position.StartingSkills.Count == 0 ? "-" : string.Join(", ", position.StartingSkills) });
+            _positionGrid.AddChild(new Label { Text = FormatStats(position.Stats) });
+            _positionGrid.AddChild(new Label
+            {
+                Text = position.StartingSkills.Count == 0 ? "-" : string.Join(", ", position.StartingSkills),
+                AutowrapMode = TextServer.AutowrapMode.WordSmart,
+                CustomMinimumSize = new Vector2(180, 0)
+            });
 
-            var existingCount = ExistingPositionCount(position.Id);
-            var defaultCount = _editingTeam is null
-                ? position.Id == "lineman" ? 11 : position.Min
-                : existingCount;
+            var defaultCount = position.Id == "lineman" ? 11 : position.Min;
             var count = CreateSpinBox(position.Min, position.Max, defaultCount);
             _positionCounts[position.Id] = count;
             _positionGrid.AddChild(count);
         }
     }
 
-    private async Task SaveAsync()
+    private async Task SaveDraftAsync()
     {
         if (_selectedRoster is null)
         {
@@ -247,7 +535,7 @@ public partial class TeamCreationScreen : VBoxContainer
         }
 
         var request = new TeamDraftRequest(
-            _editingTeam?.Id,
+            null,
             _teamNameEdit.Text,
             _coachNameEdit.Text,
             _selectedRoster,
@@ -259,6 +547,28 @@ public partial class TeamCreationScreen : VBoxContainer
             (int)_apothecariesSpin.Value);
 
         await _saveTeam(request);
+    }
+
+    private async Task SaveManagementAsync()
+    {
+        if (_editingTeam is null || _selectedRoster is null)
+        {
+            SetStatus("Team data is not ready.");
+            return;
+        }
+
+        var request = new TeamManagementRequest(
+            _editingTeam.Id,
+            _teamNameEdit.Text,
+            _coachNameEdit.Text,
+            _selectedRoster,
+            (int)_rerollsSpin.Value,
+            (int)_fanFactorSpin.Value,
+            (int)_cheerleadersSpin.Value,
+            (int)_assistantCoachesSpin.Value,
+            (int)_apothecariesSpin.Value);
+
+        await _saveManagement(request);
     }
 
     private IReadOnlyList<PlayerDraftPick> CreateDraft(TeamRoster roster)
@@ -276,31 +586,16 @@ public partial class TeamCreationScreen : VBoxContainer
         return draft;
     }
 
-    private int ExistingPositionCount(string positionId)
-    {
-        if (_editingTeam is null || _selectedRoster is null || !string.Equals(_editingTeam.RosterId, _selectedRoster.Id, StringComparison.OrdinalIgnoreCase))
-        {
-            return 0;
-        }
-
-        return _editingTeam.Players.Count(player => string.Equals(player.PositionId, positionId, StringComparison.OrdinalIgnoreCase));
-    }
-
     private void UpdateDraftSummary()
     {
-        if (_selectedRoster is null || _summaryLabel is null)
+        if (_selectedRoster is null)
         {
             return;
         }
 
-        var playerCount = 0;
-        var playerCost = 0;
-        foreach (var position in _selectedRoster.Positions)
-        {
-            var count = _positionCounts.TryGetValue(position.Id, out var spinBox) ? (int)spinBox.Value : 0;
-            playerCount += count;
-            playerCost += count * position.Cost;
-        }
+        var (playerCount, playerCost) = _editingTeam is null
+            ? DraftPlayerSummary(_selectedRoster)
+            : ExistingPlayerSummary(_selectedRoster, _editingTeam);
 
         var rerollCost = (int)_rerollsSpin.Value * _selectedRoster.RerollCost;
         var fanFactorCost = Math.Max(0, (int)_fanFactorSpin.Value - 1) * FanFactorCost;
@@ -309,12 +604,60 @@ public partial class TeamCreationScreen : VBoxContainer
             ((int)_apothecariesSpin.Value * ApothecaryCost);
         var totalCost = playerCost + rerollCost + fanFactorCost + staffCost;
         var treasury = _ruleset.StartingTreasury - totalCost;
-        var isReady = playerCount >= _ruleset.PlayersPerSide && playerCount <= MaximumRosterPlayers && treasury >= 0;
-        var status = isReady ? "Ready" : "Needs work";
+        var isReady = _editingTeam is not null || (playerCount >= _ruleset.PlayersPerSide && playerCount <= MaximumRosterPlayers && treasury >= 0);
 
-        _summaryLabel.Text = $"{status}: {playerCount} players ({_ruleset.PlayersPerSide}-{MaximumRosterPlayers}), team value {FormatGold(totalCost)}, treasury {FormatGold(treasury)}.";
+        _budgetPlayersLabel.Text = FormatGold(playerCost);
+        _budgetRerollsLabel.Text = FormatGold(rerollCost);
+        _budgetStaffLabel.Text = FormatGold(fanFactorCost + staffCost);
+        _budgetRemainingLabel.Text = _editingTeam is null ? FormatGold(treasury) : FormatGold(totalCost);
+
+        if (_rosterPreviewLabel is not null)
+        {
+            _rosterPreviewLabel.Text = string.Join("\n", _selectedRoster.Positions
+                .Select(position => (Position: position, Count: _positionCounts.TryGetValue(position.Id, out var spinBox) ? (int)spinBox.Value : 0))
+                .Where(row => row.Count > 0)
+                .Select(row => $"{row.Position.Name} x{row.Count}"));
+        }
+
+        if (_statusLabel is not null)
+        {
+            _statusLabel.Text = _editingTeam is null
+                ? isReady
+                    ? $"Ready: {playerCount} players, team value {FormatGold(totalCost)}, treasury {FormatGold(treasury)}."
+                    : $"Needs work: {playerCount} players ({_ruleset.PlayersPerSide}-{MaximumRosterPlayers}), team value {FormatGold(totalCost)}, treasury {FormatGold(treasury)}."
+                : $"Legal: roster remains {playerCount} players. New team value preview is {FormatGold(totalCost)}.";
+        }
+
         _saveButton.Disabled = !isReady;
-        UpdateAffordableMaximums(treasury, playerCount);
+        if (_editingTeam is null)
+        {
+            UpdateAffordableMaximums(treasury, playerCount);
+        }
+    }
+
+    private (int PlayerCount, int PlayerCost) DraftPlayerSummary(TeamRoster roster)
+    {
+        var playerCount = 0;
+        var playerCost = 0;
+        foreach (var position in roster.Positions)
+        {
+            var count = _positionCounts.TryGetValue(position.Id, out var spinBox) ? (int)spinBox.Value : 0;
+            playerCount += count;
+            playerCost += count * position.Cost;
+        }
+
+        return (playerCount, playerCost);
+    }
+
+    private static (int PlayerCount, int PlayerCost) ExistingPlayerSummary(TeamRoster roster, LeagueTeam? team)
+    {
+        if (team is null)
+        {
+            return (0, 0);
+        }
+
+        var cost = team.Players.Sum(player => roster.Positions.FirstOrDefault(position => string.Equals(position.Id, player.PositionId, StringComparison.OrdinalIgnoreCase))?.Cost ?? 0);
+        return (team.Players.Count, cost);
     }
 
     private void UpdateAffordableMaximums(int treasury, int playerCount)
@@ -324,30 +667,11 @@ public partial class TeamCreationScreen : VBoxContainer
             return;
         }
 
-        var rerollValue = (int)_rerollsSpin.Value;
-        _rerollsSpin.MaxValue = treasury >= _selectedRoster.RerollCost
-            ? _ruleset.RerollCap
-            : rerollValue;
-
-        var fanFactorValue = (int)_fanFactorSpin.Value;
-        _fanFactorSpin.MaxValue = treasury >= FanFactorCost
-            ? 9
-            : fanFactorValue;
-
-        var cheerleaderValue = (int)_cheerleadersSpin.Value;
-        _cheerleadersSpin.MaxValue = treasury >= CheerleaderCost
-            ? 12
-            : cheerleaderValue;
-
-        var assistantCoachValue = (int)_assistantCoachesSpin.Value;
-        _assistantCoachesSpin.MaxValue = treasury >= AssistantCoachCost
-            ? 12
-            : assistantCoachValue;
-
-        var apothecaryValue = (int)_apothecariesSpin.Value;
-        _apothecariesSpin.MaxValue = treasury >= ApothecaryCost
-            ? 1
-            : apothecaryValue;
+        SetAffordableMax(_rerollsSpin, _ruleset.RerollCap, _selectedRoster.RerollCost, treasury);
+        SetAffordableMax(_fanFactorSpin, 9, FanFactorCost, treasury);
+        SetAffordableMax(_cheerleadersSpin, 12, CheerleaderCost, treasury);
+        SetAffordableMax(_assistantCoachesSpin, 12, AssistantCoachCost, treasury);
+        SetAffordableMax(_apothecariesSpin, 1, ApothecaryCost, treasury);
 
         foreach (var position in _selectedRoster.Positions)
         {
@@ -363,36 +687,30 @@ public partial class TeamCreationScreen : VBoxContainer
         }
     }
 
+    private static void SetAffordableMax(SpinBox spinBox, double cap, int cost, int treasury)
+    {
+        var currentValue = (int)spinBox.Value;
+        spinBox.MaxValue = treasury >= cost ? cap : currentValue;
+    }
+
     private LineEdit AddLineEdit(Container parent, string placeholder, string text)
     {
         var edit = new LineEdit
         {
             PlaceholderText = placeholder,
-            Text = text
+            Text = text,
+            SizeFlagsHorizontal = SizeFlags.ExpandFill
         };
         edit.TextChanged += _ => UpdateDraftSummary();
         parent.AddChild(edit);
         return edit;
     }
 
-    private void AddTitle(string text)
-    {
-        var title = new Label
-        {
-            Text = text,
-            HorizontalAlignment = HorizontalAlignment.Center
-        };
-        title.AddThemeFontSizeOverride("font_size", 32);
-        AddChild(title);
-    }
-
     private void AddPositionHeader(string text)
     {
-        _positionGrid.AddChild(new Label
-        {
-            Text = text,
-            ThemeTypeVariation = "HeaderSmall"
-        });
+        var label = ScreenStyles.MutedLabel(text.ToUpperInvariant());
+        label.AddThemeColorOverride("font_color", ScreenStyles.Brass);
+        _positionGrid.AddChild(label);
     }
 
     private void UpdateRerollCostLabel()
@@ -401,22 +719,6 @@ public partial class TeamCreationScreen : VBoxContainer
         {
             _rerollCostLabel.Text = FormatGold(_selectedRoster.RerollCost);
         }
-    }
-
-    private Button AddButton(string text, Action pressed, bool disabled = false)
-    {
-        var button = new Button { Text = text, Disabled = disabled };
-        button.Pressed += pressed;
-        AddChild(button);
-        return button;
-    }
-
-    private Button AddButton(string text, Func<Task> pressed, bool disabled = false)
-    {
-        var button = new Button { Text = text, Disabled = disabled };
-        button.Pressed += async () => await pressed();
-        AddChild(button);
-        return button;
     }
 
     private SpinBox CreateSpinBox(double min, double max, double value)
@@ -428,10 +730,47 @@ public partial class TeamCreationScreen : VBoxContainer
             Value = value,
             Step = 1,
             AllowGreater = false,
-            AllowLesser = false
+            AllowLesser = false,
+            CustomMinimumSize = new Vector2(88, 30)
         };
         spinBox.ValueChanged += _ => UpdateDraftSummary();
         return spinBox;
+    }
+
+    private TeamRoster? FindRoster(string rosterId)
+    {
+        return _rosterSet.Rosters.FirstOrDefault(roster => string.Equals(roster.Id, rosterId, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private bool CanLevelUp(Player player)
+    {
+        if (_selectedRoster is null)
+        {
+            return false;
+        }
+
+        var position = _selectedRoster.Positions.FirstOrDefault(current => string.Equals(current.Id, player.PositionId, StringComparison.OrdinalIgnoreCase));
+        if (position is null)
+        {
+            return false;
+        }
+
+        var startingSkills = position.StartingSkills.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var advancementsTaken = player.Skills.Count(skill => !startingSkills.Contains(skill));
+        var thresholdKey = advancementsTaken switch
+        {
+            0 => "first",
+            1 => "second",
+            2 => "third",
+            _ => "fourth"
+        };
+        return _ruleset.AdvancementThresholds.TryGetValue(thresholdKey, out var cost) && player.StarPlayerPoints >= cost;
+    }
+
+    private string RosterAttentionBadge(LeagueTeam team)
+    {
+        var canLevel = team.Players.Count(CanLevelUp);
+        return canLevel > 0 ? $"{canLevel} can level" : "Open roster";
     }
 
     private void Clear()
@@ -440,6 +779,11 @@ public partial class TeamCreationScreen : VBoxContainer
         {
             child.QueueFree();
         }
+    }
+
+    private static string FormatStats(PlayerStats stats)
+    {
+        return $"{stats.Movement} {stats.Strength} {stats.Agility}+ {stats.Passing}+ {stats.Armor}+";
     }
 
     private static string FormatGold(int value)

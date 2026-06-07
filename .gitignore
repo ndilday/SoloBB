@@ -9,3 +9,4 @@ obj/
 *.uid
 /assets/sprites/*.import
 /*.import
+/assets/ui/*.import
