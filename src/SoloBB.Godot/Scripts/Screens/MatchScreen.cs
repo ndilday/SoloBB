@@ -38,6 +38,7 @@ public partial class MatchScreen : VBoxContainer
     private HBoxContainer _standFirmChoiceBox = null!;
     private HBoxContainer _divingTackleChoiceBox = null!;
     private HBoxContainer _sendOffChoiceBox = null!;
+    private HBoxContainer _setupChoiceBox = null!;
     private Button _passModeButton = null!;
     private Button _blitzModeButton = null!;
     private Button _throwTeamMateModeButton = null!;
@@ -225,6 +226,10 @@ public partial class MatchScreen : VBoxContainer
         _sendOffChoiceBox = new HBoxContainer();
         _sendOffChoiceBox.AddThemeConstantOverride("separation", 4);
         decisionActions.AddChild(_sendOffChoiceBox);
+
+        _setupChoiceBox = new HBoxContainer();
+        _setupChoiceBox.AddThemeConstantOverride("separation", 4);
+        decisionActions.AddChild(_setupChoiceBox);
 
         _passModeButton = ActionButton("Pass");
         _passModeButton.Pressed += () =>
@@ -1400,6 +1405,7 @@ public partial class MatchScreen : VBoxContainer
             _currentActivationPlayerId = null;
         }
 
+        RefreshPitch();
         await AnimateBallAsync(beforeMatch, _match, logStart);
         await _saveMatch(_match);
         RefreshRoster();
@@ -2022,6 +2028,7 @@ public partial class MatchScreen : VBoxContainer
         RefreshSendOffChoice();
         RefreshStandFirmChoice();
         RefreshDivingTackleChoice();
+        RefreshSetupChoice();
         foreach (var (square, button) in _pitchButtons)
         {
             var canPlace = IsLegalPlacementTarget(square);
@@ -2040,7 +2047,9 @@ public partial class MatchScreen : VBoxContainer
             button.Text = "";
             button.Icon = null;
             SetPitchTile(square, PitchTileTexture(square, canPlace || canTargetKickoff || canMove || canPassSquare || canPush || canFollowUp || canPlaceBall || canThrowBomb || canLaunchTarget, pathMarker));
-            SetPitchHighlight(square, PitchHighlightTexture(canPlace || canTargetKickoff || canMove || canPassSquare || canPush || canFollowUp || canPlaceBall || canThrowBomb || canLaunchTarget, pathMarker), pathMarker?.StartsWith('!') == true ? GoForItPathColor : null);
+            var isGfi = pathMarker?.StartsWith('!') == true ||
+                (canMove && _selectedPlayerId is Guid gfiPlayerId && IsGoForItMovementTarget(gfiPlayerId, square));
+            SetPitchHighlight(square, PitchHighlightTexture(canPlace || canTargetKickoff || canMove || canPassSquare || canPush || canFollowUp || canPlaceBall || canThrowBomb || canLaunchTarget, pathMarker), isGfi ? GoForItPathColor : null);
             SetPitchMarking(square, PitchMarkingTexture(square));
             SetPitchPiece(square, null);
             SetPitchOverlay(square, null);
@@ -2843,6 +2852,22 @@ public partial class MatchScreen : VBoxContainer
         return !HasCurrentTurnActivation(playerId) || _currentActivationPlayerId == playerId;
     }
 
+    private bool CanReturnSelectedSetupPlayerToReserve()
+    {
+        if (_selectedPlayerId is not Guid playerId ||
+            _match.Phase is not (MatchPhase.DefenseSetup or MatchPhase.OffenseSetup))
+        {
+            return false;
+        }
+
+        var placement = _match.Placements.FirstOrDefault(current => current.PlayerId == playerId);
+        return placement is
+        {
+            State: PlayerPitchState.Standing,
+            Square: not null
+        } && placement.TeamId == _match.ActiveTeamId;
+    }
+
     private string ActivationDisplayState(Guid playerId, PlayerPlacement? placement)
     {
         if (placement?.State is PlayerPitchState.Casualty or PlayerPitchState.Dead or PlayerPitchState.SentOff)
@@ -3297,6 +3322,48 @@ public partial class MatchScreen : VBoxContainer
             button.TooltipText = BlockDieTooltip(roll);
             button.Pressed += async () => await ChooseBlockDieAsync(roll);
             _blockDiceBox.AddChild(button);
+        }
+    }
+
+    private void RefreshSetupChoice()
+    {
+        foreach (var child in _setupChoiceBox.GetChildren())
+        {
+            child.QueueFree();
+        }
+
+        if (!CanReturnSelectedSetupPlayerToReserve())
+        {
+            _setupChoiceBox.Visible = false;
+            return;
+        }
+
+        _setupChoiceBox.Visible = true;
+        var button = new Button { Text = "Return to Reserve" };
+        button.TooltipText = "Remove the selected setup player from the pitch so another reserve player can be placed.";
+        button.Pressed += async () => await ReturnSelectedSetupPlayerToReserveAsync();
+        _setupChoiceBox.AddChild(button);
+    }
+
+    private async Task ReturnSelectedSetupPlayerToReserveAsync()
+    {
+        if (_selectedPlayerId is not Guid playerId)
+        {
+            return;
+        }
+
+        try
+        {
+            var service = CreateMatchService();
+            _match = service.ReturnSetupPlayerToReserve(_match, playerId);
+            await _saveMatch(_match);
+            ClearPreview();
+            RefreshRoster();
+            RefreshPitch();
+        }
+        catch (Exception ex)
+        {
+            _summaryLabel.Text = ex.Message;
         }
     }
 
@@ -4249,6 +4316,20 @@ public partial class MatchScreen : VBoxContainer
         return _match.Placements.FirstOrDefault(placement => placement.PlayerId == playerId)?.Square;
     }
 
+    private bool IsGoForItMovementTarget(Guid playerId, PitchSquare square)
+    {
+        var player = FindPlayer(playerId);
+        var placement = _match.Placements.FirstOrDefault(current => current.PlayerId == playerId);
+        if (player is null || placement?.Square is null)
+        {
+            return false;
+        }
+
+        var activation = CurrentTurnActivation(playerId);
+        var path = BuildMovementPath(placement.Square, square);
+        return path.Count > RemainingRegularMovement(player, placement, activation);
+    }
+
     private static IReadOnlyList<PitchSquare> BuildMovementPath(PitchSquare start, PitchSquare destination)
     {
         var path = new List<PitchSquare>();
@@ -4468,7 +4549,7 @@ public partial class MatchScreen : VBoxContainer
 
     private MatchService CreateMatchService()
     {
-        var service = CreateMatchService();
+        var service = new MatchService();
         service.RegisterTeams(_homeTeam, _awayTeam);
         return service;
     }

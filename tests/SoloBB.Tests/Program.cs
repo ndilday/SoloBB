@@ -3028,6 +3028,11 @@ AssertThrows(
     () => matchService.PlacePlayer(elevenBenchPlayersSetup, ruleset, benchLeague.Teams[0].Players[11].Id, new(2, 11)),
     "setup should reject placing a twelfth player");
 
+var setupWithReturnedReserve = matchService.ReturnSetupPlayerToReserve(elevenBenchPlayersSetup, benchLeague.Teams[0].Players[0].Id);
+Assert(setupWithReturnedReserve.Placements.Single(placement => placement.PlayerId == benchLeague.Teams[0].Players[0].Id).State == PlayerPitchState.Reserve, "setup should allow returning a placed player to reserve");
+var swappedSetupPlayer = matchService.PlacePlayer(setupWithReturnedReserve, ruleset, benchLeague.Teams[0].Players[11].Id, new(2, 11));
+Assert(swappedSetupPlayer.Placements.Single(placement => placement.PlayerId == benchLeague.Teams[0].Players[11].Id).Square == new PitchSquare(2, 11), "setup should allow placing a reserve player after returning another player to reserve");
+
 AssertThrows(
     () => matchService.PlacePlayer(loadedMatch, ruleset, awayPlayerToPlace.Id, new(-1, 0)),
     "placement should reject squares outside the pitch");

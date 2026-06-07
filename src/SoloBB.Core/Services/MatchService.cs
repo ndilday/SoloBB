@@ -341,7 +341,42 @@ public sealed class MatchService
             Log =
             [
                 .. match.Log,
-                new MatchLogEntry { Message = $"Placed player {playerId} at {square.X},{square.Y}." }
+                new MatchLogEntry { Message = $"Placed {PlayerName(playerId)} at {square.X},{square.Y}." }
+            ]
+        };
+    }
+
+    public MatchState ReturnSetupPlayerToReserve(MatchState match, Guid playerId)
+    {
+        if (match.Phase is not (MatchPhase.DefenseSetup or MatchPhase.OffenseSetup))
+        {
+            throw new InvalidOperationException("Players can only be returned to reserve during setup.");
+        }
+
+        var placement = match.Placements.FirstOrDefault(current => current.PlayerId == playerId)
+            ?? throw new InvalidOperationException("Player is not part of this match.");
+
+        if (placement.TeamId != match.ActiveTeamId)
+        {
+            throw new InvalidOperationException("Only the active setup team can return players to reserve.");
+        }
+
+        if (placement.State is not PlayerPitchState.Standing || placement.Square is null)
+        {
+            throw new InvalidOperationException("Only set up standing players can be returned to reserve.");
+        }
+
+        return match with
+        {
+            Placements = match.Placements
+                .Select(current => current.PlayerId == playerId
+                    ? current with { Square = null, State = PlayerPitchState.Reserve, TackleZonesLost = false, Rooted = false, StunnedRecoveryHalf = null, StunnedRecoveryTurn = null, Casualty = null }
+                    : current)
+                .ToArray(),
+            Log =
+            [
+                .. match.Log,
+                new MatchLogEntry { Message = $"Returned {PlayerName(playerId)} to reserve." }
             ]
         };
     }
@@ -1348,7 +1383,7 @@ public sealed class MatchService
             Log =
             [
                 .. match.Log,
-            new MatchLogEntry { Message = $"{FormatKickoffEventKind(pending.Kind)}: repositioned {playerId} to {destination.X},{destination.Y}." }
+            new MatchLogEntry { Message = $"{FormatKickoffEventKind(pending.Kind)}: repositioned {PlayerName(playerId)} to {destination.X},{destination.Y}." }
             ]
         };
     }
