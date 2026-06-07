@@ -58,8 +58,12 @@ internal static class ScreenStyles
             header.AddChild(Badge(badge, badgeColor));
         }
 
+        var headerStyle = FlatStyle(PanelHeaderBackground, PanelBorderSoft);
+        headerStyle.ContentMarginTop = 4;
+        headerStyle.ContentMarginBottom = 4;
+
         var headerWrap = new PanelContainer { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
-        headerWrap.AddThemeStyleboxOverride("panel", FlatStyle(PanelHeaderBackground, PanelBorderSoft));
+        headerWrap.AddThemeStyleboxOverride("panel", headerStyle);
         headerWrap.AddChild(header);
         stack.AddChild(headerWrap);
 

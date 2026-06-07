@@ -40,6 +40,7 @@ public partial class MatchScreen : VBoxContainer
     private HBoxContainer _sendOffChoiceBox = null!;
     private HBoxContainer _setupChoiceBox = null!;
     private Button _passModeButton = null!;
+    private Button _handOffModeButton = null!;
     private Button _blitzModeButton = null!;
     private Button _throwTeamMateModeButton = null!;
     private Button _kickTeamMateModeButton = null!;
@@ -76,6 +77,7 @@ public partial class MatchScreen : VBoxContainer
     private PitchSquare? _animationBallSquare;
     private bool _isAnimating;
     private bool _passMode;
+    private bool _handOffMode;
     private bool _blitzMode;
     private bool _throwTeamMateMode;
     private bool _kickTeamMateMode;
@@ -116,6 +118,7 @@ public partial class MatchScreen : VBoxContainer
     private static readonly Color CurrentPlayerColor = new("4b4425");
     private static readonly Color ActivatedPlayerColor = new("303236");
     private static readonly Color UnavailablePlayerColor = new("252a27");
+    private static readonly Color ActivatedPieceModulate = new(0.5f, 0.52f, 0.55f);
 
     public void Setup(
         Ruleset ruleset,
@@ -144,6 +147,7 @@ public partial class MatchScreen : VBoxContainer
         _previewLaunchTargetSquare = null;
         _animationBallSquare = null;
         _passMode = false;
+        _handOffMode = false;
         _blitzMode = false;
         _throwTeamMateMode = false;
         _kickTeamMateMode = false;
@@ -237,17 +241,12 @@ public partial class MatchScreen : VBoxContainer
         decisionActions.AddChild(_setupChoiceBox);
 
         _passModeButton = ActionButton("Pass");
-        _passModeButton.Pressed += () =>
-        {
-            ResetEndTurnConfirmation();
-            var enabled = !_passMode;
-            _throwTeamMateMode = false;
-            _kickTeamMateMode = false;
-            ClearPreview();
-            _passMode = enabled;
-            RefreshPitch();
-        };
+        _passModeButton.Pressed += async () => await DeclarePassModeAsync();
         footer.AddChild(_passModeButton);
+
+        _handOffModeButton = ActionButton("Hand-off");
+        _handOffModeButton.Pressed += async () => await DeclareHandOffModeAsync();
+        footer.AddChild(_handOffModeButton);
 
         _blitzModeButton = ActionButton("Blitz");
         _blitzModeButton.Pressed += async () => await DeclareBlitzModeAsync();
@@ -262,6 +261,8 @@ public partial class MatchScreen : VBoxContainer
             _throwTeamMateMode = enabled;
             if (enabled)
             {
+                _passMode = false;
+                _handOffMode = false;
                 _kickTeamMateMode = false;
             }
 
@@ -278,6 +279,8 @@ public partial class MatchScreen : VBoxContainer
             _kickTeamMateMode = enabled;
             if (enabled)
             {
+                _passMode = false;
+                _handOffMode = false;
                 _throwTeamMateMode = false;
             }
 
@@ -518,15 +521,16 @@ public partial class MatchScreen : VBoxContainer
             return;
         }
 
-        var viewportWidth = _pitchViewport.Size.X;
-        var pitchWidth = BasePitchSize().X;
-        if (viewportWidth <= 0 || pitchWidth <= 0)
+        var viewportSize = _pitchViewport.Size;
+        var baseSize = BasePitchSize();
+        if (viewportSize.X <= 0 || viewportSize.Y <= 0 || baseSize.X <= 0 || baseSize.Y <= 0)
         {
             CallDeferred(nameof(InitializePitchZoom));
             return;
         }
 
-        _pitchZoom = Math.Clamp(viewportWidth / pitchWidth, MinPitchZoom, MaxPitchZoom);
+        var fitZoom = Math.Min(viewportSize.X / baseSize.X, viewportSize.Y / baseSize.Y);
+        _pitchZoom = Math.Clamp(fitZoom, MinPitchZoom, MaxPitchZoom);
         _pitchZoomInitialized = true;
         CenterPitch();
     }
@@ -938,11 +942,12 @@ public partial class MatchScreen : VBoxContainer
         }
     }
 
-    private void SetPitchPiece(PitchSquare square, Texture2D? texture)
+    private void SetPitchPiece(PitchSquare square, Texture2D? texture, Color? modulate = null)
     {
         if (_pitchPieceLayers.TryGetValue(square, out var layer))
         {
             layer.Texture = texture;
+            layer.Modulate = modulate ?? Colors.White;
         }
     }
 
@@ -1074,6 +1079,12 @@ public partial class MatchScreen : VBoxContainer
                 if (_selectedPlayerId is Guid blitzerId && IsLegalBlitzTarget(blitzerId, occupied.PlayerId))
                 {
                     await HandleBlitzTargetAsync(blitzerId, occupied.PlayerId);
+                    return;
+                }
+
+                if (_handOffMode && _selectedPlayerId is Guid handOffCarrierId && IsLegalHandOffTarget(handOffCarrierId, occupied.PlayerId))
+                {
+                    await HandleHandOffTargetAsync(handOffCarrierId, occupied.PlayerId);
                     return;
                 }
 
@@ -1215,10 +1226,13 @@ public partial class MatchScreen : VBoxContainer
         var path = _previewPath.ToArray();
         var movingTeam = ActiveTeam();
         var service = CreateMatchService();
-        var isBlitzMove = CurrentTurnActivation(playerId)?.Action == PlayerTurnAction.Blitz;
-        _match = isBlitzMove
-            ? service.MovePlayerAsBlitz(_match, _ruleset, movingTeam, playerId, destination, OpponentTeam())
-            : service.MovePlayer(_match, _ruleset, movingTeam, playerId, destination, OpponentTeam());
+        _match = CurrentTurnActivation(playerId)?.Action switch
+        {
+            PlayerTurnAction.Blitz => service.MovePlayerAsBlitz(_match, _ruleset, movingTeam, playerId, destination, OpponentTeam()),
+            PlayerTurnAction.Pass => service.MovePlayerAsPass(_match, _ruleset, movingTeam, playerId, destination, OpponentTeam()),
+            PlayerTurnAction.HandOff => service.MovePlayerAsHandOff(_match, _ruleset, movingTeam, playerId, destination, OpponentTeam()),
+            _ => service.MovePlayer(_match, _ruleset, movingTeam, playerId, destination, OpponentTeam())
+        };
         if (_match.ActiveTeamId == activeTeamBeforeMove && IsPlayerTurnPhase())
         {
             _selectedPlayerId = playerId;
@@ -1399,8 +1413,50 @@ public partial class MatchScreen : VBoxContainer
 
         if (_match.ActiveTeamId == activeTeamBeforeChoice && IsPlayerTurnPhase())
         {
-            _selectedPlayerId = pending.AttackerPlayerId;
-            _currentActivationPlayerId = pending.AttackerPlayerId;
+            _selectedPlayerId = IsActivationOngoing(pending.AttackerPlayerId) ? pending.AttackerPlayerId : null;
+            _currentActivationPlayerId = IsActivationOngoing(pending.AttackerPlayerId) ? pending.AttackerPlayerId : null;
+        }
+        else
+        {
+            _selectedPlayerId = null;
+            _currentActivationPlayerId = null;
+        }
+
+        await AnimateBallAsync(beforeMatch, _match, logStart);
+        await _saveMatch(_match);
+        RefreshRoster();
+        RefreshPitch();
+    }
+
+    private async Task RerollPendingBlockAsync()
+    {
+        ResetEndTurnConfirmation();
+        if (_match.PendingBlock is not PendingBlockChoice pending)
+        {
+            return;
+        }
+
+        var beforeMatch = _match;
+        var logStart = _match.Log.Count;
+        var activeTeamBeforeChoice = _match.ActiveTeamId;
+        var attackerTeam = TeamById(pending.AttackerTeamId);
+        var defenderTeam = TeamById(pending.DefenderTeamId);
+        try
+        {
+            var service = CreateMatchService();
+            _match = service.RerollPendingBlock(_match, _ruleset, attackerTeam, defenderTeam);
+        }
+        catch (Exception ex)
+        {
+            _summaryLabel.Text = $"Block reroll failed: {ex.Message}";
+            return;
+        }
+
+        _previewBlockDefenderId = null;
+        if (_match.ActiveTeamId == activeTeamBeforeChoice && IsPlayerTurnPhase())
+        {
+            _selectedPlayerId = IsActivationOngoing(pending.AttackerPlayerId) ? pending.AttackerPlayerId : null;
+            _currentActivationPlayerId = IsActivationOngoing(pending.AttackerPlayerId) ? pending.AttackerPlayerId : null;
         }
         else
         {
@@ -1436,8 +1492,8 @@ public partial class MatchScreen : VBoxContainer
 
         if (_match.ActiveTeamId == activeTeamBeforeChoice && IsPlayerTurnPhase())
         {
-            _selectedPlayerId = pending.AttackerPlayerId;
-            _currentActivationPlayerId = pending.AttackerPlayerId;
+            _selectedPlayerId = IsActivationOngoing(pending.AttackerPlayerId) ? pending.AttackerPlayerId : null;
+            _currentActivationPlayerId = IsActivationOngoing(pending.AttackerPlayerId) ? pending.AttackerPlayerId : null;
         }
         else
         {
@@ -1461,20 +1517,17 @@ public partial class MatchScreen : VBoxContainer
 
         var beforeMatch = _match;
         var logStart = _match.Log.Count;
-        var activeTeamBeforeChoice = _match.ActiveTeamId;
         var service = CreateMatchService();
         _match = service.ResolvePendingFollowUp(_match, TeamById(pending.AttackerTeamId), TeamById(pending.DefenderTeamId), useFollowUp);
 
-        if (_match.ActiveTeamId == activeTeamBeforeChoice && IsPlayerTurnPhase())
-        {
-            _selectedPlayerId = pending.AttackerPlayerId;
-            _currentActivationPlayerId = pending.AttackerPlayerId;
-        }
-        else
-        {
-            _selectedPlayerId = null;
-            _currentActivationPlayerId = null;
-        }
+        ClearPreview();
+        // A Block follow-up ends the activation (done for the turn); a Blitz follow-up leaves the
+        // blitzer active so they may keep moving with any remaining allowance.
+        var followUpOngoing = _match.ActiveTeamId == beforeMatch.ActiveTeamId &&
+            IsPlayerTurnPhase() &&
+            IsActivationOngoing(pending.AttackerPlayerId);
+        _selectedPlayerId = followUpOngoing ? pending.AttackerPlayerId : null;
+        _currentActivationPlayerId = followUpOngoing ? pending.AttackerPlayerId : null;
 
         RefreshPitch();
         await AnimateBallAsync(beforeMatch, _match, logStart);
@@ -1505,16 +1558,43 @@ public partial class MatchScreen : VBoxContainer
     {
         var beforeMatch = _match;
         var logStart = _match.Log.Count;
-        var activeTeamBeforePass = _match.ActiveTeamId;
         var service = CreateMatchService();
         _match = service.PassBall(_match, _ruleset, ActiveTeam(), passerId, targetSquare, OpponentTeam());
         _previewPassReceiverId = null;
         _previewPassTargetSquare = null;
 
-        if (_match.ActiveTeamId == activeTeamBeforePass && IsPlayerTurnPhase())
+        // The pass completes the player's action. Deselect so the spent passer cannot be
+        // re-selected to move again under the already-resolved Pass action.
+        _selectedPlayerId = null;
+        _currentActivationPlayerId = null;
+
+        _passMode = false;
+        await AnimateBallAsync(beforeMatch, _match, logStart);
+        await _saveMatch(_match);
+        RefreshRoster();
+        RefreshPitch();
+    }
+
+    private async Task HandleHandOffTargetAsync(Guid carrierId, Guid receiverId)
+    {
+        var beforeMatch = _match;
+        var logStart = _match.Log.Count;
+        var activeTeamBeforeHandOff = _match.ActiveTeamId;
+        try
         {
-            _selectedPlayerId = passerId;
-            _currentActivationPlayerId = passerId;
+            var service = CreateMatchService();
+            _match = service.HandOffBall(_match, _ruleset, ActiveTeam(), carrierId, receiverId, OpponentTeam());
+        }
+        catch (Exception ex)
+        {
+            _summaryLabel.Text = $"Hand-off failed: {ex.Message}";
+            return;
+        }
+
+        if (_match.ActiveTeamId == activeTeamBeforeHandOff && IsPlayerTurnPhase() && _match.Ball.CarrierPlayerId == receiverId)
+        {
+            _selectedPlayerId = receiverId;
+            _currentActivationPlayerId = null;
         }
         else
         {
@@ -1522,7 +1602,7 @@ public partial class MatchScreen : VBoxContainer
             _currentActivationPlayerId = null;
         }
 
-        _passMode = false;
+        _handOffMode = false;
         await AnimateBallAsync(beforeMatch, _match, logStart);
         await _saveMatch(_match);
         RefreshRoster();
@@ -1611,8 +1691,8 @@ public partial class MatchScreen : VBoxContainer
 
         if (_match.ActiveTeamId == activeTeamBeforeChoice && IsPlayerTurnPhase())
         {
-            _selectedPlayerId = pending.PasserPlayerId;
-            _currentActivationPlayerId = pending.PasserPlayerId;
+            _selectedPlayerId = IsActivationOngoing(pending.PasserPlayerId) ? pending.PasserPlayerId : null;
+            _currentActivationPlayerId = IsActivationOngoing(pending.PasserPlayerId) ? pending.PasserPlayerId : null;
         }
         else
         {
@@ -1727,8 +1807,8 @@ public partial class MatchScreen : VBoxContainer
 
         if (_match.ActiveTeamId == activeTeamBeforeChoice && IsPlayerTurnPhase())
         {
-            _selectedPlayerId = pending.AttackerPlayerId;
-            _currentActivationPlayerId = pending.AttackerPlayerId;
+            _selectedPlayerId = IsActivationOngoing(pending.AttackerPlayerId) ? pending.AttackerPlayerId : null;
+            _currentActivationPlayerId = IsActivationOngoing(pending.AttackerPlayerId) ? pending.AttackerPlayerId : null;
         }
         else
         {
@@ -2062,6 +2142,7 @@ public partial class MatchScreen : VBoxContainer
         }
 
         _passMode = false;
+        _handOffMode = false;
         _blitzMode = CurrentTurnActivation(playerId)?.Action == PlayerTurnAction.Blitz;
         ClearPreview();
         _blitzMode = CurrentTurnActivation(playerId)?.Action == PlayerTurnAction.Blitz;
@@ -2157,7 +2238,10 @@ public partial class MatchScreen : VBoxContainer
             var isSelected = placement.PlayerId == _selectedPlayerId;
             var player = FindPlayer(placement.PlayerId);
             var team = TeamById(placement.TeamId);
-            SetPitchPiece(placement.Square!, player is null ? null : PlayerSprite(team, player, placement));
+            var pieceModulate = ActivationDisplayState(placement.PlayerId, placement) == "Activated"
+                ? ActivatedPieceModulate
+                : Colors.White;
+            SetPitchPiece(placement.Square!, player is null ? null : PlayerSprite(team, player, placement), pieceModulate);
             SetPitchOverlay(placement.Square!, placement.State == PlayerPitchState.Stunned ? StunnedSprite(0) : null);
             if (isSelected)
             {
@@ -2169,6 +2253,7 @@ public partial class MatchScreen : VBoxContainer
             var canBlitzTarget = _selectedPlayerId is Guid blitzerId && IsLegalBlitzTarget(blitzerId, placement.PlayerId);
             var canKickoffBlitzTarget = _selectedPlayerId is Guid kickoffBlitzerId && IsLegalKickoffBlitzTarget(kickoffBlitzerId, placement.PlayerId);
             var canPassTarget = _selectedPlayerId is Guid passerId && IsLegalPassTarget(passerId, placement.PlayerId);
+            var canHandOffTarget = _handOffMode && _selectedPlayerId is Guid handOffCarrierId && IsLegalHandOffTarget(handOffCarrierId, placement.PlayerId);
             var canFoulTarget = _selectedPlayerId is Guid foulerId && IsLegalFoulTarget(foulerId, placement.PlayerId);
             var canPushTarget = IsLegalPushSquare(placement.Square!);
             var canFollowUpTarget = IsLegalFollowUpSquare(placement.Square!);
@@ -2180,13 +2265,13 @@ public partial class MatchScreen : VBoxContainer
             var canLaunchTargetSquare = _selectedPlayerId is Guid launchActorIdForSquare &&
                 _previewLaunchedPlayerId is Guid launchedPlayerId &&
                 IsLegalLaunchTargetSquare(launchActorIdForSquare, launchedPlayerId, placement.Square!);
-            button.Disabled = !CanSelectPlayer(placement.PlayerId) && !canBlockTarget && !canBlitzTarget && !canKickoffBlitzTarget && !canPassTarget && !canFoulTarget && !canPushTarget && !canFollowUpTarget && !canThrowBombTarget && !canLaunchPlayer && !canLaunchTargetSquare;
+            button.Disabled = !CanSelectPlayer(placement.PlayerId) && !canBlockTarget && !canBlitzTarget && !canKickoffBlitzTarget && !canPassTarget && !canHandOffTarget && !canFoulTarget && !canPushTarget && !canFollowUpTarget && !canThrowBombTarget && !canLaunchPlayer && !canLaunchTargetSquare;
             ApplySquareStyle(
                 button,
                 placement.Square!,
                 isSelected,
-                canUse: canBlockTarget || canBlitzTarget || canKickoffBlitzTarget || canPassTarget || canFoulTarget || canPushTarget || canFollowUpTarget || canThrowBombTarget || canLaunchPlayer || canLaunchTargetSquare,
-                pathMarker: canLaunchPlayer ? "L" : canLaunchTargetSquare ? "L" : canFollowUpTarget ? "F" : canPushTarget ? ">" : null,
+                canUse: canBlockTarget || canBlitzTarget || canKickoffBlitzTarget || canPassTarget || canHandOffTarget || canFoulTarget || canPushTarget || canFollowUpTarget || canThrowBombTarget || canLaunchPlayer || canLaunchTargetSquare,
+                pathMarker: canLaunchPlayer ? "L" : canLaunchTargetSquare ? "L" : canHandOffTarget ? "H" : canFollowUpTarget ? "F" : canPushTarget ? ">" : null,
                 blockRole: BlockPreviewRole(placement.PlayerId),
                 passRole: PassPreviewRole(placement.PlayerId));
         }
@@ -2224,6 +2309,7 @@ public partial class MatchScreen : VBoxContainer
                 ? "Click again to end the current team turn."
                 : "Advance the current phase or turn.";
         RefreshPassModeButton();
+        RefreshHandOffModeButton();
         RefreshBlitzModeButton();
         RefreshLaunchModeButtons();
 
@@ -2475,8 +2561,26 @@ public partial class MatchScreen : VBoxContainer
 
         _passModeButton.Disabled = !canPass;
         _passModeButton.Text = _passMode ? "Pass: On" : "Pass";
-        _passModeButton.TooltipText = canPass ? "Toggle pass targeting." : "Select an unactivated ball carrier to pass.";
+        _passModeButton.TooltipText = canPass
+            ? "Declare a pass (commits the action), then move to collect the ball if needed and toggle targeting to throw."
+            : "Select an unactivated player to declare a pass.";
         SetModeButtonStyle(_passModeButton, _passMode, canPass);
+    }
+
+    private void RefreshHandOffModeButton()
+    {
+        var canHandOff = _selectedPlayerId is Guid carrierId && CanEnterHandOffMode(carrierId);
+        if (!canHandOff)
+        {
+            _handOffMode = false;
+        }
+
+        _handOffModeButton.Disabled = !canHandOff;
+        _handOffModeButton.Text = _handOffMode ? "Hand-off: On" : "Hand-off";
+        _handOffModeButton.TooltipText = canHandOff
+            ? "Declare a hand-off (commits the action), then move to collect the ball if needed and hand off to an adjacent team-mate."
+            : "Select an unactivated player to declare a hand-off.";
+        SetModeButtonStyle(_handOffModeButton, _handOffMode, canHandOff);
     }
 
     private void RefreshBlitzModeButton()
@@ -2502,6 +2606,54 @@ public partial class MatchScreen : VBoxContainer
         SetModeButtonStyle(_blitzModeButton, _blitzMode, canBlitz || declaredBlitz);
     }
 
+    private async Task DeclarePassModeAsync()
+    {
+        await DeclareBallActionModeAsync(PlayerTurnAction.Pass);
+    }
+
+    private async Task DeclareHandOffModeAsync()
+    {
+        await DeclareBallActionModeAsync(PlayerTurnAction.HandOff);
+    }
+
+    private async Task DeclareBallActionModeAsync(PlayerTurnAction action)
+    {
+        ResetEndTurnConfirmation();
+        var isPass = action == PlayerTurnAction.Pass;
+        if (_selectedPlayerId is not Guid playerId ||
+            !(isPass ? CanEnterPassMode(playerId) : CanEnterHandOffMode(playerId)))
+        {
+            return;
+        }
+
+        var alreadyTargeting = isPass ? _passMode : _handOffMode;
+        try
+        {
+            // Commit the action the first time it is entered for this player, even without the ball,
+            // so they may move to collect it and still throw or hand off.
+            if (CurrentTurnActivation(playerId) is null)
+            {
+                var service = CreateMatchService();
+                _match = service.DeclarePlayerAction(_match, ActiveTeam(), playerId, action);
+                await _saveMatch(_match);
+            }
+
+            ClearPreview();
+            _selectedPlayerId = playerId;
+            _currentActivationPlayerId = playerId;
+            _passMode = isPass && !alreadyTargeting;
+            _handOffMode = !isPass && !alreadyTargeting;
+            _throwTeamMateMode = false;
+            _kickTeamMateMode = false;
+            RefreshRoster();
+            RefreshPitch();
+        }
+        catch (Exception ex)
+        {
+            _summaryLabel.Text = $"{(isPass ? "Pass" : "Hand-off")} declaration failed: {ex.Message}";
+        }
+    }
+
     private async Task DeclareBlitzModeAsync()
     {
         ResetEndTurnConfirmation();
@@ -2516,6 +2668,7 @@ public partial class MatchScreen : VBoxContainer
             _match = service.DeclarePlayerAction(_match, ActiveTeam(), playerId, PlayerTurnAction.Blitz);
             _currentActivationPlayerId = playerId;
             _passMode = false;
+            _handOffMode = false;
             _throwTeamMateMode = false;
             _kickTeamMateMode = false;
             ClearPreview();
@@ -2920,7 +3073,13 @@ public partial class MatchScreen : VBoxContainer
             return false;
         }
 
-        return !HasCurrentTurnActivation(playerId) || _currentActivationPlayerId == playerId;
+        var activation = CurrentTurnActivation(playerId);
+        if (activation is { Completed: true })
+        {
+            return false;
+        }
+
+        return activation is null || _currentActivationPlayerId == playerId;
     }
 
     private bool CanReturnSelectedSetupPlayerToReserve()
@@ -2967,12 +3126,18 @@ public partial class MatchScreen : VBoxContainer
             return "Unavailable";
         }
 
+        var activation = CurrentTurnActivation(playerId);
+        if (activation is { Completed: true })
+        {
+            return "Activated";
+        }
+
         if (_currentActivationPlayerId == playerId)
         {
             return "Current";
         }
 
-        return HasCurrentTurnActivation(playerId) ? "Activated" : "Ready";
+        return activation is not null ? "Activated" : "Ready";
     }
 
     private static string RosterStatusLabel(PlayerPlacement? placement)
@@ -2996,12 +3161,16 @@ public partial class MatchScreen : VBoxContainer
         };
     }
 
-    private static string RosterTooltip(Player player, PlayerPlacement? placement)
+    private string RosterTooltip(Player player, PlayerPlacement? placement)
     {
         var stats = FormatStats(player.Stats);
+        var skillNames = player.Skills.Count == 0
+            ? ""
+            : $"\n{string.Join(", ", player.Skills.Select(id => _ruleset.Skills.FirstOrDefault(s => s.Id == id)?.Name ?? id))}";
+        var baseText = $"{stats}{skillNames}";
         return placement?.Casualty is null
-            ? stats
-            : $"{stats}\nCasualty: {FormatCasualtyResult(placement.Casualty.Result)} ({placement.Casualty.Roll})";
+            ? baseText
+            : $"{baseText}\nCasualty: {FormatCasualtyResult(placement.Casualty.Result)} ({placement.Casualty.Roll})";
     }
 
     private static string FormatCasualtyResult(CasualtyResult result)
@@ -3050,6 +3219,14 @@ public partial class MatchScreen : VBoxContainer
     private bool HasCurrentTurnActivation(Guid playerId)
     {
         return CurrentTurnActivation(playerId) is not null;
+    }
+
+    // True when the player has an activation this turn that has not yet finished, so they may
+    // still be the "current" highlighted player. A completed activation (e.g. after a follow-up,
+    // both-down, pass, or hand-off) means the player is done for the turn.
+    private bool IsActivationOngoing(Guid playerId)
+    {
+        return CurrentTurnActivation(playerId) is { Completed: false };
     }
 
     private PlayerTurnActivation? CurrentTurnActivation(Guid playerId)
@@ -3394,6 +3571,14 @@ public partial class MatchScreen : VBoxContainer
             button.Pressed += async () => await ChooseBlockDieAsync(roll);
             _blockDiceBox.AddChild(button);
         }
+
+        if (TeamRerollsRemaining(pending.AttackerTeamId) > 0)
+        {
+            var rerollButton = new Button { Text = $"Reroll ({TeamRerollsRemaining(pending.AttackerTeamId)})" };
+            rerollButton.TooltipText = "Use a team reroll to reroll all block dice.";
+            rerollButton.Pressed += async () => await RerollPendingBlockAsync();
+            _blockDiceBox.AddChild(rerollButton);
+        }
     }
 
     private void RefreshSetupChoice()
@@ -3470,6 +3655,18 @@ public partial class MatchScreen : VBoxContainer
 
     private bool CanEnterPassMode(Guid passerId)
     {
+        return CanDeclareBallAction(passerId, PlayerTurnAction.Pass, HasUsedPass(_match.ActiveTeamId));
+    }
+
+    private bool CanEnterHandOffMode(Guid carrierId)
+    {
+        return CanDeclareBallAction(carrierId, PlayerTurnAction.HandOff, HasUsedHandOff(_match.ActiveTeamId));
+    }
+
+    // A pass or hand-off can be declared before the player holds the ball, so they may move to
+    // collect it and still throw. The action is committed for the turn once declared.
+    private bool CanDeclareBallAction(Guid playerId, PlayerTurnAction action, bool teamAlreadyUsedAction)
+    {
         if (!IsPlayerTurnPhase() ||
             _match.PendingBlock is not null ||
             _match.PendingPush is not null ||
@@ -3479,17 +3676,46 @@ public partial class MatchScreen : VBoxContainer
             _match.PendingDivingTackle is not null ||
             _match.PendingBombThrow is not null ||
             _match.PendingInterception is not null ||
-            HasCurrentTurnActivation(passerId) ||
-            HasUsedPass(_match.ActiveTeamId) ||
-            _match.Ball.CarrierPlayerId != passerId)
+            _match.PendingReroll is not null)
         {
             return false;
         }
 
-        var passerPlacement = _match.Placements.FirstOrDefault(placement => placement.PlayerId == passerId);
-        return passerPlacement?.TeamId == _match.ActiveTeamId &&
-            passerPlacement.Square is not null &&
-            passerPlacement.State == PlayerPitchState.Standing;
+        var placement = _match.Placements.FirstOrDefault(current => current.PlayerId == playerId);
+        if (placement?.TeamId != _match.ActiveTeamId ||
+            placement.Square is null ||
+            placement.State != PlayerPitchState.Standing)
+        {
+            return false;
+        }
+
+        var activation = CurrentTurnActivation(playerId);
+        if (activation is not null)
+        {
+            return activation.Action == action;
+        }
+
+        return !teamAlreadyUsedAction;
+    }
+
+    private bool IsLegalHandOffTarget(Guid carrierId, Guid receiverId)
+    {
+        if (carrierId == receiverId || !CanEnterHandOffMode(carrierId) || _match.Ball.CarrierPlayerId != carrierId)
+        {
+            return false;
+        }
+
+        var carrierPlacement = _match.Placements.FirstOrDefault(placement => placement.PlayerId == carrierId);
+        var receiverPlacement = _match.Placements.FirstOrDefault(placement => placement.PlayerId == receiverId);
+        if (carrierPlacement?.Square is not PitchSquare carrierSquare ||
+            receiverPlacement?.TeamId != _match.ActiveTeamId ||
+            receiverPlacement.Square is not PitchSquare receiverSquare ||
+            receiverPlacement.State != PlayerPitchState.Standing)
+        {
+            return false;
+        }
+
+        return IsAdjacent(carrierSquare, receiverSquare);
     }
 
     private bool CanEnterBlitzMode(Guid playerId)
@@ -3575,7 +3801,7 @@ public partial class MatchScreen : VBoxContainer
 
     private bool IsLegalPassTargetSquare(Guid passerId, PitchSquare targetSquare)
     {
-        if (!CanEnterPassMode(passerId) || !IsOnPitch(targetSquare))
+        if (!CanEnterPassMode(passerId) || _match.Ball.CarrierPlayerId != passerId || !IsOnPitch(targetSquare))
         {
             return false;
         }
@@ -4012,6 +4238,15 @@ public partial class MatchScreen : VBoxContainer
             activation.Action == PlayerTurnAction.Pass);
     }
 
+    private bool HasUsedHandOff(Guid teamId)
+    {
+        return _match.Activations.Any(activation =>
+            activation.TeamId == teamId &&
+            activation.Half == _match.Half &&
+            activation.Turn == _match.Turn &&
+            activation.Action == PlayerTurnAction.HandOff);
+    }
+
     private bool HasUsedBlitz(Guid teamId)
     {
         return _match.Activations.Any(activation =>
@@ -4134,7 +4369,7 @@ public partial class MatchScreen : VBoxContainer
 
         var activation = CurrentTurnActivation(playerId);
         if (activation is not null &&
-            (_currentActivationPlayerId != playerId || activation.Action is not (PlayerTurnAction.Move or PlayerTurnAction.Blitz)))
+            (_currentActivationPlayerId != playerId || activation.Action is not (PlayerTurnAction.Move or PlayerTurnAction.Blitz or PlayerTurnAction.Pass or PlayerTurnAction.HandOff)))
         {
             return false;
         }
@@ -4538,6 +4773,7 @@ public partial class MatchScreen : VBoxContainer
         _previewLaunchedPlayerId = null;
         _previewLaunchTargetSquare = null;
         _passMode = false;
+        _handOffMode = false;
         _throwTeamMateMode = false;
         _kickTeamMateMode = false;
     }

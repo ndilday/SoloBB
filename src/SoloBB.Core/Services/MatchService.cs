@@ -391,6 +391,16 @@ public sealed class MatchService
         return MovePlayerCore(match, ruleset, team, playerId, destination, PlayerTurnAction.Blitz, opposingTeam);
     }
 
+    public MatchState MovePlayerAsPass(MatchState match, Ruleset ruleset, LeagueTeam team, Guid playerId, PitchSquare destination, LeagueTeam? opposingTeam = null)
+    {
+        return MovePlayerCore(match, ruleset, team, playerId, destination, PlayerTurnAction.Pass, opposingTeam);
+    }
+
+    public MatchState MovePlayerAsHandOff(MatchState match, Ruleset ruleset, LeagueTeam team, Guid playerId, PitchSquare destination, LeagueTeam? opposingTeam = null)
+    {
+        return MovePlayerCore(match, ruleset, team, playerId, destination, PlayerTurnAction.HandOff, opposingTeam);
+    }
+
     public MatchState DeclarePlayerAction(MatchState match, LeagueTeam team, Guid playerId, PlayerTurnAction action)
     {
         var player = FindTeamPlayer(team, playerId);
@@ -532,7 +542,8 @@ public sealed class MatchService
             return handOffAction.Match;
         }
 
-        var activatedMatch = handOffAction.Match;
+        // Handing off ends the carrier's activation regardless of whether the catch succeeds.
+        var activatedMatch = CompleteActivation(handOffAction.Match, carrierPlayerId, team.Id);
         var handOffTackleZones = PlayerHasHookedEffect(ruleset, receiver, GameEventKind.CatchRoll, GameEventStage.ModifyTarget, SkillEffect.NervesOfSteel)
             ? 0
             : CountOpposingTackleZones(match, team.Id, receiver.Id, receiverPlacement.Square!);
@@ -900,6 +911,8 @@ public sealed class MatchService
         {
             Ball = new BallState()
         };
+        // Throwing the ball ends the passer's activation regardless of the outcome.
+        activatedMatch = CompleteActivation(activatedMatch, passerPlayerId, team.Id);
 
         if (passAttempt.Fumbled)
         {
@@ -1281,7 +1294,7 @@ public sealed class MatchService
             };
         }
 
-        var bouncedMatch = ResolveBallLanding(kickoffMatch, ruleset, receivingTeam, scatterSquare);
+        var bouncedMatch = ResolveKickoffLanding(kickoffMatch, ruleset, receivingTeam, scatterSquare);
         return bouncedMatch with
         {
             Phase = MatchPhase.OffensivePlayerTurn,
@@ -1485,7 +1498,7 @@ public sealed class MatchService
             };
         }
 
-        var landedMatch = ResolveBallLanding(baseMatch, ruleset, receivingTeam, landingSquare);
+        var landedMatch = ResolveKickoffLanding(baseMatch, ruleset, receivingTeam, landingSquare);
         return landedMatch with
         {
             Phase = MatchPhase.OffensivePlayerTurn,
@@ -1918,6 +1931,73 @@ public sealed class MatchService
             pending.PreventFollowUp);
     }
 
+    public MatchState RerollPendingBlock(
+        MatchState match,
+        Ruleset ruleset,
+        LeagueTeam attackerTeam,
+        LeagueTeam defenderTeam)
+    {
+        var pending = match.PendingBlock
+            ?? throw new InvalidOperationException("There is no pending block choice.");
+
+        if (pending.AttackerTeamId != attackerTeam.Id || pending.DefenderTeamId != defenderTeam.Id)
+        {
+            throw new InvalidOperationException("Pending block teams do not match the selected teams.");
+        }
+
+        if (!CanUseTeamReroll(match, ruleset, attackerTeam))
+        {
+            throw new InvalidOperationException($"{attackerTeam.Name} has no team rerolls available.");
+        }
+
+        var attacker = FindTeamPlayer(attackerTeam, pending.AttackerPlayerId);
+        var defender = FindTeamPlayer(defenderTeam, pending.DefenderPlayerId);
+        var attackerPlacement = match.Placements.First(placement => placement.PlayerId == pending.AttackerPlayerId);
+        var defenderPlacement = match.Placements.First(placement => placement.PlayerId == pending.DefenderPlayerId);
+        var strength = new BlockStrength(pending.AttackerStrength, pending.DefenderStrength, pending.Rolls.Count);
+
+        var spentMatch = SpendTeamReroll(match with { PendingBlock = null }, ruleset, attackerTeam);
+        var rerolledRolls = Enumerable.Range(0, pending.Rolls.Count).Select(_ => _dice.RollD6()).ToArray();
+        spentMatch = spentMatch with
+        {
+            Log =
+            [
+                .. spentMatch.Log,
+                new MatchLogEntry { Message = $"{attackerTeam.Name} uses a team reroll: block dice rerolled from {string.Join(", ", pending.Rolls)} to {string.Join(", ", rerolledRolls)}." }
+            ]
+        };
+
+        return rerolledRolls.Length > 1
+            ? spentMatch with
+            {
+                PendingBlock = new PendingBlockChoice
+                {
+                    AttackerTeamId = attackerTeam.Id,
+                    DefenderTeamId = defenderTeam.Id,
+                    AttackerPlayerId = attacker.Id,
+                    DefenderPlayerId = defender.Id,
+                    Rolls = rerolledRolls,
+                    AttackerStrength = pending.AttackerStrength,
+                    DefenderStrength = pending.DefenderStrength,
+                    PreventFollowUp = pending.PreventFollowUp
+                }
+            }
+            : ResolveChosenBlockDie(
+                spentMatch,
+                ruleset,
+                attackerTeam,
+                attacker,
+                attackerPlacement,
+                defenderTeam,
+                defender,
+                defenderPlacement,
+                strength,
+                rerolledRolls,
+                rerolledRolls[0],
+                pending.PreventFollowUp,
+                allowTeamReroll: false);
+    }
+
     public MatchState ChoosePushSquare(
         MatchState match,
         Ruleset ruleset,
@@ -1972,17 +2052,20 @@ public sealed class MatchService
         var baseMatch = match with { PendingFollowUp = null };
         if (!useFollowUp)
         {
-            return baseMatch with
+            return CompleteBlockActivationIfDone(baseMatch with
             {
                 Log =
                 [
                     .. baseMatch.Log,
                     new MatchLogEntry { Message = $"{attacker.Name} does not follow up." }
                 ]
-            };
+            }, attacker.Id, attackerTeam.Id);
         }
 
-        return MoveAttackerToFollowUpSquare(baseMatch, attacker, pending.FollowUpSquare);
+        return CompleteBlockActivationIfDone(
+            MoveAttackerToFollowUpSquare(baseMatch, attacker, pending.FollowUpSquare),
+            attacker.Id,
+            attackerTeam.Id);
     }
 
     public MatchState ChooseBallPlacement(MatchState match, LeagueTeam team, PitchSquare square)
@@ -3444,7 +3527,7 @@ public sealed class MatchService
         var continuesMovementActivation =
             existingActivation is { DeclaredOnly: false } &&
             existingActivation.Action == action &&
-            action is PlayerTurnAction.Move or PlayerTurnAction.Blitz;
+            action is PlayerTurnAction.Move or PlayerTurnAction.Blitz or PlayerTurnAction.Pass or PlayerTurnAction.HandOff;
         var standUpMovementCost = isStandingUp &&
             !continuesMovementActivation &&
             !PlayerHasHookedEffect(ruleset, player, GameEventKind.MoveStep, GameEventStage.BeforeEvent, SkillEffect.JumpUp)
@@ -3827,7 +3910,7 @@ public sealed class MatchService
 
                 return match.Ball.CarrierPlayerId == attacker.Id
                     ? ApplyTurnover(wrestledMatch, ruleset, attackerTeam.Id)
-                    : wrestledMatch;
+                    : CompleteBlockActivationIfDone(wrestledMatch, attacker.Id, attackerTeam.Id);
             }
 
             var attackerHasBlock = PlayerHasHookedEffect(ruleset, attacker, GameEventKind.BlockRoll, GameEventStage.BeforeResolve, SkillEffect.BothDownProtection);
@@ -3860,7 +3943,7 @@ public sealed class MatchService
             };
 
             return attackerHasBlock
-                ? resolvedMatch
+                ? CompleteBlockActivationIfDone(resolvedMatch, attacker.Id, attackerTeam.Id)
                 : ApplyTurnover(resolvedMatch, ruleset, attackerTeam.Id);
         }
 
@@ -3877,6 +3960,27 @@ public sealed class MatchService
                 defenderPlacement,
                 knockDefenderDown: false,
                 resultMessage: $"{attacker.Name} blocks {defender.Name}: {strengthText}, rolled {rollText}, chose {roll}, pushed back.",
+                preventFollowUp: preventFollowUp);
+        }
+
+        if (roll == 5)
+        {
+            var defenderHasDodge = PlayerHasHookedEffect(ruleset, defender, GameEventKind.DodgeRoll, GameEventStage.AfterRoll, SkillEffect.DodgeReroll);
+            var attackerHasTackle = PlayerHasHookedEffect(ruleset, attacker, GameEventKind.DodgeRoll, GameEventStage.AfterRoll, SkillEffect.CancelDodgeReroll);
+            var dodgesStumble = defenderHasDodge && !attackerHasTackle;
+            return ResolvePushAfterBlock(
+                match,
+                ruleset,
+                attackerTeam,
+                attacker,
+                attackerPlacement,
+                defenderTeam,
+                defender,
+                defenderPlacement,
+                knockDefenderDown: !dodgesStumble,
+                resultMessage: dodgesStumble
+                    ? $"{attacker.Name} blocks {defender.Name}: {strengthText}, rolled {rollText}, chose {roll}, defender stumbles but uses Dodge to stay up, pushed back."
+                    : $"{attacker.Name} blocks {defender.Name}: {strengthText}, rolled {rollText}, chose {roll}, defender stumbles.",
                 preventFollowUp: preventFollowUp);
         }
 
@@ -4128,7 +4232,7 @@ public sealed class MatchService
         var countedMatch = IncrementActivationBlocksMade(awardedMatch, attacker.Id, attackerTeam.Id);
         if (preventFollowUp)
         {
-            return countedMatch with
+            var multipleBlockMatch = countedMatch with
             {
                 Log =
                 [
@@ -4136,23 +4240,29 @@ public sealed class MatchService
                     new MatchLogEntry { Message = $"{attacker.Name} cannot follow up while using Multiple Block." }
                 ]
             };
+
+            // Only end the activation once the second Multiple Block has resolved; while a
+            // continuation is still pending the attacker has another block to make.
+            return multipleBlockMatch.PendingMultipleBlock is null
+                ? CompleteBlockActivationIfDone(multipleBlockMatch, attacker.Id, attackerTeam.Id)
+                : multipleBlockMatch;
         }
 
         if (!CanFollowUp(countedMatch, attacker.Id, attackerTeam.Id, followUpSquare))
         {
-            return countedMatch;
+            return CompleteBlockActivationIfDone(countedMatch, attacker.Id, attackerTeam.Id);
         }
 
         if (PlayerHasHookedEffect(ruleset, defender, GameEventKind.Push, GameEventStage.AfterEvent, SkillEffect.Fend))
         {
-            return countedMatch with
+            return CompleteBlockActivationIfDone(countedMatch with
             {
                 Log =
                 [
                     .. countedMatch.Log,
                     new MatchLogEntry { Message = $"{defender.Name} uses Fend; {attacker.Name} cannot follow up." }
                 ]
-            };
+            }, attacker.Id, attackerTeam.Id);
         }
 
         var mustFrenzy = !knockDefenderDown &&
@@ -4177,14 +4287,14 @@ public sealed class MatchService
                 attackerPlacement.Square is null ||
                 !PlacementsAreAdjacent(attackerPlacement, defenderPlacement))
             {
-                return followedMatch with
+                return CompleteBlockActivationIfDone(followedMatch with
                 {
                     Log =
                     [
                         .. followedMatch.Log,
                         new MatchLogEntry { Message = $"{attacker.Name}'s Frenzy cannot continue because {defender.Name} is no longer adjacent and standing." }
                     ]
-                };
+                }, attacker.Id, attackerTeam.Id);
             }
 
             return ResolveBlock(followedMatch, ruleset, attackerTeam, attacker, attackerPlacement, defenderTeam, defender);
@@ -4192,7 +4302,7 @@ public sealed class MatchService
 
         if (countedMatch.PendingApothecary is not null || countedMatch.PendingBallPlacement is not null)
         {
-            return countedMatch;
+            return CompleteBlockActivationIfDone(countedMatch, attacker.Id, attackerTeam.Id);
         }
 
         return countedMatch with
@@ -4872,6 +4982,27 @@ public sealed class MatchService
         return BounceBall(match, ruleset, originalTeam, square, allowDivingCatch, opposingTeam);
     }
 
+    private MatchState ResolveKickoffLanding(MatchState match, Ruleset ruleset, LeagueTeam receivingTeam, PitchSquare square)
+    {
+        var catcher = match.Placements.FirstOrDefault(placement =>
+            placement.Square == square && placement.State == PlayerPitchState.Standing);
+        if (catcher is not null)
+        {
+            return ResolveBallLanding(match, ruleset, receivingTeam, square);
+        }
+
+        var bounceSquare = ScatterFrom(ruleset, square);
+        var bouncedMatch = match with
+        {
+            Log =
+            [
+                .. match.Log,
+                new MatchLogEntry { Message = $"The kicked ball lands in an empty square and bounces to {bounceSquare.X},{bounceSquare.Y}." }
+            ]
+        };
+        return ResolveBallLanding(bouncedMatch, ruleset, receivingTeam, bounceSquare);
+    }
+
     private BallLanding ResolveLooseBallLanding(Ruleset ruleset, PitchSquare square)
     {
         if (IsOnPitch(ruleset, square))
@@ -4961,7 +5092,7 @@ public sealed class MatchService
 
         if (existingActivation is { DeclaredOnly: false } &&
             existingActivation.Action == action &&
-            action is PlayerTurnAction.Move or PlayerTurnAction.Blitz)
+            action is PlayerTurnAction.Move or PlayerTurnAction.Blitz or PlayerTurnAction.Pass or PlayerTurnAction.HandOff)
         {
             return new ActionStart(match with
             {
@@ -5000,7 +5131,7 @@ public sealed class MatchService
         var canContinueMovementActivation = allowMatchingDeclaration &&
             existingActivation is { DeclaredOnly: false } &&
             existingActivation.Action == action &&
-            action is PlayerTurnAction.Move or PlayerTurnAction.Blitz;
+            action is PlayerTurnAction.Move or PlayerTurnAction.Blitz or PlayerTurnAction.Pass or PlayerTurnAction.HandOff;
         var matchesExistingDeclaration = existingActivation is { DeclaredOnly: true } &&
             existingActivation.Action == action;
         if (existingActivation is not null && !canUseSneakyGitMove && !canContinueMovementActivation && (!allowMatchingDeclaration || !matchesExistingDeclaration))
@@ -5332,6 +5463,44 @@ public sealed class MatchService
                         : activation)
                 .ToArray()
         };
+    }
+
+    private static MatchState CompleteActivation(MatchState match, Guid playerId, Guid teamId)
+    {
+        return match with
+        {
+            Activations = match.Activations
+                .Select(activation =>
+                    activation.PlayerId == playerId &&
+                    activation.TeamId == teamId &&
+                    activation.Half == match.Half &&
+                    activation.Turn == match.Turn
+                        ? activation with { Completed = true }
+                        : activation)
+                .ToArray()
+        };
+    }
+
+    /// <summary>
+    /// Ends the attacker's activation after a block resolves, unless the attacker is still
+    /// standing as part of a Blitz (a blitzing player may keep moving after the block).
+    /// </summary>
+    private static MatchState CompleteBlockActivationIfDone(MatchState match, Guid attackerPlayerId, Guid attackerTeamId)
+    {
+        var activation = GetActivation(match, attackerPlayerId, attackerTeamId);
+        if (activation is null || activation.Completed)
+        {
+            return match;
+        }
+
+        var placement = FindPlacement(match, attackerPlayerId);
+        var stillStanding = placement is { State: PlayerPitchState.Standing, Square: not null };
+        if (activation.Action == PlayerTurnAction.Blitz && stillStanding)
+        {
+            return match;
+        }
+
+        return CompleteActivation(match, attackerPlayerId, attackerTeamId);
     }
 
     private MatchState ResolveFailedGoForIt(

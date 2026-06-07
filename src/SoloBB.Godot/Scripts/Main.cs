@@ -38,7 +38,7 @@ public partial class Main : Control
         _shellScroll = GetNode<ScrollContainer>("Panel/Margin/Scroll");
         _scrollStack = GetNode<VBoxContainer>("Panel/Margin/Scroll/Stack");
         _matchStack = GetNode<VBoxContainer>("Panel/Margin/MatchStack");
-        _scrollStack.SizeFlagsVertical = SizeFlags.ExpandFill;
+        _scrollStack.SizeFlagsVertical = SizeFlags.Fill;
         _matchStack.SizeFlagsVertical = SizeFlags.ExpandFill;
         ShowMainMenu();
         _ = LoadCatalogAsync();
@@ -80,63 +80,121 @@ public partial class Main : Control
     {
         var screen = ShowScreen<MainMenuScreen>("res://scenes/screens/main_menu_screen.tscn");
         screen.Setup(
-            newLeague: ShowNewLeagueScreen,
-            loadLeague: async () => await LoadMostRecentLeagueAsync(screen),
+            newLeague: ShowLeagueSetupForNewLeague,
+            loadLeague: async () => await ShowLoadLeagueScreenAsync(),
             quit: () => GetTree().Quit(),
             status: _catalogStatus);
     }
 
-    private void ShowNewLeagueScreen()
+    private async Task ShowLoadLeagueScreenAsync()
     {
-        var screen = ShowScreen<NewLeagueScreen>("res://scenes/screens/new_league_screen.tscn");
+        var screen = ShowScreen<LoadLeagueScreen>("res://scenes/screens/load_league_screen.tscn");
+        var leagues = await _store.LoadLeaguesAsync(ProjectPath("user://leagues"));
         screen.Setup(
-            defaultTeamCount: _targetTeamCount,
-            createLeague: StartNewLeague,
+            leagues: leagues,
+            loadLeague: league => LoadSelectedLeague(league, screen),
+            deleteLeague: async league => await DeleteLeagueAsync(league, screen),
             back: ShowMainMenu);
     }
 
-    private void StartNewLeague(string leagueName, int teamCount)
+    private void LoadSelectedLeague(League league, LoadLeagueScreen screen)
+    {
+        try
+        {
+            _activeLeague = league;
+            _activeLeaguePath = ProjectPath($"user://leagues/{Slugify(league.Name)}-{league.Id:N}.json");
+            _targetTeamCount = Math.Max(Math.Max(league.TargetTeamCount, league.Teams.Count), 2);
+            ShowLeagueHomeScreen();
+        }
+        catch (Exception ex)
+        {
+            screen.SetStatus($"Load failed: {ex.Message}");
+        }
+    }
+
+    private async Task DeleteLeagueAsync(League league, LoadLeagueScreen screen)
+    {
+        try
+        {
+            var path = ProjectPath($"user://leagues/{Slugify(league.Name)}-{league.Id:N}.json");
+            if (System.IO.File.Exists(path))
+            {
+                System.IO.File.Delete(path);
+            }
+
+            var leagues = await _store.LoadLeaguesAsync(ProjectPath("user://leagues"));
+            screen.Setup(
+                leagues: leagues,
+                loadLeague: l => LoadSelectedLeague(l, screen),
+                deleteLeague: async l => await DeleteLeagueAsync(l, screen),
+                back: ShowMainMenu);
+            screen.SetStatus($"Deleted '{league.Name}'.");
+        }
+        catch (Exception ex)
+        {
+            screen.SetStatus($"Delete failed: {ex.Message}");
+        }
+    }
+
+    private void ShowLeagueSetupForNewLeague()
     {
         if (_ruleset is null || _rosterSet is null)
         {
-            if (CurrentScreen is NewLeagueScreen screen)
+            ShowMainMenu();
+            if (CurrentScreen is MainMenuScreen menu)
             {
-                screen.SetStatus("Catalog data is still loading.");
+                menu.SetStatus("Catalog data is still loading.");
             }
 
             return;
         }
 
-        _targetTeamCount = teamCount;
-        _activeLeague = _leagueService.CreateLeague(leagueName, _ruleset, [_rosterSet], targetTeamCount: teamCount);
-        _activeLeaguePath = ProjectPath($"user://leagues/{Slugify(_activeLeague.Name)}-{_activeLeague.Id:N}.json");
+        _targetTeamCount = Math.Max(2, _targetTeamCount + (_targetTeamCount % 2));
+        _activeLeague = _leagueService.CreateLeague("Solo Hotseat League", _ruleset, [_rosterSet], targetTeamCount: _targetTeamCount);
+        _activeLeaguePath = null;
         ShowLeagueTeamsScreen();
+    }
+
+    private void CommitLeagueSetup(string leagueName, int teamCount)
+    {
+        if (_activeLeague is null)
+        {
+            return;
+        }
+
+        _targetTeamCount = teamCount;
+        var trimmedName = leagueName.Trim();
+        _activeLeague = _activeLeague with
+        {
+            Name = string.IsNullOrEmpty(trimmedName) ? _activeLeague.Name : trimmedName,
+            TargetTeamCount = teamCount
+        };
     }
 
     private void ShowLeagueTeamsScreen()
     {
         if (_activeLeague is null)
         {
-            ShowNewLeagueScreen();
+            ShowMainMenu();
             return;
         }
 
         var screen = ShowScreen<LeagueTeamsScreen>("res://scenes/screens/league_teams_screen.tscn");
         screen.Setup(
             league: _activeLeague,
-            targetTeamCount: _targetTeamCount,
+            commit: CommitLeagueSetup,
             createTeam: ShowTeamCreationScreen,
-            createLeague: async () => await CreateLeagueSeasonAsync(screen),
+            startLeague: async () => await CreateLeagueSeasonAsync(screen),
             editTeam: ShowTeamEditingScreen,
             deleteTeam: async teamId => await DeleteTeamAsync(teamId, screen),
-            back: ShowNewLeagueScreen);
+            back: ShowMainMenu);
     }
 
     private void ShowTeamCreationScreen()
     {
         if (_activeLeague is null)
         {
-            ShowNewLeagueScreen();
+            ShowMainMenu();
             return;
         }
 
@@ -273,7 +331,7 @@ public partial class Main : Control
     {
         if (_activeLeague is null)
         {
-            ShowNewLeagueScreen();
+            ShowMainMenu();
             return;
         }
 
@@ -494,24 +552,6 @@ public partial class Main : Control
         }
     }
 
-    private async Task LoadMostRecentLeagueAsync(MainMenuScreen screen)
-    {
-        try
-        {
-            var leagues = await _store.LoadLeaguesAsync(ProjectPath("user://leagues"));
-            var league = leagues.LastOrDefault()
-                ?? throw new InvalidOperationException("No saved leagues were found.");
-
-            _activeLeague = league;
-            _activeLeaguePath = ProjectPath($"user://leagues/{Slugify(league.Name)}-{league.Id:N}.json");
-            _targetTeamCount = Math.Max(Math.Max(league.TargetTeamCount, league.Teams.Count), 2);
-            ShowLeagueHomeScreen();
-        }
-        catch (Exception ex)
-        {
-            screen.SetStatus($"Load failed: {ex.Message}");
-        }
-    }
 
     private async Task DeleteTeamAsync(Guid teamId, LeagueTeamsScreen screen)
     {
@@ -531,15 +571,11 @@ public partial class Main : Control
             };
 
             await SaveActiveLeagueAsync();
-            screen.Setup(
-                league: _activeLeague,
-                targetTeamCount: _targetTeamCount,
-                createTeam: ShowTeamCreationScreen,
-                createLeague: async () => await CreateLeagueSeasonAsync(screen),
-                editTeam: ShowTeamEditingScreen,
-                deleteTeam: async nextTeamId => await DeleteTeamAsync(nextTeamId, screen),
-                back: ShowNewLeagueScreen);
-            screen.SetStatus($"Deleted '{team.Name}'.");
+            ShowLeagueTeamsScreen();
+            if (CurrentScreen is LeagueTeamsScreen leagueTeamsScreen)
+            {
+                leagueTeamsScreen.SetStatus($"Deleted '{team.Name}'.");
+            }
         }
         catch (Exception ex)
         {
@@ -590,7 +626,7 @@ public partial class Main : Control
         _shellScroll.ScrollHorizontal = 0;
 
         screen.SizeFlagsHorizontal = SizeFlags.ExpandFill;
-        screen.SizeFlagsVertical = SizeFlags.ExpandFill;
+        screen.SizeFlagsVertical = isMatchScreen ? SizeFlags.ExpandFill : SizeFlags.Fill;
         (isMatchScreen ? _matchStack : _scrollStack).AddChild(screen);
         return screen;
     }

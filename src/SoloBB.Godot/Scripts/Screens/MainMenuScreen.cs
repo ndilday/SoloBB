@@ -21,7 +21,7 @@ public partial class MainMenuScreen : VBoxContainer
         AddChild(title);
 
         AddButton("New League", newLeague);
-        AddButton("Load League", async () => await loadLeague());
+        AddButton("Load League", () => { _ = loadLeague(); });
         AddButton("Quit", quit);
 
         _statusLabel = new Label

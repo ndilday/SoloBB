@@ -78,7 +78,7 @@ public partial class TeamCreationScreen : VBoxContainer
         Action<Guid>? openRoster = null)
     {
         Clear();
-        AddThemeConstantOverride("separation", 14);
+        AddThemeConstantOverride("separation", 8);
         AddThemeStyleboxOverride("panel", ScreenStyles.FlatStyle(ScreenStyles.ScreenBackground));
 
         _ruleset = ruleset;
@@ -108,10 +108,10 @@ public partial class TeamCreationScreen : VBoxContainer
 
     private void BuildCreateLayout(string defaultTeamName, Action back)
     {
-        AddScreenHeader("Team builder", "Create Team", "Draft players, staff, and assets against the starting treasury.", "Save Team", async () => await SaveDraftAsync(), back);
+        AddScreenHeader("Create Team", "Save Team", async () => await SaveDraftAsync(), back);
 
         var body = new HBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
-        body.AddThemeConstantOverride("separation", 16);
+        body.AddThemeConstantOverride("separation", 10);
         AddChild(body);
 
         var mainColumn = new VBoxContainer
@@ -119,24 +119,24 @@ public partial class TeamCreationScreen : VBoxContainer
             SizeFlagsHorizontal = SizeFlags.ExpandFill,
             SizeFlagsStretchRatio = 1.9f
         };
-        mainColumn.AddThemeConstantOverride("separation", 14);
+        mainColumn.AddThemeConstantOverride("separation", 8);
         body.AddChild(mainColumn);
 
         var sideColumn = new VBoxContainer
         {
-            CustomMinimumSize = new Vector2(300, 0),
+            CustomMinimumSize = new Vector2(260, 0),
             SizeFlagsHorizontal = SizeFlags.ExpandFill,
-            SizeFlagsStretchRatio = 0.8f
+            SizeFlagsStretchRatio = 0.7f
         };
-        sideColumn.AddThemeConstantOverride("separation", 14);
+        sideColumn.AddThemeConstantOverride("separation", 8);
         body.AddChild(sideColumn);
 
-        mainColumn.AddChild(ScreenStyles.Panel("Identity", BuildIdentityPanel(defaultTeamName, "Hotseat", showRosterPicker: true), "11 players ready", ScreenStyles.Good));
-        mainColumn.AddChild(ScreenStyles.Panel("Position Draft", BuildPositionDraftPanel(), "Select roster"));
-        mainColumn.AddChild(ScreenStyles.Panel("Team Assets", BuildAssetPanel(), "Staff and sideline"));
+        mainColumn.AddChild(ScreenStyles.Panel("Identity", BuildIdentityPanel(defaultTeamName, "Hotseat", showRosterPicker: true)));
+        mainColumn.AddChild(ScreenStyles.Panel("Position Draft", BuildPositionDraftPanel()));
+        mainColumn.AddChild(ScreenStyles.Panel("Team Assets", BuildAssetPanel()));
 
-        sideColumn.AddChild(ScreenStyles.Panel("Budget", BuildBudgetPanel(), "Preview", ScreenStyles.Warning));
-        sideColumn.AddChild(ScreenStyles.Panel("Status", BuildStatusPanel(), "Needs work", ScreenStyles.Warning));
+        sideColumn.AddChild(ScreenStyles.Panel("Budget", BuildBudgetPanel()));
+        sideColumn.AddChild(ScreenStyles.Panel("Status", BuildStatusPanel()));
         sideColumn.AddChild(ScreenStyles.Panel("Roster Preview", BuildRosterPreviewPanel()));
 
         PopulateRosterOptions();
@@ -144,12 +144,12 @@ public partial class TeamCreationScreen : VBoxContainer
 
     private void BuildEditLayout(LeagueTeam team, Action back)
     {
-        AddScreenHeader("Team management", $"Edit {team.Name}", "Update team identity, staff, assets, and league-facing value.", "Save Changes", async () => await SaveManagementAsync(), back);
+        AddScreenHeader($"Edit {team.Name}", "Save Changes", async () => await SaveManagementAsync(), back);
 
         _selectedRoster = FindRoster(team.RosterId);
 
         var body = new HBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
-        body.AddThemeConstantOverride("separation", 16);
+        body.AddThemeConstantOverride("separation", 10);
         AddChild(body);
 
         var mainColumn = new VBoxContainer
@@ -157,16 +157,16 @@ public partial class TeamCreationScreen : VBoxContainer
             SizeFlagsHorizontal = SizeFlags.ExpandFill,
             SizeFlagsStretchRatio = 1.8f
         };
-        mainColumn.AddThemeConstantOverride("separation", 14);
+        mainColumn.AddThemeConstantOverride("separation", 8);
         body.AddChild(mainColumn);
 
         var sideColumn = new VBoxContainer
         {
-            CustomMinimumSize = new Vector2(300, 0),
+            CustomMinimumSize = new Vector2(260, 0),
             SizeFlagsHorizontal = SizeFlags.ExpandFill,
-            SizeFlagsStretchRatio = 0.8f
+            SizeFlagsStretchRatio = 0.7f
         };
-        sideColumn.AddThemeConstantOverride("separation", 14);
+        sideColumn.AddThemeConstantOverride("separation", 8);
         body.AddChild(sideColumn);
 
         mainColumn.AddChild(ScreenStyles.Panel("Team Snapshot", BuildTeamSnapshotPanel(team), _selectedRoster?.Name ?? team.RosterId));
@@ -185,25 +185,27 @@ public partial class TeamCreationScreen : VBoxContainer
         UpdateDraftSummary();
     }
 
-    private void AddScreenHeader(string eyebrow, string title, string subhead, string primaryAction, Func<Task> save, Action back)
+    private void AddScreenHeader(string title, string primaryAction, Func<Task> save, Action back)
     {
         var panel = new PanelContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
-        panel.AddThemeStyleboxOverride("panel", ScreenStyles.FlatStyle(new Color("202720"), ScreenStyles.PanelBorderSoft));
+        var headerStyle = ScreenStyles.FlatStyle(new Color("202720"), ScreenStyles.PanelBorderSoft);
+        headerStyle.SetContentMarginAll(6);
+        panel.AddThemeStyleboxOverride("panel", headerStyle);
         AddChild(panel);
 
         var row = new HBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
         row.AddThemeConstantOverride("separation", 12);
         panel.AddChild(row);
 
-        var copy = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
-        copy.AddThemeConstantOverride("separation", 4);
-        row.AddChild(copy);
-
-        var eyebrowLabel = ScreenStyles.MutedLabel(eyebrow.ToUpperInvariant());
-        eyebrowLabel.AddThemeColorOverride("font_color", ScreenStyles.Brass);
-        copy.AddChild(eyebrowLabel);
-        copy.AddChild(ScreenStyles.Title(title));
-        copy.AddChild(ScreenStyles.MutedLabel(subhead));
+        var titleLabel = new Label
+        {
+            Text = title,
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        titleLabel.AddThemeFontSizeOverride("font_size", 24);
+        titleLabel.AddThemeColorOverride("font_color", ScreenStyles.Text);
+        row.AddChild(titleLabel);
 
         var actions = new HBoxContainer { Alignment = BoxContainer.AlignmentMode.End };
         actions.AddThemeConstantOverride("separation", 8);
@@ -215,8 +217,9 @@ public partial class TeamCreationScreen : VBoxContainer
             var stamp = new TextureRect
             {
                 Texture = texture,
-                CustomMinimumSize = new Vector2(92, 52),
-                StretchMode = TextureRect.StretchModeEnum.Scale,
+                CustomMinimumSize = new Vector2(64, 36),
+                ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+                StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
                 Modulate = new Color(1, 1, 1, 0.28f)
             };
             actions.AddChild(stamp);
@@ -275,8 +278,8 @@ public partial class TeamCreationScreen : VBoxContainer
     private Control BuildPositionDraftPanel()
     {
         _positionGrid = new GridContainer { Columns = 6, SizeFlagsHorizontal = SizeFlags.ExpandFill };
-        _positionGrid.AddThemeConstantOverride("h_separation", 8);
-        _positionGrid.AddThemeConstantOverride("v_separation", 5);
+        _positionGrid.AddThemeConstantOverride("h_separation", 6);
+        _positionGrid.AddThemeConstantOverride("v_separation", 4);
         return _positionGrid;
     }
 
@@ -503,7 +506,7 @@ public partial class TeamCreationScreen : VBoxContainer
         AddPositionHeader("Position");
         AddPositionHeader("Cost");
         AddPositionHeader("Stats");
-        AddPositionHeader("Skills");
+        AddPositionHeader("Skills", expand: true);
         AddPositionHeader("Count");
 
         foreach (var position in _selectedRoster.Positions)
@@ -516,7 +519,8 @@ public partial class TeamCreationScreen : VBoxContainer
             {
                 Text = position.StartingSkills.Count == 0 ? "-" : string.Join(", ", position.StartingSkills),
                 AutowrapMode = TextServer.AutowrapMode.WordSmart,
-                CustomMinimumSize = new Vector2(180, 0)
+                SizeFlagsHorizontal = SizeFlags.ExpandFill,
+                CustomMinimumSize = new Vector2(140, 0)
             });
 
             var defaultCount = position.Id == "lineman" ? 11 : position.Min;
@@ -706,10 +710,14 @@ public partial class TeamCreationScreen : VBoxContainer
         return edit;
     }
 
-    private void AddPositionHeader(string text)
+    private void AddPositionHeader(string text, bool expand = false)
     {
         var label = ScreenStyles.MutedLabel(text.ToUpperInvariant());
         label.AddThemeColorOverride("font_color", ScreenStyles.Brass);
+        if (expand)
+        {
+            label.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+        }
         _positionGrid.AddChild(label);
     }
 

@@ -120,6 +120,12 @@ public sealed record PlayerTurnActivation
     public bool DeclaredOnly { get; init; }
     public int BlocksMade { get; init; }
     public bool MayMoveAfterFoul { get; init; }
+
+    /// <summary>
+    /// True once the player's activation is fully finished and they cannot take any further
+    /// action this turn (e.g. after following up a block, a both-down result, a pass, or a hand-off).
+    /// </summary>
+    public bool Completed { get; init; }
 }
 
 public sealed record TeamRerollUse
