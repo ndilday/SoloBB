@@ -55,6 +55,19 @@ Layout: `5 columns x 2 rows`
 | 3 | Wight Blitzer | Wight Blitzer prone |
 | 4 | Mummy | Mummy prone |
 
+## `high_elf_team_32.png`
+
+Size: `128x64`
+Cell size: `32x32`
+Layout: `4 columns x 2 rows`
+
+| Cell | Standing Row | Prone Row |
+| --- | --- | --- |
+| 0 | Catcher | Catcher prone |
+| 1 | Thrower | Thrower prone |
+| 2 | Blitzer | Blitzer prone |
+| 3 | Lineman | Lineman prone |
+
 ## `pitch_objects_32.png`
 
 Size: `192x128`
