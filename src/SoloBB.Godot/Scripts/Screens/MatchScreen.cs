@@ -49,6 +49,8 @@ public partial class MatchScreen : VBoxContainer
     private Texture2D? _dwarfSpriteSheet;
     private Texture2D? _shamblingUndeadSpriteSheet;
     private Texture2D? _highElfSpriteSheet;
+    private Texture2D? _amazonSpriteSheet;
+    private Texture2D? _darkElfSpriteSheet;
     private Texture2D? _pitchObjectSheet;
     private Texture2D? _blockDiceSheet;
     private Texture2D? _pitchTileSheet;
@@ -728,6 +730,8 @@ public partial class MatchScreen : VBoxContainer
         _dwarfSpriteSheet = GD.Load<Texture2D>("res://assets/sprites/dwarf_team_32.png");
         _shamblingUndeadSpriteSheet = GD.Load<Texture2D>("res://assets/sprites/shambling_undead_team_32.png");
         _highElfSpriteSheet = GD.Load<Texture2D>("res://assets/sprites/high_elf_team_32.png");
+        _amazonSpriteSheet = GD.Load<Texture2D>("res://assets/sprites/amazon_team_32.png");
+        _darkElfSpriteSheet = GD.Load<Texture2D>("res://assets/sprites/dark_elf_team_32.png");
         _pitchObjectSheet = GD.Load<Texture2D>("res://assets/sprites/pitch_objects_32.png");
         _blockDiceSheet = GD.Load<Texture2D>("res://assets/sprites/block_dice_32.png");
         _pitchTileSheet = GD.Load<Texture2D>("res://assets/sprites/pitch_tiles_32.png");
@@ -823,6 +827,30 @@ public partial class MatchScreen : VBoxContainer
                 _ => 3
             };
             return AtlasCell(_highElfSpriteSheet, $"high-elf:{column}:{row}", column, row);
+        }
+
+        if (string.Equals(team.RosterId, "amazon", StringComparison.OrdinalIgnoreCase))
+        {
+            var column = player.PositionId switch
+            {
+                "catcher" => 0,
+                "thrower" => 1,
+                "blitzer" => 2,
+                _ => 3
+            };
+            return AtlasCell(_amazonSpriteSheet, $"amazon:{column}:{row}", column, row);
+        }
+
+        if (string.Equals(team.RosterId, "dark-elf", StringComparison.OrdinalIgnoreCase))
+        {
+            var column = player.PositionId switch
+            {
+                "runner" => 0,
+                "witch-elf" => 1,
+                "blitzer" => 2,
+                _ => 3
+            };
+            return AtlasCell(_darkElfSpriteSheet, $"dark-elf:{column}:{row}", column, row);
         }
 
         var humanColumn = player.PositionId switch

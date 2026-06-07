@@ -68,6 +68,32 @@ Layout: `4 columns x 2 rows`
 | 2 | Blitzer | Blitzer prone |
 | 3 | Lineman | Lineman prone |
 
+## `amazon_team_32.png`
+
+Size: `128x64`
+Cell size: `32x32`
+Layout: `4 columns x 2 rows`
+
+| Cell | Standing Row | Prone Row |
+| --- | --- | --- |
+| 0 | Eagle Warrior | Eagle Warrior prone |
+| 1 | Thrower | Thrower prone |
+| 2 | Piranha Warrior | Piranha Warrior prone |
+| 3 | Linewoman | Linewoman prone |
+
+## `dark_elf_team_32.png`
+
+Size: `128x64`
+Cell size: `32x32`
+Layout: `4 columns x 2 rows`
+
+| Cell | Standing Row | Prone Row |
+| --- | --- | --- |
+| 0 | Runner | Runner prone |
+| 1 | Witch Elf | Witch Elf prone |
+| 2 | Blitzer | Blitzer prone |
+| 3 | Lineman | Lineman prone |
+
 ## `pitch_objects_32.png`
 
 Size: `192x128`

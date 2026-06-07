@@ -94,6 +94,7 @@ public sealed record PlayerPlacement
     public PlayerPitchState State { get; init; } = PlayerPitchState.Reserve;
     public bool TackleZonesLost { get; init; }
     public bool Rooted { get; init; }
+    public bool IsLarge { get; init; }
     public int? StunnedRecoveryHalf { get; init; }
     public int? StunnedRecoveryTurn { get; init; }
     public CasualtyRoll? Casualty { get; init; }

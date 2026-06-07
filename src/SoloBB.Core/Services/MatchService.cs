@@ -425,7 +425,7 @@ public sealed class MatchService
             throw new InvalidOperationException("Leap destination must be on the pitch.");
         }
 
-        if (match.Placements.Any(current => current.PlayerId != playerId && current.Square == destination && OccupiesPitch(current.State)))
+        if (match.Placements.Any(current => current.PlayerId != playerId && PlacementOccupiesSquare(current, destination) && OccupiesPitch(current.State)))
         {
             throw new InvalidOperationException("Leap destination must be empty.");
         }
@@ -521,7 +521,7 @@ public sealed class MatchService
         var carrierPlacement = FindStandingPlacement(match, carrierPlayerId, team.Id, "carrier");
         var receiverPlacement = FindStandingPlacement(match, receiverPlayerId, team.Id, "receiver");
 
-        if (!IsAdjacent(carrierPlacement.Square!, receiverPlacement.Square!))
+        if (!PlacementsAreAdjacent(carrierPlacement, receiverPlacement))
         {
             throw new InvalidOperationException("Hand offs require adjacent players.");
         }
@@ -639,7 +639,7 @@ public sealed class MatchService
             throw new InvalidOperationException("On the Ball can move up to three squares.");
         }
 
-        if (path.Any(square => match.Placements.Any(current => current.PlayerId != playerId && current.Square == square && OccupiesPitch(current.State))))
+        if (path.Any(square => match.Placements.Any(current => current.PlayerId != playerId && PlacementOccupiesSquare(current, square) && OccupiesPitch(current.State))))
         {
             throw new InvalidOperationException("On the Ball movement cannot pass through occupied squares.");
         }
@@ -1339,7 +1339,7 @@ public sealed class MatchService
             throw new InvalidOperationException("Kickoff event movement must stay on the pitch.");
         }
 
-        if (match.Placements.Any(current => current.PlayerId != playerId && current.Square == destination && OccupiesPitch(current.State)))
+        if (match.Placements.Any(current => current.PlayerId != playerId && PlacementOccupiesSquare(current, destination) && OccupiesPitch(current.State)))
         {
             throw new InvalidOperationException("Kickoff event movement requires an empty destination.");
         }
@@ -1428,11 +1428,11 @@ public sealed class MatchService
 
         if (attackerPlacement.TeamId != kickingTeam.Id ||
             defenderPlacement.TeamId != receivingTeam.Id ||
-            attackerPlacement.Square is not PitchSquare attackerSquare ||
-            defenderPlacement.Square is not PitchSquare defenderSquare ||
+            attackerPlacement.Square is null ||
+            defenderPlacement.Square is null ||
             attackerPlacement.State != PlayerPitchState.Standing ||
             defenderPlacement.State != PlayerPitchState.Standing ||
-            !IsAdjacent(attackerSquare, defenderSquare))
+            !PlacementsAreAdjacent(attackerPlacement, defenderPlacement))
         {
             throw new InvalidOperationException("Kickoff blitz blocks require adjacent standing opponents.");
         }
@@ -1519,7 +1519,7 @@ public sealed class MatchService
 
         if (kind == KickoffEventKind.HighKick)
         {
-            if (match.Placements.Any(placement => placement.Square == landingSquare && OccupiesPitch(placement.State)))
+            if (match.Placements.Any(placement => PlacementOccupiesSquare(placement, landingSquare) && OccupiesPitch(placement.State)))
             {
                 eligible = eligible.Where(placement => placement.Square == landingSquare).ToArray();
             }
@@ -1544,10 +1544,10 @@ public sealed class MatchService
         if (kind != KickoffEventKind.SolidDefence)
         {
             eligible = eligible
-                .Where(placement => placement.Square is PitchSquare square &&
-                    AdjacentSquares(square).Any(candidate =>
+                .Where(placement => placement.Square is not null &&
+                    PlacementAdjacentSquares(placement).Any(candidate =>
                         IsOnPitch(ruleset, candidate) &&
-                        !match.Placements.Any(current => current.PlayerId != placement.PlayerId && current.Square == candidate && OccupiesPitch(current.State))))
+                        !match.Placements.Any(current => current.PlayerId != placement.PlayerId && PlacementOccupiesSquare(current, candidate) && OccupiesPitch(current.State))))
                 .ToArray();
         }
 
@@ -1701,7 +1701,7 @@ public sealed class MatchService
             PlayerHasHookedEffect(ruleset, attacker, GameEventKind.BlockRoll, GameEventStage.BeforeEvent, SkillEffect.JumpUp))
         {
             var defenderPlacement = FindStandingPlacement(match, defenderPlayerId, defenderTeam.Id, "defender");
-            if (attackerPlacement.Square is null || !IsAdjacent(attackerPlacement.Square, defenderPlacement.Square!))
+            if (!PlacementsAreAdjacent(attackerPlacement, defenderPlacement))
             {
                 throw new InvalidOperationException("Blocks require adjacent players.");
             }
@@ -2128,9 +2128,9 @@ public sealed class MatchService
             isDeclaredOrOngoingBlitz &&
             attackerPlacementBeforeMove?.Square == destination &&
             attackerPlacementBeforeMove.State == PlayerPitchState.Standing &&
-            defenderPlacementBeforeMove?.Square is PitchSquare defenderSquare &&
+            defenderPlacementBeforeMove?.Square is not null &&
             defenderPlacementBeforeMove.State == PlayerPitchState.Standing &&
-            IsAdjacent(destination, defenderSquare);
+            PlacementsAreAdjacent(attackerPlacementBeforeMove, defenderPlacementBeforeMove);
 
         if (isBlockingFromCurrentSquare)
         {
@@ -2229,19 +2229,19 @@ public sealed class MatchService
             throw new InvalidOperationException("Victim is assigned to the wrong team.");
         }
 
-        if (victimPlacement.Square is not PitchSquare victimSquare ||
+        if (victimPlacement.Square is null ||
             victimPlacement.State is not (PlayerPitchState.Prone or PlayerPitchState.Stunned))
         {
             throw new InvalidOperationException("Only prone or stunned players on the pitch can be fouled.");
         }
 
-        if (!IsAdjacent(foulerPlacement.Square!, victimSquare))
+        if (!PlacementsAreAdjacent(foulerPlacement, victimPlacement))
         {
             throw new InvalidOperationException("Fouls require adjacent players.");
         }
 
-        var attackAssists = CountFoulAssists(match, foulingTeam.Id, victimPlayerId, victimSquare, foulerPlayerId);
-        var defenseAssists = CountFoulAssists(match, victimTeam.Id, victimPlayerId, victimSquare, foulerPlayerId);
+        var attackAssists = CountFoulAssists(match, foulingTeam.Id, victimPlacement, foulerPlayerId);
+        var defenseAssists = CountFoulAssists(match, victimTeam.Id, victimPlacement, foulerPlayerId);
         var foulAction = BeginPlayerAction(match, ruleset, foulingTeam, fouler, PlayerTurnAction.Foul, goForItsUsed: 0);
         if (foulAction.Prevented)
         {
@@ -2293,19 +2293,19 @@ public sealed class MatchService
             throw new InvalidOperationException("Victim is assigned to the wrong team.");
         }
 
-        if (victimPlacement.Square is not PitchSquare victimSquare ||
+        if (victimPlacement.Square is null ||
             victimPlacement.State is not (PlayerPitchState.Prone or PlayerPitchState.Stunned))
         {
             throw new InvalidOperationException("Only prone or stunned players on the pitch can be fouled.");
         }
 
-        if (!IsAdjacent(foulerPlacement.Square!, victimSquare))
+        if (!PlacementsAreAdjacent(foulerPlacement, victimPlacement))
         {
             throw new InvalidOperationException("Pile Driver requires an adjacent prone or stunned opponent.");
         }
 
-        var attackAssists = CountFoulAssists(match, foulingTeam.Id, victimPlayerId, victimSquare, foulerPlayerId);
-        var defenseAssists = CountFoulAssists(match, victimTeam.Id, victimPlayerId, victimSquare, foulerPlayerId);
+        var attackAssists = CountFoulAssists(match, foulingTeam.Id, victimPlacement, foulerPlayerId);
+        var defenseAssists = CountFoulAssists(match, victimTeam.Id, victimPlacement, foulerPlayerId);
         var proneMatch = match with
         {
             Placements = match.Placements
@@ -2494,7 +2494,7 @@ public sealed class MatchService
 
         var occupant = action.Match.Placements.FirstOrDefault(current =>
             current.PlayerId != playerId &&
-            current.Square == destination &&
+            PlacementOccupiesSquare(current, destination) &&
             OccupiesPitch(current.State));
         if (occupant is null)
         {
@@ -3003,7 +3003,7 @@ public sealed class MatchService
         var actorPlacement = ValidateSpecialActor(match, actorTeam, actor, requireStanding: true);
         var target = FindTeamPlayer(targetTeam, targetPlayerId);
         var targetPlacement = FindStandingPlacement(match, targetPlayerId, targetTeam.Id, "target");
-        if (!IsAdjacent(actorPlacement.Square!, targetPlacement.Square!))
+        if (!PlacementsAreAdjacent(actorPlacement, targetPlacement))
         {
             throw new InvalidOperationException($"{actionName} requires adjacent players.");
         }
@@ -3137,7 +3137,7 @@ public sealed class MatchService
         };
 
         foreach (var placement in affectedSquares
-            .SelectMany(square => nextMatch.Placements.Where(current => current.Square == square && OccupiesPitch(current.State)))
+            .SelectMany(square => nextMatch.Placements.Where(current => PlacementOccupiesSquare(current, square) && OccupiesPitch(current.State)))
             .ToArray())
         {
             var team = placement.TeamId == throwingTeam.Id ? throwingTeam : opposingTeam;
@@ -3188,7 +3188,7 @@ public sealed class MatchService
         }
 
         var launchedPlacement = FindStandingPlacement(match, launchedPlayerId, team.Id, "launched player");
-        if (!IsAdjacent(actorPlacement.Square!, launchedPlacement.Square!))
+        if (!PlacementsAreAdjacent(actorPlacement, launchedPlacement))
         {
             throw new InvalidOperationException($"{actionName} requires an adjacent Right Stuff team-mate.");
         }
@@ -3248,7 +3248,7 @@ public sealed class MatchService
 
         var occupant = match.Placements.FirstOrDefault(placement =>
             placement.PlayerId != launchedPlayer.Id &&
-            placement.Square == landingSquare &&
+            PlacementOccupiesSquare(placement, landingSquare) &&
             OccupiesPitch(placement.State));
         if (occupant is not null)
         {
@@ -4175,7 +4175,7 @@ public sealed class MatchService
             if (defenderPlacement?.Square is null ||
                 defenderPlacement.State != PlayerPitchState.Standing ||
                 attackerPlacement.Square is null ||
-                !IsAdjacent(attackerPlacement.Square, defenderPlacement.Square))
+                !PlacementsAreAdjacent(attackerPlacement, defenderPlacement))
             {
                 return followedMatch with
                 {
@@ -4220,7 +4220,7 @@ public sealed class MatchService
             teamId == attackerTeamId &&
             match.Placements.All(placement =>
                 placement.PlayerId == attackerPlayerId ||
-                placement.Square != followUpSquare ||
+                !PlacementOccupiesSquare(placement, followUpSquare) ||
                 !OccupiesPitch(placement.State));
     }
 
@@ -4252,8 +4252,8 @@ public sealed class MatchService
         Player defender,
         int defenderStrengthBonus = 0)
     {
-        var attackerAssists = CountAssists(match, ruleset, attackerTeam, defenderTeam, defenderPlacement.PlayerId, defenderPlacement.Square!, attackerPlacement.PlayerId);
-        var defenderAssists = CountAssists(match, ruleset, defenderTeam, attackerTeam, attackerPlacement.PlayerId, attackerPlacement.Square!, defenderPlacement.PlayerId);
+        var attackerAssists = CountAssists(match, ruleset, attackerTeam, defenderTeam, defenderPlacement, attackerPlacement.PlayerId);
+        var defenderAssists = CountAssists(match, ruleset, defenderTeam, attackerTeam, attackerPlacement, defenderPlacement.PlayerId);
         var attackerAction = GetActivation(match, attacker.Id, attackerTeam.Id)?.Action ?? PlayerTurnAction.Block;
         var attackerBaseStrength = attacker.Stats.Strength + (attackerAction == PlayerTurnAction.Blitz && PlayerHasHookedEffect(ruleset, attacker, GameEventKind.BlockRoll, GameEventStage.BeforeRoll, SkillEffect.Horns) ? 1 : 0);
         if (attackerBaseStrength < defender.Stats.Strength &&
@@ -4273,36 +4273,35 @@ public sealed class MatchService
         return new BlockStrength(attackerStrength, defenderStrength, dice);
     }
 
-    private int CountAssists(MatchState match, Ruleset ruleset, LeagueTeam assistingTeam, LeagueTeam opposingTeam, Guid opposedPlayerId, PitchSquare targetSquare, Guid primaryPlayerId)
+    private int CountAssists(MatchState match, Ruleset ruleset, LeagueTeam assistingTeam, LeagueTeam opposingTeam, PlayerPlacement targetPlacement, Guid primaryPlayerId)
     {
         return match.Placements.Count(placement =>
             placement.TeamId == assistingTeam.Id &&
             placement.PlayerId != primaryPlayerId &&
-            placement.PlayerId != opposedPlayerId &&
+            placement.PlayerId != targetPlacement.PlayerId &&
             placement.State == PlayerPitchState.Standing &&
             placement.Square is PitchSquare square &&
-            IsAdjacent(square, targetSquare) &&
-            (!IsMarkedByOpponent(match, assistingTeam.Id, placement.PlayerId, square, opposedPlayerId) ||
+            PlacementsAreAdjacent(placement, targetPlacement) &&
+            (!IsMarkedByOpponent(match, assistingTeam.Id, placement.PlayerId, square, targetPlacement.PlayerId) ||
                 (PlayerHasHookedEffect(ruleset, FindTeamPlayer(assistingTeam, placement.PlayerId), GameEventKind.BlockRoll, GameEventStage.ModifyTarget, SkillEffect.GuardAssist) &&
                     match.ActiveTeamId != opposingTeam.Id &&
-                    !IsMarkedByOpponentWithHookedEffect(match, ruleset, assistingTeam.Id, opposingTeam, placement.PlayerId, square, opposedPlayerId, GameEventKind.BlockRoll, GameEventStage.ModifyTarget, SkillEffect.Defensive))));
+                    !IsMarkedByOpponentWithHookedEffect(match, ruleset, assistingTeam.Id, opposingTeam, placement.PlayerId, square, targetPlacement.PlayerId, GameEventKind.BlockRoll, GameEventStage.ModifyTarget, SkillEffect.Defensive))));
     }
 
     private int CountFoulAssists(
         MatchState match,
         Guid assistingTeamId,
-        Guid victimPlayerId,
-        PitchSquare victimSquare,
+        PlayerPlacement victimPlacement,
         Guid foulerPlayerId)
     {
         return match.Placements.Count(placement =>
             placement.TeamId == assistingTeamId &&
             placement.PlayerId != foulerPlayerId &&
-            placement.PlayerId != victimPlayerId &&
+            placement.PlayerId != victimPlacement.PlayerId &&
             placement.State == PlayerPitchState.Standing &&
             placement.Square is PitchSquare square &&
-            IsAdjacent(square, victimSquare) &&
-            !IsMarkedByOpponent(match, assistingTeamId, placement.PlayerId, square, victimPlayerId));
+            PlacementsAreAdjacent(placement, victimPlacement) &&
+            !IsMarkedByOpponent(match, assistingTeamId, placement.PlayerId, square, victimPlacement.PlayerId));
     }
 
     private static bool IsMarkedByOpponent(MatchState match, Guid assistingTeamId, Guid assistingPlayerId, PitchSquare assistingSquare, Guid ignoredOpponentId)
@@ -4312,8 +4311,7 @@ public sealed class MatchService
             placement.PlayerId != ignoredOpponentId &&
             placement.PlayerId != assistingPlayerId &&
             HasActiveTackleZone(placement) &&
-            placement.Square is PitchSquare square &&
-            IsAdjacent(square, assistingSquare));
+            IsAdjacentToPlacement(placement, assistingSquare));
     }
 
     private static bool IsMarkedByOpponent(MatchState match, Guid teamId, Guid playerId, PitchSquare square)
@@ -4322,8 +4320,7 @@ public sealed class MatchService
             placement.TeamId != teamId &&
             placement.PlayerId != playerId &&
             HasActiveTackleZone(placement) &&
-            placement.Square is PitchSquare opponentSquare &&
-            IsAdjacent(opponentSquare, square));
+            IsAdjacentToPlacement(placement, square));
     }
 
     private static bool IsMarkedByOpponent(MatchState match, Ruleset ruleset, LeagueTeam? opposingTeam, Guid teamId, Guid playerId, PitchSquare square)
@@ -4338,8 +4335,7 @@ public sealed class MatchService
             placement.TeamId != teamId &&
             placement.PlayerId != playerId &&
             HasActiveTackleZone(placement) &&
-            placement.Square is PitchSquare opponentSquare &&
-            IsAdjacent(opponentSquare, square) &&
+            IsAdjacentToPlacement(placement, square) &&
             !PlayerHasHookedEffect(ruleset, FindTeamPlayer(opposingTeam, placement.PlayerId), GameEventKind.MoveStep, GameEventStage.ModifyTarget, SkillEffect.Titchy));
     }
 
@@ -4360,8 +4356,7 @@ public sealed class MatchService
             placement.PlayerId != ignoredOpponentId &&
             placement.PlayerId != playerId &&
             HasActiveTackleZone(placement) &&
-            placement.Square is PitchSquare opponentSquare &&
-            IsAdjacent(opponentSquare, square) &&
+            IsAdjacentToPlacement(placement, square) &&
             PlayerHasHookedEffect(ruleset, FindTeamPlayer(opposingTeam, placement.PlayerId), eventKind, stage, effect));
     }
 
@@ -4375,6 +4370,45 @@ public sealed class MatchService
     private static bool OccupiesPitch(PlayerPitchState state)
     {
         return state is PlayerPitchState.Standing or PlayerPitchState.Prone or PlayerPitchState.Stunned;
+    }
+
+    private static IEnumerable<PitchSquare> OccupiedSquares(PitchSquare anchor, bool isLarge)
+    {
+        yield return anchor;
+        if (isLarge)
+        {
+            yield return new PitchSquare(anchor.X + 1, anchor.Y);
+            yield return new PitchSquare(anchor.X, anchor.Y + 1);
+            yield return new PitchSquare(anchor.X + 1, anchor.Y + 1);
+        }
+    }
+
+    private static bool PlacementOccupiesSquare(PlayerPlacement placement, PitchSquare square)
+    {
+        return placement.Square is not null &&
+               OccupiedSquares(placement.Square, placement.IsLarge).Contains(square);
+    }
+
+    private static bool IsAdjacentToPlacement(PlayerPlacement placement, PitchSquare square)
+    {
+        if (placement.Square is null) return false;
+        var footprint = OccupiedSquares(placement.Square, placement.IsLarge).ToHashSet();
+        return !footprint.Contains(square) && footprint.Any(s => IsAdjacent(s, square));
+    }
+
+    private static bool PlacementsAreAdjacent(PlayerPlacement p1, PlayerPlacement p2)
+    {
+        if (p1.Square is null || p2.Square is null) return false;
+        var footprint2 = OccupiedSquares(p2.Square, p2.IsLarge).ToHashSet();
+        return OccupiedSquares(p1.Square, p1.IsLarge).Any(s1 => footprint2.Any(s2 => IsAdjacent(s1, s2)));
+    }
+
+    private static IEnumerable<PitchSquare> PlacementAdjacentSquares(PlayerPlacement placement)
+    {
+        if (placement.Square is null) yield break;
+        var footprint = OccupiedSquares(placement.Square, placement.IsLarge).ToHashSet();
+        foreach (var square in footprint.SelectMany(AdjacentSquares).Distinct().Where(s => !footprint.Contains(s)))
+            yield return square;
     }
 
     private static bool HasActiveTackleZone(PlayerPlacement placement)
@@ -4454,10 +4488,7 @@ public sealed class MatchService
             throw new InvalidOperationException("Only standing players on the pitch can be blocked.");
         }
 
-        var distance = Math.Max(
-            Math.Abs(attackerPlacement.Square.X - defenderPlacement.Square.X),
-            Math.Abs(attackerPlacement.Square.Y - defenderPlacement.Square.Y));
-        if (distance != 1)
+        if (!PlacementsAreAdjacent(attackerPlacement, defenderPlacement))
         {
             throw new InvalidOperationException("Blocks require adjacent players.");
         }
@@ -4476,7 +4507,7 @@ public sealed class MatchService
 
         if (match.Ball.CarrierPlayerId == player.Id)
         {
-            var safeSquares = SafePairOfHandsSquares(match, ruleset, player, square);
+            var safeSquares = SafePairOfHandsSquares(match, ruleset, player, square, placement.IsLarge);
             if (safeSquares.Length > 0)
             {
                 nextMatch = nextMatch with
@@ -4557,7 +4588,7 @@ public sealed class MatchService
         var log = new List<MatchLogEntry>();
         if (ball.CarrierPlayerId == playerId && (knockDown || stripBall))
         {
-            var safeSquares = player is null ? [] : SafePairOfHandsSquares(match, ruleset, player, destination);
+            var safeSquares = player is null ? [] : SafePairOfHandsSquares(match, ruleset, player, destination, placement.IsLarge);
             if (player is not null && safeSquares.Length > 0)
             {
                 ball = new BallState();
@@ -4669,7 +4700,7 @@ public sealed class MatchService
     {
         return match.Placements.FirstOrDefault(placement =>
             placement.PlayerId != ignoredPlayerId &&
-            placement.Square == square &&
+            PlacementOccupiesSquare(placement, square) &&
             OccupiesPitch(placement.State));
     }
 
@@ -5141,11 +5172,12 @@ public sealed class MatchService
         }
 
         var activationMatch = AddOrResolveActivation(match, player.Id, team.Id, action);
-        var biteTargetPlacement = AdjacentSquares(match.Placements.First(placement => placement.PlayerId == player.Id).Square!)
+        var biterPlacement = match.Placements.First(placement => placement.PlayerId == player.Id);
+        var biteTargetPlacement = PlacementAdjacentSquares(biterPlacement)
             .Select(square => match.Placements.FirstOrDefault(placement =>
                 placement.TeamId == team.Id &&
                 placement.PlayerId != player.Id &&
-                placement.Square == square &&
+                PlacementOccupiesSquare(placement, square) &&
                 placement.State == PlayerPitchState.Standing))
             .FirstOrDefault(placement => placement is not null);
 
@@ -6484,7 +6516,7 @@ public sealed class MatchService
     private static bool HasAdjacentStandingTeammate(MatchState match, Guid teamId, Guid playerId)
     {
         var placement = FindPlacement(match, playerId);
-        if (placement?.Square is not PitchSquare square)
+        if (placement?.Square is null)
         {
             return false;
         }
@@ -6493,8 +6525,7 @@ public sealed class MatchService
             teammate.TeamId == teamId &&
             teammate.PlayerId != playerId &&
             teammate.State == PlayerPitchState.Standing &&
-            teammate.Square is PitchSquare teammateSquare &&
-            IsAdjacent(square, teammateSquare));
+            PlacementsAreAdjacent(placement, teammate));
     }
 
     private static bool IsAdjacentToOpponentWithHookedEffect(
@@ -6511,8 +6542,7 @@ public sealed class MatchService
             placement.TeamId == opposingTeam.Id &&
             placement.PlayerId != playerId &&
             placement.State == PlayerPitchState.Standing &&
-            placement.Square is PitchSquare opponentSquare &&
-            IsAdjacent(opponentSquare, square) &&
+            IsAdjacentToPlacement(placement, square) &&
             PlayerHasHookedEffect(ruleset, FindTeamPlayer(opposingTeam, placement.PlayerId), eventKind, stage, effect));
     }
 
@@ -6575,8 +6605,7 @@ public sealed class MatchService
             .Where(placement =>
                 placement.TeamId == opposingTeam.Id &&
                 placement.State == PlayerPitchState.Standing &&
-                placement.Square is PitchSquare square &&
-                IsAdjacent(square, currentSquare) &&
+                IsAdjacentToPlacement(placement, currentSquare) &&
                 PlayerHasHookedEffect(ruleset, FindTeamPlayer(opposingTeam, placement.PlayerId), GameEventKind.MoveStep, GameEventStage.BeforeResolve, SkillEffect.Tentacles))
             .FirstOrDefault();
 
@@ -6687,11 +6716,10 @@ public sealed class MatchService
         var shadowerPlacement = match.Placements.FirstOrDefault(placement =>
             placement.TeamId == opposingTeam.Id &&
             placement.State == PlayerPitchState.Standing &&
-            placement.Square is PitchSquare shadowerSquare &&
-            IsAdjacent(shadowerSquare, fromSquare) &&
-            !IsAdjacent(shadowerSquare, toSquare) &&
+            IsAdjacentToPlacement(placement, fromSquare) &&
+            !IsAdjacentToPlacement(placement, toSquare) &&
             PlayerHasHookedEffect(ruleset, FindTeamPlayer(opposingTeam, placement.PlayerId), GameEventKind.MoveStep, GameEventStage.AfterEvent, SkillEffect.Shadowing));
-        if (shadowerPlacement is null || match.Placements.Any(placement => placement.PlayerId != shadowerPlacement.PlayerId && placement.Square == fromSquare && OccupiesPitch(placement.State)))
+        if (shadowerPlacement is null || match.Placements.Any(placement => placement.PlayerId != shadowerPlacement.PlayerId && PlacementOccupiesSquare(placement, fromSquare) && OccupiesPitch(placement.State)))
         {
             return match;
         }
@@ -7257,14 +7285,17 @@ public sealed class MatchService
             new CasualtyRoll { Roll = casualtyRoll, Result = casualtyResult });
     }
 
-    private static PitchSquare[] SafePairOfHandsSquares(MatchState match, Ruleset ruleset, Player player, PitchSquare source)
+    private static PitchSquare[] SafePairOfHandsSquares(MatchState match, Ruleset ruleset, Player player, PitchSquare source, bool isLarge = false)
     {
         if (!PlayerHasHookedEffect(ruleset, player, GameEventKind.BallScatter, GameEventStage.BeforeEvent, SkillEffect.SafePairOfHands))
         {
             return [];
         }
 
-        return AdjacentSquares(source)
+        var footprint = OccupiedSquares(source, isLarge).ToHashSet();
+        return footprint.SelectMany(AdjacentSquares)
+            .Distinct()
+            .Where(candidate => !footprint.Contains(candidate))
             .Where(candidate => IsOnPitch(ruleset, candidate))
             .Where(candidate =>
                 FindPushOccupant(match, candidate, player.Id) is null &&
@@ -7544,8 +7575,7 @@ public sealed class MatchService
             placement.TeamId != teamId &&
             placement.PlayerId != playerId &&
             HasActiveTackleZone(placement) &&
-            placement.Square is PitchSquare opponentSquare &&
-            IsAdjacent(opponentSquare, square));
+            IsAdjacentToPlacement(placement, square));
     }
 
     private static int CountOpposingTackleZones(MatchState match, Ruleset ruleset, LeagueTeam? opposingTeam, Guid teamId, Guid playerId, PitchSquare square)
@@ -7560,8 +7590,7 @@ public sealed class MatchService
             placement.TeamId != teamId &&
             placement.PlayerId != playerId &&
             HasActiveTackleZone(placement) &&
-            placement.Square is PitchSquare opponentSquare &&
-            IsAdjacent(opponentSquare, square) &&
+            IsAdjacentToPlacement(placement, square) &&
             !PlayerHasHookedEffect(ruleset, FindTeamPlayer(opposingTeam, placement.PlayerId), GameEventKind.MoveStep, GameEventStage.ModifyTarget, SkillEffect.Titchy));
     }
 
@@ -7575,7 +7604,7 @@ public sealed class MatchService
 
     private PlayerPlacement? FindDivingCatchReceiver(MatchState match, Ruleset ruleset, LeagueTeam team, PitchSquare targetSquare)
     {
-        if (match.Placements.Any(placement => placement.Square == targetSquare && OccupiesPitch(placement.State)))
+        if (match.Placements.Any(placement => PlacementOccupiesSquare(placement, targetSquare) && OccupiesPitch(placement.State)))
         {
             return null;
         }
@@ -7584,8 +7613,7 @@ public sealed class MatchService
             .Where(placement =>
                 placement.TeamId == team.Id &&
                 placement.State == PlayerPitchState.Standing &&
-                placement.Square is PitchSquare square &&
-                IsAdjacent(square, targetSquare))
+                IsAdjacentToPlacement(placement, targetSquare))
             .Select(placement => new
             {
                 Placement = placement,
@@ -7610,9 +7638,8 @@ public sealed class MatchService
         return match.Placements.FirstOrDefault(placement =>
             placement.TeamId == opposingTeam.Id &&
             placement.State == PlayerPitchState.Standing &&
-            placement.Square is PitchSquare square &&
-            IsAdjacent(square, currentSquare) &&
-            !IsAdjacent(square, nextSquare) &&
+            IsAdjacentToPlacement(placement, currentSquare) &&
+            !IsAdjacentToPlacement(placement, nextSquare) &&
             PlayerHasHookedEffect(ruleset, FindTeamPlayer(opposingTeam, placement.PlayerId), GameEventKind.DodgeRoll, GameEventStage.AfterRoll, SkillEffect.DivingTackle));
     }
 
@@ -7906,13 +7933,15 @@ public sealed class MatchService
             {
                 PlayerId = player.Id,
                 TeamId = homeTeam.Id,
-                State = PlayerPitchState.Reserve
+                State = PlayerPitchState.Reserve,
+                IsLarge = player.Stats.IsLarge
             }),
             .. awayTeam.Players.Select(player => new PlayerPlacement
             {
                 PlayerId = player.Id,
                 TeamId = awayTeam.Id,
-                State = PlayerPitchState.Reserve
+                State = PlayerPitchState.Reserve,
+                IsLarge = player.Stats.IsLarge
             })
         ];
     }

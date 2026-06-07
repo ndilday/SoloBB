@@ -49,4 +49,5 @@ public sealed record PlayerStats
     public int Agility { get; init; }
     public int Passing { get; init; }
     public int Armor { get; init; }
+    public bool IsLarge { get; init; }
 }
