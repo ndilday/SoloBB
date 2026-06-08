@@ -1664,7 +1664,14 @@ public sealed class MatchService
                 }
 
                 stunned.Add(placement.PlayerId);
-                return ApplyPitchState(match, placement, PlayerPitchState.Stunned, placement.Square);
+                // Pitch invasion occurs before any turns are played, so recovery is set to the
+                // current turn (no +1 offset) so players are prone and available on turn 2.
+                return placement with
+                {
+                    State = PlayerPitchState.Stunned,
+                    StunnedRecoveryHalf = match.Half,
+                    StunnedRecoveryTurn = GetTeamTurn(match, placement.TeamId)
+                };
             })
             .ToArray();
 

@@ -17,6 +17,7 @@ public partial class MatchScreen : VBoxContainer
     private readonly Dictionary<PitchSquare, TextureRect> _pitchMarkingLayers = [];
     private readonly Dictionary<PitchSquare, TextureRect> _pitchPieceLayers = [];
     private readonly Dictionary<PitchSquare, TextureRect> _pitchOverlayLayers = [];
+    private readonly Dictionary<PitchSquare, TextureRect> _pitchStatusLayers = [];
     private readonly Dictionary<Guid, Button> _rosterButtons = [];
 
     private Label _homeHudLabel = null!;
@@ -656,6 +657,7 @@ public partial class MatchScreen : VBoxContainer
         _pitchMarkingLayers.Clear();
         _pitchPieceLayers.Clear();
         _pitchOverlayLayers.Clear();
+        _pitchStatusLayers.Clear();
         for (var y = 0; y < _ruleset.PitchHeight; y++)
         {
             for (var x = 0; x < _ruleset.PitchWidth; x++)
@@ -679,11 +681,13 @@ public partial class MatchScreen : VBoxContainer
                 var markingLayer = BuildPitchLayer(TextureRect.StretchModeEnum.Scale);
                 var pieceLayer = BuildPitchLayer(TextureRect.StretchModeEnum.KeepAspectCentered);
                 var overlayLayer = BuildPitchLayer(TextureRect.StretchModeEnum.KeepAspectCentered);
+                var statusLayer = BuildPitchStatusLayer();
                 button.AddChild(tileLayer);
                 button.AddChild(highlightLayer);
                 button.AddChild(markingLayer);
                 button.AddChild(pieceLayer);
                 button.AddChild(overlayLayer);
+                button.AddChild(statusLayer);
 
                 _pitchButtons[square] = button;
                 _pitchTileLayers[square] = tileLayer;
@@ -691,6 +695,7 @@ public partial class MatchScreen : VBoxContainer
                 _pitchMarkingLayers[square] = markingLayer;
                 _pitchPieceLayers[square] = pieceLayer;
                 _pitchOverlayLayers[square] = overlayLayer;
+                _pitchStatusLayers[square] = statusLayer;
                 _pitchGrid.AddChild(button);
             }
         }
@@ -710,6 +715,30 @@ public partial class MatchScreen : VBoxContainer
         layer.OffsetRight = stretchMode == TextureRect.StretchModeEnum.Scale ? 1 : 0;
         layer.OffsetBottom = stretchMode == TextureRect.StretchModeEnum.Scale ? 1 : 0;
         return layer;
+    }
+
+    private static TextureRect BuildPitchStatusLayer()
+    {
+        var layer = new TextureRect
+        {
+            MouseFilter = MouseFilterEnum.Ignore,
+            StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
+            TextureFilter = TextureFilterEnum.Nearest
+        };
+        layer.SetAnchorsPreset(LayoutPreset.TopWide);
+        layer.OffsetLeft = 0;
+        layer.OffsetTop = 0;
+        layer.OffsetRight = 0;
+        layer.OffsetBottom = 16;
+        return layer;
+    }
+
+    private void SetPitchStatus(PitchSquare square, Texture2D? texture)
+    {
+        if (_pitchStatusLayers.TryGetValue(square, out var layer))
+        {
+            layer.Texture = texture;
+        }
     }
 
     private static void ClearPitchButtonChrome(Button button)
@@ -2227,6 +2256,7 @@ public partial class MatchScreen : VBoxContainer
             SetPitchMarking(square, PitchMarkingTexture(square));
             SetPitchPiece(square, null);
             SetPitchOverlay(square, null);
+            SetPitchStatus(square, null);
             button.Disabled = !canPlace && !canTargetKickoff && !canMove && !canPassSquare && !canPush && !canFollowUp && !canPlaceBall && !canThrowBomb && !canLaunchTarget;
             button.TooltipText = canLaunchTarget
                 ? LaunchSquareTooltip(square)
@@ -2264,7 +2294,7 @@ public partial class MatchScreen : VBoxContainer
                 ? ActivatedPieceModulate
                 : Colors.White;
             SetPitchPiece(placement.Square!, player is null ? null : PlayerSprite(team, player, placement), pieceModulate);
-            SetPitchOverlay(placement.Square!, placement.State == PlayerPitchState.Stunned ? StunnedSprite(0) : null);
+            SetPitchStatus(placement.Square!, placement.State == PlayerPitchState.Stunned ? StunnedSprite(0) : null);
             if (isSelected)
             {
                 SetPitchHighlight(placement.Square!, AtlasCell(_pitchTileSheet, "overlay:selected", 0, 3));
