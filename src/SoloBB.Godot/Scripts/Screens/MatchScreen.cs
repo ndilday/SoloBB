@@ -2125,9 +2125,7 @@ public partial class MatchScreen : VBoxContainer
 
         if (!CanSelectPlayer(playerId))
         {
-            _summaryLabel.Text = HasCurrentTurnActivation(playerId)
-                ? $"{FindPlayer(playerId)?.Name ?? "That player"} has already activated this turn."
-                : "That player cannot be selected right now.";
+            _summaryLabel.Text = CannotSelectReason(playerId);
             return;
         }
 
@@ -2137,11 +2135,14 @@ public partial class MatchScreen : VBoxContainer
             _currentActivationPlayerId = playerId;
         }
 
-        _passMode = false;
-        _handOffMode = false;
-        _blitzMode = CurrentTurnActivation(playerId)?.Action == PlayerTurnAction.Blitz;
+        var activation = CurrentTurnActivation(playerId);
+        _passMode = activation?.Action == PlayerTurnAction.Pass;
+        _handOffMode = activation?.Action == PlayerTurnAction.HandOff;
+        _blitzMode = activation?.Action == PlayerTurnAction.Blitz;
+        _throwTeamMateMode = false;
+        _kickTeamMateMode = false;
+
         ClearPreview();
-        _blitzMode = CurrentTurnActivation(playerId)?.Action == PlayerTurnAction.Blitz;
         RefreshRoster();
         RefreshSelectionDisplay();
         RefreshPitch();
@@ -2616,19 +2617,50 @@ public partial class MatchScreen : VBoxContainer
     private async Task DeclareBallActionModeAsync(PlayerTurnAction action)
     {
         ResetEndTurnConfirmation();
+        if (_selectedPlayerId is not Guid playerId)
+        {
+            return;
+        }
+
         var isPass = action == PlayerTurnAction.Pass;
-        if (_selectedPlayerId is not Guid playerId ||
-            !(isPass ? CanEnterPassMode(playerId) : CanEnterHandOffMode(playerId)))
+        var activation = CurrentTurnActivation(playerId);
+        var isDeclaredAction = activation?.Action == action;
+
+        if (!(isPass ? CanEnterPassMode(playerId) : CanEnterHandOffMode(playerId)) && !isDeclaredAction)
         {
             return;
         }
 
         var alreadyTargeting = isPass ? _passMode : _handOffMode;
+
         try
         {
-            // Commit the action the first time it is entered for this player, even without the ball,
-            // so they may move to collect it and still throw or hand off.
-            if (CurrentTurnActivation(playerId) is null)
+            if (alreadyTargeting)
+            {
+                if (activation is { DeclaredOnly: true })
+                {
+                    _match = _match with
+                    {
+                        Activations = _match.Activations.Where(a => a != activation).ToArray(),
+                        Log = [.. _match.Log, new MatchLogEntry { Message = $"{FindPlayer(playerId)?.Name ?? "Player"} cancels {(isPass ? "Pass" : "Hand-off")} declaration." }]
+                    };
+                    if (isPass) _passMode = false;
+                    else _handOffMode = false;
+                    await _saveMatch(_match);
+                }
+                else
+                {
+                    if (isPass) _passMode = false;
+                    else _handOffMode = false;
+                }
+
+                ClearPreview();
+                RefreshRoster();
+                RefreshPitch();
+                return;
+            }
+
+            if (activation is null)
             {
                 var service = CreateMatchService();
                 _match = service.DeclarePlayerAction(_match, ActiveTeam(), playerId, action);
@@ -2638,8 +2670,8 @@ public partial class MatchScreen : VBoxContainer
             ClearPreview();
             _selectedPlayerId = playerId;
             _currentActivationPlayerId = playerId;
-            _passMode = isPass && !alreadyTargeting;
-            _handOffMode = !isPass && !alreadyTargeting;
+            _passMode = isPass;
+            _handOffMode = !isPass;
             _throwTeamMateMode = false;
             _kickTeamMateMode = false;
             RefreshRoster();
@@ -2654,25 +2686,59 @@ public partial class MatchScreen : VBoxContainer
     private async Task DeclareBlitzModeAsync()
     {
         ResetEndTurnConfirmation();
-        if (_selectedPlayerId is not Guid playerId || !CanEnterBlitzMode(playerId))
+        if (_selectedPlayerId is not Guid playerId)
+        {
+            return;
+        }
+
+        var activation = CurrentTurnActivation(playerId);
+        var isDeclaredBlitz = activation?.Action == PlayerTurnAction.Blitz;
+
+        if (!CanEnterBlitzMode(playerId) && !isDeclaredBlitz)
         {
             return;
         }
 
         try
         {
-            var service = CreateMatchService();
-            _match = service.DeclarePlayerAction(_match, ActiveTeam(), playerId, PlayerTurnAction.Blitz);
-            _currentActivationPlayerId = playerId;
-            _passMode = false;
-            _handOffMode = false;
-            _throwTeamMateMode = false;
-            _kickTeamMateMode = false;
+            if (_blitzMode)
+            {
+                if (activation is { DeclaredOnly: true })
+                {
+                    _match = _match with
+                    {
+                        Activations = _match.Activations.Where(a => a != activation).ToArray(),
+                        Log = [.. _match.Log, new MatchLogEntry { Message = $"{FindPlayer(playerId)?.Name ?? "Player"} cancels Blitz declaration." }]
+                    };
+                    _blitzMode = false;
+                    await _saveMatch(_match);
+                }
+                else
+                {
+                    _blitzMode = false;
+                }
+
+                ClearPreview();
+                RefreshRoster();
+                RefreshPitch();
+                return;
+            }
+
+            if (activation is null)
+            {
+                var service = CreateMatchService();
+                _match = service.DeclarePlayerAction(_match, ActiveTeam(), playerId, PlayerTurnAction.Blitz);
+                await _saveMatch(_match);
+            }
+
             ClearPreview();
             _selectedPlayerId = playerId;
             _currentActivationPlayerId = playerId;
             _blitzMode = true;
-            await _saveMatch(_match);
+            _passMode = false;
+            _handOffMode = false;
+            _throwTeamMateMode = false;
+            _kickTeamMateMode = false;
             RefreshRoster();
             RefreshPitch();
         }
@@ -3076,7 +3142,35 @@ public partial class MatchScreen : VBoxContainer
             return false;
         }
 
+        if (_currentActivationPlayerId is Guid activeId && activeId != playerId)
+        {
+            var activeActivation = CurrentTurnActivation(activeId);
+            if (activeActivation is { Completed: false })
+            {
+                return false;
+            }
+        }
+
         return activation is null || _currentActivationPlayerId == playerId;
+    }
+
+    private string CannotSelectReason(Guid playerId)
+    {
+        if (_currentActivationPlayerId is Guid activeId && activeId != playerId)
+        {
+            var activeActivation = CurrentTurnActivation(activeId);
+            if (activeActivation is { Completed: false })
+            {
+                return $"You must finish or cancel {FindPlayer(activeId)?.Name ?? "the active player"}'s action first.";
+            }
+        }
+
+        if (HasCurrentTurnActivation(playerId))
+        {
+            return $"{FindPlayer(playerId)?.Name ?? "That player"} has already activated this turn.";
+        }
+
+        return "That player cannot be selected right now.";
     }
 
     private bool CanReturnSelectedSetupPlayerToReserve()
@@ -4769,10 +4863,6 @@ public partial class MatchScreen : VBoxContainer
         _previewPassTargetSquare = null;
         _previewLaunchedPlayerId = null;
         _previewLaunchTargetSquare = null;
-        _passMode = false;
-        _handOffMode = false;
-        _throwTeamMateMode = false;
-        _kickTeamMateMode = false;
     }
 
     private bool IsActiveTeamSide(PitchSquare square)
