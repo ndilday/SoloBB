@@ -818,6 +818,7 @@ var highKickMoved = highKickService.MovePendingKickoffEventPlayer(highKickMatch,
 var highKickResolved = highKickService.CompletePendingKickoffEvent(highKickMoved, ruleset, loadedLeague.Teams[0]);
 Assert(highKickResolved.Phase == MatchPhase.OffensivePlayerTurn, "high kick should resolve to the receiving player turn after the choice");
 Assert(highKickResolved.Ball.CarrierPlayerId == playerToPlace.Id, "high kick receiver under the ball should get the catch attempt");
+Assert(highKickResolved.DriveState == DriveState.InProgress, "resolving a kickoff event should mark the drive in progress");
 
 var quickSnapService = new MatchService(new FixedDiceRoller(d6: [4, 5, 1, 1], d8: [5]));
 var quickSnapMatch = quickSnapService.ResolveKickoff(kickoffMatch, ruleset, loadedLeague.Teams[0], new(2, 2));

@@ -3142,10 +3142,13 @@ public partial class MatchScreen : VBoxContainer
             return false;
         }
 
+        // Only an uncommitted declaration (a Pass/Blitz/Hand-off declared but not yet acted on)
+        // locks selection, because switching away would orphan it. A player who has actually
+        // started moving may be left where they are simply by activating someone else.
         if (_currentActivationPlayerId is Guid activeId && activeId != playerId)
         {
             var activeActivation = CurrentTurnActivation(activeId);
-            if (activeActivation is { Completed: false })
+            if (activeActivation is { Completed: false, DeclaredOnly: true })
             {
                 return false;
             }
@@ -3159,7 +3162,7 @@ public partial class MatchScreen : VBoxContainer
         if (_currentActivationPlayerId is Guid activeId && activeId != playerId)
         {
             var activeActivation = CurrentTurnActivation(activeId);
-            if (activeActivation is { Completed: false })
+            if (activeActivation is { Completed: false, DeclaredOnly: true })
             {
                 return $"You must finish or cancel {FindPlayer(activeId)?.Name ?? "the active player"}'s action first.";
             }

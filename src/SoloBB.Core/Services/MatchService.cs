@@ -1494,6 +1494,7 @@ public sealed class MatchService
         return landedMatch with
         {
             Phase = MatchPhase.OffensivePlayerTurn,
+            DriveState = DriveState.InProgress,
             Activations = [],
             Log =
             [
