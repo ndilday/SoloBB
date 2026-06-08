@@ -1083,6 +1083,39 @@ Assert(handOffMatch.Ball.CarrierPlayerId == handOffReceiver.Id, "successful hand
 Assert(handOffMatch.Activations.Single(activation => activation.PlayerId == playerToPlace.Id).Action == PlayerTurnAction.HandOff, "handoff should record an activation");
 Assert(handOffMatch.Activations.Single(activation => activation.PlayerId == playerToPlace.Id).Completed, "handing off should end the carrier's activation");
 
+// A player may declare a hand-off without the ball, move to collect it, then hand off to a team-mate.
+var pickupHandOffCarrier = playerToPlace;
+var pickupHandOffReceiver = loadedLeague.Teams[0].Players[1];
+var pickupHandOffBase = offensiveTurnMatch with
+{
+    Ball = new BallState { Square = new PitchSquare(2, 0) },
+    Placements = offensiveTurnMatch.Placements
+        .Select(p => p.PlayerId == pickupHandOffCarrier.Id ? p with { Square = new PitchSquare(1, 0), State = PlayerPitchState.Standing }
+            : p.PlayerId == pickupHandOffReceiver.Id ? p with { Square = new PitchSquare(4, 0), State = PlayerPitchState.Standing }
+            : p)
+        .ToArray()
+};
+var pickupHandOffService = new MatchService(new FixedDiceRoller(d6: [6, 6, 6, 6]));
+var pickupHandOffDeclared = pickupHandOffService.DeclarePlayerAction(pickupHandOffBase, loadedLeague.Teams[0], pickupHandOffCarrier.Id, PlayerTurnAction.HandOff);
+var pickupHandOffMoved = pickupHandOffService.MovePlayerAsHandOff(pickupHandOffDeclared, ruleset, loadedLeague.Teams[0], pickupHandOffCarrier.Id, new PitchSquare(3, 0));
+Assert(pickupHandOffMoved.Ball.CarrierPlayerId == pickupHandOffCarrier.Id, "declaring a hand-off then moving onto the ball should let the carrier pick it up");
+var pickupHandOffActivation = pickupHandOffMoved.Activations.Single(a => a.PlayerId == pickupHandOffCarrier.Id);
+Assert(pickupHandOffActivation is { Action: PlayerTurnAction.HandOff, DeclaredOnly: false, Completed: false }, "moving after a declared hand-off should keep the hand-off activation live so the carrier can still hand off");
+var pickupHandOffResult = pickupHandOffService.HandOffBall(pickupHandOffMoved, ruleset, loadedLeague.Teams[0], pickupHandOffCarrier.Id, pickupHandOffReceiver.Id);
+Assert(pickupHandOffResult.Ball.CarrierPlayerId == pickupHandOffReceiver.Id, "handing off after collecting the ball should transfer it to the team-mate");
+
+// A pickup that needs a reroll mid-hand-off must keep the hand-off activation live after the reroll
+// resolves, so the carrier can still complete the hand-off (the UI's mode toggle is cleared by the
+// pending reroll prompt, so the hand-off must be recoverable from the activation itself).
+var rerollHandOffService = new MatchService(new FixedDiceRoller(d6: [1, 6, 6]));
+var rerollHandOffMoved = rerollHandOffService.MovePlayerAsHandOff(
+    pickupHandOffDeclared with { Weather = WeatherCondition.PouringRain },
+    ruleset, loadedLeague.Teams[0], pickupHandOffCarrier.Id, new PitchSquare(2, 0));
+Assert(rerollHandOffMoved.PendingReroll?.Kind == PendingRerollKind.Pickup, "a failed hand-off pickup should prompt a reroll");
+var rerollHandOffResolved = rerollHandOffService.ResolvePendingReroll(rerollHandOffMoved, ruleset, loadedLeague.Teams[0], useTeamReroll: true);
+Assert(rerollHandOffResolved.Ball.CarrierPlayerId == pickupHandOffCarrier.Id, "a successful pickup reroll should leave the carrier holding the ball");
+Assert(rerollHandOffResolved.Activations.Single(a => a.PlayerId == pickupHandOffCarrier.Id).Action == PlayerTurnAction.HandOff, "a pickup reroll during a hand-off should keep the hand-off activation");
+
 var failedHandOffService = new MatchService(new FixedDiceRoller(d6: [1], d8: [5]));
 var failedHandOffMatch = failedHandOffService.HandOffBall(handOffReadyMatch, ruleset, loadedLeague.Teams[0], playerToPlace.Id, handOffReceiver.Id);
 

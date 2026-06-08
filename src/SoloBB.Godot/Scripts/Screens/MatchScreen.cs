@@ -987,7 +987,7 @@ public partial class MatchScreen : VBoxContainer
             button.AddThemeFontSizeOverride("font_size", 11);
             button.TooltipText = RosterTooltip(player, placement);
             var playerId = player.Id;
-            button.Pressed += () => SelectPlayer(playerId);
+            button.Pressed += async () => await SelectOrTargetPlayerAsync(playerId);
             _rosterButtons[player.Id] = button;
             _rosterList.AddChild(button);
         }
@@ -1078,7 +1078,7 @@ public partial class MatchScreen : VBoxContainer
                     return;
                 }
 
-                if (_handOffMode && _selectedPlayerId is Guid handOffCarrierId && IsLegalHandOffTarget(handOffCarrierId, occupied.PlayerId))
+                if (_selectedPlayerId is Guid handOffCarrierId && IsHandingOff(handOffCarrierId) && IsLegalHandOffTarget(handOffCarrierId, occupied.PlayerId))
                 {
                     await HandleHandOffTargetAsync(handOffCarrierId, occupied.PlayerId);
                     return;
@@ -2114,6 +2114,31 @@ public partial class MatchScreen : VBoxContainer
         }
     }
 
+    // Clicking a team-mate (from the roster list or the pitch) while the active player is mid
+    // hand-off or pass should complete that action on the chosen team-mate, not abandon the
+    // activation to select them. Fall back to plain selection when they are not a legal target.
+    private async Task SelectOrTargetPlayerAsync(Guid playerId)
+    {
+        if (_selectedPlayerId is Guid actorId && actorId != playerId)
+        {
+            if (IsHandingOff(actorId) && IsLegalHandOffTarget(actorId, playerId))
+            {
+                await HandleHandOffTargetAsync(actorId, playerId);
+                return;
+            }
+
+            if (_passMode &&
+                _match.Placements.FirstOrDefault(placement => placement.PlayerId == playerId)?.Square is PitchSquare receiverSquare &&
+                IsLegalPassTarget(actorId, playerId))
+            {
+                await HandlePassTargetAsync(actorId, receiverSquare, playerId);
+                return;
+            }
+        }
+
+        SelectPlayer(playerId);
+    }
+
     private void SelectPlayer(Guid playerId)
     {
         ResetEndTurnConfirmation();
@@ -2250,7 +2275,7 @@ public partial class MatchScreen : VBoxContainer
             var canBlitzTarget = _selectedPlayerId is Guid blitzerId && IsLegalBlitzTarget(blitzerId, placement.PlayerId);
             var canKickoffBlitzTarget = _selectedPlayerId is Guid kickoffBlitzerId && IsLegalKickoffBlitzTarget(kickoffBlitzerId, placement.PlayerId);
             var canPassTarget = _selectedPlayerId is Guid passerId && IsLegalPassTarget(passerId, placement.PlayerId);
-            var canHandOffTarget = _handOffMode && _selectedPlayerId is Guid handOffCarrierId && IsLegalHandOffTarget(handOffCarrierId, placement.PlayerId);
+            var canHandOffTarget = _selectedPlayerId is Guid handOffCarrierId && IsHandingOff(handOffCarrierId) && IsLegalHandOffTarget(handOffCarrierId, placement.PlayerId);
             var canFoulTarget = _selectedPlayerId is Guid foulerId && IsLegalFoulTarget(foulerId, placement.PlayerId);
             var canPushTarget = IsLegalPushSquare(placement.Square!);
             var canFollowUpTarget = IsLegalFollowUpSquare(placement.Square!);
@@ -3755,6 +3780,15 @@ public partial class MatchScreen : VBoxContainer
     private bool CanEnterHandOffMode(Guid carrierId)
     {
         return CanDeclareBallAction(carrierId, PlayerTurnAction.HandOff, HasUsedHandOff(_match.ActiveTeamId));
+    }
+
+    // True while the selected carrier is in the middle of a hand-off: either the mode toggle is on,
+    // or they have already committed a hand-off activation. The activation check matters because a
+    // transient prompt during the move (e.g. a pickup reroll) clears the toggle even though the
+    // declared hand-off is still live, so we must not lose the targeting affordance.
+    private bool IsHandingOff(Guid carrierId)
+    {
+        return _handOffMode || CurrentTurnActivation(carrierId)?.Action == PlayerTurnAction.HandOff;
     }
 
     // A pass or hand-off can be declared before the player holds the ball, so they may move to
