@@ -185,6 +185,16 @@ public sealed record PendingPushChoice
     public bool KnockDefenderDown { get; init; }
     public required string ResultMessage { get; init; }
     public bool PreventFollowUp { get; init; }
+    public PendingPushContinuation? Continuation { get; init; }
+}
+
+public sealed record PendingPushContinuation
+{
+    public required Guid PlayerId { get; init; }
+    public required PitchSquare Source { get; init; }
+    public required PitchSquare Destination { get; init; }
+    public bool KnockDown { get; init; }
+    public required string ResultMessage { get; init; }
 }
 
 public sealed record PendingStandFirmChoice
@@ -307,7 +317,8 @@ public enum PendingRerollKind
 {
     Dodge,
     GoForIt,
-    Pickup
+    Pickup,
+    Pass
 }
 
 public sealed record PendingRerollContext
@@ -322,6 +333,9 @@ public sealed record PendingRerollContext
     public Guid? BlitzDefenderPlayerId { get; init; }
     public bool BreakTackleUsed { get; init; }
     public bool ArmBarApplies { get; init; }
+    public bool UseCloudBurster { get; init; }
+    public bool IsDumpOff { get; init; }
+    public bool IsHailMary { get; init; }
 }
 
 public sealed record PendingDivingTackleChoice

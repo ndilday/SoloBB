@@ -786,8 +786,10 @@ Assert(caughtKickoffMatch.Ball.CarrierPlayerId == playerToPlace.Id, "kickoff lan
 
 var touchbackService = new MatchService(new FixedDiceRoller(d6: [3, 3, 3, 3, 1], d8: [5]));
 var touchbackMatch = touchbackService.ResolveKickoff(kickoffMatch, ruleset, loadedLeague.Teams[0], new(ruleset.PitchWidth / 2, 0));
+Assert(touchbackMatch.PendingBallPlacement?.Reason == "Touchback", "kickoff outside receiving half should let the receiving team choose a touchback carrier");
+var resolvedTouchbackMatch = touchbackService.ChooseBallPlacement(touchbackMatch, loadedLeague.Teams[0], placedPlayer.Square!);
 
-Assert(touchbackMatch.Ball.CarrierPlayerId == playerToPlace.Id, "kickoff outside receiving half should award touchback to receiving player");
+Assert(resolvedTouchbackMatch.Ball.CarrierPlayerId == playerToPlace.Id, "chosen touchback player should receive the ball");
 
 var getRefService = new MatchService(new FixedDiceRoller(d6: [1, 1, 1], d8: [5]));
 var getRefMatch = getRefService.ResolveKickoff(kickoffMatch, ruleset, loadedLeague.Teams[0], new(2, 2));
@@ -1157,6 +1159,8 @@ Assert(passedAfterPickupMatch.Activations.Count(activation => activation.PlayerI
 
 var failedPassService = new MatchService(new FixedDiceRoller(d6: [1], d8: [5]));
 var failedPassMatch = failedPassService.PassBall(passReadyMatch, ruleset, loadedLeague.Teams[0], passerPlayer.Id, passReceiver.Id);
+Assert(failedPassMatch.PendingReroll?.Kind == PendingRerollKind.Pass, "failed pass should offer Pass/team reroll choices before resolving");
+failedPassMatch = failedPassService.ResolvePendingReroll(failedPassMatch, ruleset, loadedLeague.Teams[0], useTeamReroll: false, opposingTeam: awayLeague.Teams[0]);
 
 Assert(failedPassMatch.Phase == MatchPhase.DefensiveTurn, "fumbled pass should cause a turnover");
 Assert(failedPassMatch.Ball.CarrierPlayerId is null, "fumbled pass should leave the ball loose if not recovered");
@@ -1255,6 +1259,10 @@ var friendlyPassBounceMatch = passReadyMatch with
 };
 var friendlyPassBounceService = new MatchService(new FixedDiceRoller(d6: [2, 3, 4], d8: [5]));
 var friendlyPassBounceResult = friendlyPassBounceService.PassBall(friendlyPassBounceMatch, ruleset, loadedLeague.Teams[0], passerPlayer.Id, passReceiver.Id);
+if (friendlyPassBounceResult.PendingReroll is not null)
+{
+    friendlyPassBounceResult = friendlyPassBounceService.ResolvePendingReroll(friendlyPassBounceResult, ruleset, loadedLeague.Teams[0], useTeamReroll: false, opposingTeam: awayLeague.Teams[0]);
+}
 
 Assert(friendlyPassBounceResult.Phase == MatchPhase.OffensivePlayerTurn, "friendly catch on an inaccurate pass scatter should avoid turnover");
 Assert(friendlyPassBounceResult.Ball.CarrierPlayerId == passBounceReceiver.Id, "friendly player should be able to recover a scattered pass");
@@ -1420,6 +1428,10 @@ var disturbingPresenceMatch = passReadyMatch with
 };
 var disturbingPresenceService = new MatchService(new FixedDiceRoller(d6: [2], d8: [5]));
 var disturbingPresenceResult = disturbingPresenceService.PassBall(disturbingPresenceMatch, ruleset, loadedLeague.Teams[0], passerPlayer.Id, passReceiver.Id, disturbingPresenceTeam);
+if (disturbingPresenceResult.PendingReroll is not null)
+{
+    disturbingPresenceResult = disturbingPresenceService.ResolvePendingReroll(disturbingPresenceResult, ruleset, loadedLeague.Teams[0], useTeamReroll: false, opposingTeam: disturbingPresenceTeam);
+}
 
 Assert(disturbingPresenceResult.Phase == MatchPhase.DefensiveTurn, "Disturbing Presence should modify nearby opposition passing tests even while prone");
 
@@ -1781,6 +1793,8 @@ var pendingChainPush = chainPushService.BlockPlayer(chainPushMatch, ruleset, loa
 
 Assert(pendingChainPush.PendingPush?.LegalSquares.Contains(new PitchSquare(3, 1)) == true, "occupied push squares should be legal only when no unoccupied on-pitch push square exists");
 var chainPushResult = chainPushService.ChoosePushSquare(pendingChainPush, ruleset, loadedLeague.Teams[0], awayLeague.Teams[0], new PitchSquare(3, 1));
+Assert(chainPushResult.PendingPush?.DefenderPlayerId == chainPushedPlayer.Id, "chain push should ask where the occupying player is pushed");
+chainPushResult = chainPushService.ChoosePushSquare(chainPushResult, ruleset, loadedLeague.Teams[0], awayLeague.Teams[0], new PitchSquare(4, 0));
 
 Assert(chainPushResult.Placements.Single(placement => placement.PlayerId == awayPlayerToPlace.Id).Square == new PitchSquare(3, 1), "push into an occupied square should move the original pushed player there");
 Assert(chainPushResult.Placements.Single(placement => placement.PlayerId == chainPushedPlayer.Id).Square == new PitchSquare(4, 0), "push into an occupied square should chain-push the occupying player");
@@ -1797,6 +1811,10 @@ var cascadePushMatch = chainPushMatch with
 var cascadePushService = new MatchService(new FixedDiceRoller(d6: [3]));
 var pendingCascadePush = cascadePushService.BlockPlayer(cascadePushMatch, ruleset, loadedLeague.Teams[0], playerToPlace.Id, awayLeague.Teams[0], awayPlayerToPlace.Id);
 var cascadePushResult = cascadePushService.ChoosePushSquare(pendingCascadePush, ruleset, loadedLeague.Teams[0], awayLeague.Teams[0], new PitchSquare(3, 1));
+if (cascadePushResult.PendingPush is not null)
+{
+    cascadePushResult = cascadePushService.ChoosePushSquare(cascadePushResult, ruleset, loadedLeague.Teams[0], awayLeague.Teams[0], new PitchSquare(4, 0));
+}
 
 Assert(cascadePushResult.Placements.Single(placement => placement.PlayerId == chainPushedPlayer.Id).Square == new PitchSquare(4, 0), "cascade chain push should force the second pushed player into an unoccupied square before occupied options");
 Assert(cascadePushResult.Placements.Single(placement => placement.PlayerId == fourthChainPushedPlayer.Id).Square == new PitchSquare(4, 1), "cascade chain push should not push a third player while the second player has an unoccupied destination");
@@ -1856,7 +1874,8 @@ var blockSkillBothDownMatch = blockReadyMatch with
 };
 var blockSkillBothDownService = new MatchService(new FixedDiceRoller(d6: [2, 1, 1]));
 var blockSkillBothDownPending = blockSkillBothDownService.BlockPlayer(blockSkillBothDownMatch, ruleset, loadedLeague.Teams[0], loadedLeague.Teams[0].Players[8].Id, awayLeague.Teams[0], awayPlayerToPlace.Id);
-var blockSkillBothDownResult = blockSkillBothDownService.ResolvePendingBlockReroll(blockSkillBothDownPending, ruleset, loadedLeague.Teams[0], awayLeague.Teams[0], useTeamReroll: false);
+Assert(blockSkillBothDownPending.PendingBlockReroll is null, "Block-protected both down should not ask for a second reroll decision");
+var blockSkillBothDownResult = blockSkillBothDownPending;
 
 Assert(blockSkillBothDownResult.Phase == MatchPhase.OffensivePlayerTurn, "block skill should prevent an attacker both-down turnover");
 Assert(blockSkillBothDownResult.Placements.Single(placement => placement.PlayerId == loadedLeague.Teams[0].Players[8].Id).State == PlayerPitchState.Standing, "block skill should keep the attacker standing on both down");
@@ -1865,7 +1884,7 @@ Assert(blockSkillBothDownResult.Activations.Single(activation => activation.Play
 
 var blockSkillCasualtyService = new MatchService(new FixedDiceRoller(d6: [2, 6, 6, 6, 6], d16: [9]));
 var blockSkillCasualtyPending = blockSkillCasualtyService.BlockPlayer(blockSkillBothDownMatch, ruleset, loadedLeague.Teams[0], loadedLeague.Teams[0].Players[8].Id, awayLeague.Teams[0], awayPlayerToPlace.Id);
-var blockSkillCasualtyResult = blockSkillCasualtyService.ResolvePendingBlockReroll(blockSkillCasualtyPending, ruleset, loadedLeague.Teams[0], awayLeague.Teams[0], useTeamReroll: false);
+var blockSkillCasualtyResult = blockSkillCasualtyPending;
 var blockSkillCasualtyAward = blockSkillCasualtyResult.PlayerAwards.Single(award => award.Kind == MatchPlayerAwardKind.Casualty);
 Assert(blockSkillCasualtyAward.PlayerId == loadedLeague.Teams[0].Players[8].Id && blockSkillCasualtyAward.VictimPlayerId == awayPlayerToPlace.Id, "direct block casualty SPP should credit the blocker and name the victim");
 Assert(blockSkillCasualtyAward.PlayerName == loadedLeague.Teams[0].Players[8].Name && blockSkillCasualtyAward.VictimPlayerName == awayPlayerToPlace.Name, "direct block casualty awards should include post-match display names");
@@ -3231,6 +3250,8 @@ scenarioDriveMatch = SetupTeam(scenarioDriveService, scenarioDriveMatch, ruleset
 ]);
 scenarioDriveMatch = scenarioDriveService.AdvancePhase(scenarioDriveMatch, ruleset);
 scenarioDriveMatch = scenarioDriveService.ResolveKickoff(scenarioDriveMatch, ruleset, loadedLeague.Teams[0], new(ruleset.PitchWidth / 2, 0), awayLeague.Teams[0]);
+Assert(scenarioDriveMatch.PendingBallPlacement?.Reason == "Touchback", "scenario drive should start with a touchback choice");
+scenarioDriveMatch = scenarioDriveService.ChooseBallPlacement(scenarioDriveMatch, loadedLeague.Teams[0], new(12, 0));
 Assert(scenarioDriveMatch.Ball.CarrierPlayerId == playerToPlace.Id, "scenario drive should start with a touchback to the Human ball carrier");
 scenarioDriveMatch = scenarioDriveService.MovePlayer(scenarioDriveMatch, ruleset, loadedLeague.Teams[0], playerToPlace.Id, new(20, 0));
 AssertMatchInvariants(scenarioDriveMatch, ruleset, "scenario drive after first Human carry");
@@ -3316,6 +3337,11 @@ for (var seed = 1; seed <= 12; seed++)
     ]);
     var seededKickoff = seededService.AdvancePhase(seededOffense, ruleset);
     var seededTurn = seededService.ResolveKickoff(seededKickoff, ruleset, loadedLeague.Teams[0], new(ruleset.PitchWidth / 2, seed % 3), awayLeague.Teams[0]);
+    if (seededTurn.PendingBallPlacement?.Reason == "Touchback")
+    {
+        seededTurn = seededService.ChooseBallPlacement(seededTurn, loadedLeague.Teams[0], seededTurn.PendingBallPlacement.LegalSquares[0]);
+    }
+
     var seededCarryTarget = new PitchSquare(14 + (seed % 5), seed % 3);
     seededTurn = seededService.MovePlayer(seededTurn, ruleset, loadedLeague.Teams[0], playerToPlace.Id, seededCarryTarget);
     AssertMatchInvariants(seededTurn, ruleset, $"seeded playtest {seed} after carry");

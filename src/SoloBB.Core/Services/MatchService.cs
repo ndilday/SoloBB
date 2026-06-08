@@ -816,7 +816,8 @@ public sealed class MatchService
         bool usePassSkillReroll,
         bool useCloudBurster,
         bool isDumpOff,
-        bool isHailMary)
+        bool isHailMary,
+        int? forcedPassRoll = null)
     {
         if (match.Phase is not (MatchPhase.OffensivePlayerTurn or MatchPhase.DefensiveTurn))
         {
@@ -903,7 +904,27 @@ public sealed class MatchService
             return passAction.Match;
         }
 
-        var passAttempt = RollPass(ruleset, passerPlayer, target, usePassSkillReroll);
+        var passAttempt = RollPass(ruleset, passerPlayer, target, usePassSkillReroll, forcedPassRoll);
+        var passerHasPassReroll = PlayerHasHookedEffect(ruleset, passerPlayer, GameEventKind.PassRoll, GameEventStage.AfterRoll, SkillEffect.PassReroll);
+        if (forcedPassRoll is null &&
+            !passAttempt.Success &&
+            !usePassSkillReroll &&
+            (passAttempt.Roll == 1 || passerHasPassReroll) &&
+            (CanUseTeamReroll(passAction.Match, ruleset, team) || passerHasPassReroll))
+        {
+            return CreatePendingPassReroll(
+                passAction.Match,
+                ruleset,
+                team,
+                passerPlayer,
+                passAttempt.Roll,
+                target,
+                targetSquare,
+                defendingTeam,
+                useCloudBurster,
+                isDumpOff,
+                isHailMary);
+        }
         var passRoll = passAttempt.FinalRoll;
         var activatedMatch = (isDumpOff
             ? match
@@ -1273,25 +1294,9 @@ public sealed class MatchService
             }
         }
 
-        if (!IsReceivingSide(ruleset, receivingTeam.Id, match.HomeTeamId, scatterSquare))
+        if (!IsOnPitch(ruleset, scatterSquare) || !IsReceivingSide(ruleset, receivingTeam.Id, match.HomeTeamId, scatterSquare))
         {
-            var touchbackReceiver = FindTouchbackReceiver(kickoffMatch, receivingTeam)
-                ?? throw new InvalidOperationException("Receiving team has no standing player for touchback.");
-
-            return kickoffMatch with
-            {
-                Phase = MatchPhase.OffensivePlayerTurn,
-                DriveState = DriveState.InProgress,
-                Ball = new BallState { CarrierPlayerId = touchbackReceiver.Id },
-                Activations = [],
-                PendingKickoffEvent = null,
-                Log =
-                [
-                    .. kickoffMatch.Log,
-                    .. log,
-                    new MatchLogEntry { Message = $"Touchback. {touchbackReceiver.Name} receives the ball." }
-                ]
-            };
+            return CreatePendingTouchback(kickoffMatch, receivingTeam, [.. log, new MatchLogEntry { Message = "Touchback. Choose a receiving player to carry the ball." }]);
         }
 
         var bouncedMatch = ResolveKickoffLanding(kickoffMatch, ruleset, receivingTeam, scatterSquare);
@@ -1482,20 +1487,7 @@ public sealed class MatchService
 
         if (!IsReceivingSide(ruleset, receivingTeam.Id, match.HomeTeamId, landingSquare))
         {
-            var touchbackReceiver = FindTouchbackReceiver(baseMatch, receivingTeam)
-                ?? throw new InvalidOperationException("Receiving team has no standing player for touchback.");
-
-            return baseMatch with
-            {
-                Phase = MatchPhase.OffensivePlayerTurn,
-                Ball = new BallState { CarrierPlayerId = touchbackReceiver.Id },
-                Activations = [],
-                Log =
-                [
-                    .. baseMatch.Log,
-                    new MatchLogEntry { Message = $"Touchback after {FormatKickoffEventKind(pending.Kind)}. {touchbackReceiver.Name} receives the ball." }
-                ]
-            };
+            return CreatePendingTouchback(baseMatch, receivingTeam, [new MatchLogEntry { Message = $"Touchback after {FormatKickoffEventKind(pending.Kind)}. Choose a receiving player to carry the ball." }]);
         }
 
         var landedMatch = ResolveKickoffLanding(baseMatch, ruleset, receivingTeam, landingSquare);
@@ -1637,7 +1629,8 @@ public sealed class MatchService
 
         var victim = candidates[RollIndex(candidates.Length)];
         var injury = ResolveInjury(Roll2D6());
-        var apothecary = CreatePendingApothecaryIfAvailable(match, victim, victim.PlayerId.ToString(), injury);
+        var victimName = PlayerName(victim.PlayerId);
+        var apothecary = CreatePendingApothecaryIfAvailable(match, victim, victimName, injury);
         injury = apothecary.Injury;
         var nextMatch = apothecary.Match with
         {
@@ -1649,7 +1642,7 @@ public sealed class MatchService
         };
         var casualtyText = injury.Casualty is null ? "" : $" Casualty roll {injury.Casualty.Roll}: {FormatCasualtyResult(injury.Casualty.Result)}.";
         var apothecaryText = apothecary.Log.Count == 0 ? "" : $" {apothecary.Log[0].Message}";
-        return new KickoffEventResult(nextMatch, "Throw a Rock", $"{victim.PlayerId} is hit by a rock and is {FormatPitchState(injury.State)}.{casualtyText}{apothecaryText}");
+        return new KickoffEventResult(nextMatch, "Throw a Rock", $"{victimName} is hit by a rock and is {FormatPitchState(injury.State)}.{casualtyText}{apothecaryText}");
     }
 
     private KickoffEventResult ResolvePitchInvasion(MatchState match)
@@ -2018,8 +2011,60 @@ public sealed class MatchService
             throw new InvalidOperationException($"Square {square.X},{square.Y} is not a legal push square.");
         }
 
+        if (pending.Continuation is PendingPushContinuation continuation)
+        {
+            var chainPushedMatch = PushPlacement(match with { PendingPush = null }, ruleset, null, pending.DefenderPlayerId, PlayerName(pending.DefenderPlayerId), pending.DefenderSquare, square, knockDown: false, () => new InjuryResolution(PlayerPitchState.Standing), stripBall: false);
+            var continuedDefender = FindTeamPlayer(defenderTeam, continuation.PlayerId);
+            var continuedAttacker = FindTeamPlayer(attackerTeam, pending.AttackerPlayerId);
+            var continuedStripBall = ShouldStripBall(ruleset, continuedAttacker, continuedDefender, chainPushedMatch.Ball.CarrierPlayerId == continuedDefender.Id, continuation.KnockDown);
+            var continuedPushedMatch = PushPlayer(chainPushedMatch, ruleset, continuedDefender, continuation.Source, continuation.Destination, continuation.KnockDown, () => ResolveBlockInjury(ruleset, continuedAttacker, continuedDefender), continuedStripBall);
+            var continuedLoggedMatch = continuedPushedMatch with
+            {
+                Log =
+                [
+                    .. continuedPushedMatch.Log,
+                    new MatchLogEntry { Message = $"{pending.ResultMessage} {PlayerName(pending.DefenderPlayerId)} is chain-pushed to {square.X},{square.Y}." },
+                    new MatchLogEntry { Message = $"{continuation.ResultMessage} {continuedDefender.Name} is pushed to {continuation.Destination.X},{continuation.Destination.Y}." }
+                ]
+            };
+
+            return CompleteBlockPush(continuedLoggedMatch, ruleset, attackerTeam, continuedAttacker, defenderTeam, continuedDefender, continuation.Source, continuation.KnockDown, pending.PreventFollowUp);
+        }
+
         var defender = FindTeamPlayer(defenderTeam, pending.DefenderPlayerId);
         var attacker = FindTeamPlayer(attackerTeam, pending.AttackerPlayerId);
+        var occupant = FindPushOccupant(match, square, pending.DefenderPlayerId);
+        if (occupant is not null)
+        {
+            var chainSquares = LegalPushSquares(match, ruleset, pending.DefenderSquare, square, occupant.PlayerId);
+            if (chainSquares.Length > 1)
+            {
+                return match with
+                {
+                    PendingPush = pending with
+                    {
+                        DefenderPlayerId = occupant.PlayerId,
+                        DefenderSquare = square,
+                        LegalSquares = chainSquares,
+                        KnockDefenderDown = false,
+                        ResultMessage = $"{pending.ResultMessage} Choose where to chain-push {PlayerName(occupant.PlayerId)}.",
+                        Continuation = new PendingPushContinuation
+                        {
+                            PlayerId = defender.Id,
+                            Source = pending.DefenderSquare,
+                            Destination = square,
+                            KnockDown = pending.KnockDefenderDown,
+                            ResultMessage = pending.ResultMessage
+                        }
+                    },
+                    Log =
+                    [
+                        .. match.Log,
+                        new MatchLogEntry { Message = $"{pending.ResultMessage} Choose where to chain-push {PlayerName(occupant.PlayerId)}." }
+                    ]
+                };
+            }
+        }
         var stripBall = ShouldStripBall(ruleset, attacker, defender, match.Ball.CarrierPlayerId == defender.Id, pending.KnockDefenderDown);
         var pushedMatch = PushPlayer(match with { PendingPush = null }, ruleset, defender, pending.DefenderSquare, square, pending.KnockDefenderDown, () => ResolveBlockInjury(ruleset, attacker, defender), stripBall);
         var loggedMatch = pushedMatch with
@@ -2084,6 +2129,29 @@ public sealed class MatchService
         }
 
         var player = FindTeamPlayer(team, pending.PlayerId);
+        if (string.Equals(pending.Reason, "Touchback", StringComparison.OrdinalIgnoreCase))
+        {
+            var receiverPlacement = match.Placements.FirstOrDefault(placement =>
+                placement.TeamId == team.Id &&
+                placement.State == PlayerPitchState.Standing &&
+                placement.Square == square)
+                ?? throw new InvalidOperationException("Touchback must be given to a standing receiving player.");
+            var receiver = FindTeamPlayer(team, receiverPlacement.PlayerId);
+            return match with
+            {
+                Phase = MatchPhase.OffensivePlayerTurn,
+                DriveState = DriveState.InProgress,
+                PendingBallPlacement = null,
+                Ball = new BallState { CarrierPlayerId = receiver.Id },
+                Activations = [],
+                Log =
+                [
+                    .. match.Log,
+                    new MatchLogEntry { Message = $"Touchback. {receiver.Name} receives the ball." }
+                ]
+            };
+        }
+
         return match with
         {
             PendingBallPlacement = null,
@@ -3916,7 +3984,7 @@ public sealed class MatchService
             var attackerHasBlock = PlayerHasHookedEffect(ruleset, attacker, GameEventKind.BlockRoll, GameEventStage.BeforeResolve, SkillEffect.BothDownProtection);
             var defenderHasBlock = PlayerHasHookedEffect(ruleset, defender, GameEventKind.BlockRoll, GameEventStage.BeforeResolve, SkillEffect.BothDownProtection);
 
-            if (allowTeamReroll && CanUseTeamReroll(match, ruleset, attackerTeam))
+            if (!attackerHasBlock && allowTeamReroll && CanUseTeamReroll(match, ruleset, attackerTeam))
             {
                 return CreatePendingBlockReroll(match, attackerTeam, attacker, defenderTeam, defender, strength, rolls, roll, preventFollowUp, resultDescription: "both down");
             }
@@ -5689,6 +5757,95 @@ public sealed class MatchService
 
         var baseMatch = pending.Context.MatchBeforeRoll with { PendingReroll = null };
         var player = FindTeamPlayer(team, pending.PlayerId);
+        if (pending.Kind == PendingRerollKind.Pass)
+        {
+            if (!useTeamReroll && string.IsNullOrWhiteSpace(skillId))
+            {
+                return PassBallCore(
+                    baseMatch,
+                    ruleset,
+                    team,
+                    player.Id,
+                    pending.Context.Destination,
+                    opposingTeam,
+                    usePassSkillReroll: false,
+                    pending.Context.UseCloudBurster,
+                    pending.Context.IsDumpOff,
+                    pending.Context.IsHailMary,
+                    forcedPassRoll: pending.Roll);
+            }
+
+            if (useTeamReroll &&
+                SkillHookResolver.PlayerHasHookedEffect(ruleset, player, GameEventKind.PassRoll, GameEventStage.AfterRoll, SkillEffect.Loner))
+            {
+                var lonerRoll = _dice.RollD6();
+                if (lonerRoll < 4)
+                {
+                    var failedLonerMatch = baseMatch with
+                    {
+                        Log =
+                        [
+                            .. baseMatch.Log,
+                            new MatchLogEntry { Message = $"{player.Name} checks Loner: rolled {lonerRoll} vs 4+, team reroll cannot be used." }
+                        ]
+                    };
+
+                    return PassBallCore(
+                        failedLonerMatch,
+                        ruleset,
+                        team,
+                        player.Id,
+                        pending.Context.Destination,
+                        opposingTeam,
+                        usePassSkillReroll: false,
+                        pending.Context.UseCloudBurster,
+                        pending.Context.IsDumpOff,
+                        pending.Context.IsHailMary,
+                        forcedPassRoll: pending.Roll);
+                }
+
+                baseMatch = baseMatch with
+                {
+                    Log =
+                    [
+                        .. baseMatch.Log,
+                        new MatchLogEntry { Message = $"{player.Name} checks Loner: rolled {lonerRoll} vs 4+, team reroll may be used." }
+                    ]
+                };
+            }
+
+            var passRerolledMatch = useTeamReroll
+                ? SpendTeamReroll(baseMatch, ruleset, team)
+                : baseMatch;
+            var passReroll = _dice.RollD6();
+            passRerolledMatch = passRerolledMatch with
+            {
+                Log =
+                [
+                    .. passRerolledMatch.Log,
+                    new MatchLogEntry
+                    {
+                        Message = useTeamReroll
+                            ? $"{team.Name} uses a team reroll: pass rerolled from {pending.Roll} to {passReroll} vs {pending.Target}+."
+                            : $"{player.Name} uses {skillId}: pass rerolled from {pending.Roll} to {passReroll} vs {pending.Target}+."
+                    }
+                ]
+            };
+
+            return PassBallCore(
+                passRerolledMatch,
+                ruleset,
+                team,
+                player.Id,
+                pending.Context.Destination,
+                opposingTeam,
+                usePassSkillReroll: false,
+                pending.Context.UseCloudBurster,
+                pending.Context.IsDumpOff,
+                pending.Context.IsHailMary,
+                forcedPassRoll: passReroll);
+        }
+
         if (!useTeamReroll && string.IsNullOrWhiteSpace(skillId))
         {
             return ResolveDeclinedMovementReroll(baseMatch, ruleset, team, player, pending);
@@ -6546,6 +6703,57 @@ public sealed class MatchService
         return cheerleaders ? match.AwayCheerleaders : match.AwayAssistantCoaches;
     }
 
+    private MatchState CreatePendingPassReroll(
+        MatchState match,
+        Ruleset ruleset,
+        LeagueTeam team,
+        Player player,
+        int roll,
+        int target,
+        PitchSquare targetSquare,
+        LeagueTeam? defendingTeam,
+        bool useCloudBurster,
+        bool isDumpOff,
+        bool isHailMary)
+    {
+        var skillRerolls = AvailableSkillRerolls(ruleset, player, PendingRerollKind.Pass);
+        if (!CanUseTeamReroll(match, ruleset, team) && skillRerolls.Count == 0)
+        {
+            return PassBallCore(match, ruleset, team, player.Id, targetSquare, defendingTeam, usePassSkillReroll: false, useCloudBurster, isDumpOff, isHailMary, forcedPassRoll: roll);
+        }
+
+        return match with
+        {
+            PendingReroll = new PendingRerollChoice
+            {
+                TeamId = team.Id,
+                PlayerId = player.Id,
+                Kind = PendingRerollKind.Pass,
+                Roll = roll,
+                Target = target,
+                TeamRerollAvailable = CanUseTeamReroll(match, ruleset, team),
+                SkillRerollIds = skillRerolls,
+                Context = new PendingRerollContext
+                {
+                    MatchBeforeRoll = match,
+                    Action = PlayerTurnAction.Pass,
+                    Destination = targetSquare,
+                    Path = [],
+                    StepIndex = 0,
+                    MovementAllowance = 0,
+                    UseCloudBurster = useCloudBurster,
+                    IsDumpOff = isDumpOff,
+                    IsHailMary = isHailMary
+                }
+            },
+            Log =
+            [
+                .. match.Log,
+                new MatchLogEntry { Message = $"{player.Name} failed pass on {roll} vs {target}+. Choose whether to reroll." }
+            ]
+        };
+    }
+
     private static IReadOnlyList<string> AvailableSkillRerolls(Ruleset ruleset, Player player, PendingRerollKind kind)
     {
         var (eventKind, effect) = kind switch
@@ -6553,6 +6761,7 @@ public sealed class MatchService
             PendingRerollKind.Dodge => (GameEventKind.DodgeRoll, SkillEffect.DodgeReroll),
             PendingRerollKind.Pickup => (GameEventKind.PickupRoll, SkillEffect.PickupReroll),
             PendingRerollKind.GoForIt => (GameEventKind.GoForItRoll, SkillEffect.GoForItReroll),
+            PendingRerollKind.Pass => (GameEventKind.PassRoll, SkillEffect.PassReroll),
             _ => throw new InvalidOperationException("Unknown reroll kind.")
         };
 
@@ -6673,6 +6882,7 @@ public sealed class MatchService
             PendingRerollKind.Dodge => GameEventKind.DodgeRoll,
             PendingRerollKind.Pickup => GameEventKind.PickupRoll,
             PendingRerollKind.GoForIt => GameEventKind.GoForItRoll,
+            PendingRerollKind.Pass => GameEventKind.PassRoll,
             _ => throw new InvalidOperationException("Unknown reroll kind.")
         };
     }
@@ -7680,12 +7890,13 @@ public sealed class MatchService
             : $"catch roll {attempt.Roll} vs {target}+";
     }
 
-    private PassAttempt RollPass(Ruleset ruleset, Player player, int target, bool usePassSkillReroll)
+    private PassAttempt RollPass(Ruleset ruleset, Player player, int target, bool usePassSkillReroll, int? forcedRoll = null)
     {
-        var roll = _dice.RollD6();
+        var roll = forcedRoll ?? _dice.RollD6();
         int? reroll = null;
         var finalRoll = roll;
-        if (usePassSkillReroll &&
+        if (forcedRoll is null &&
+            usePassSkillReroll &&
             !RollSucceeds(roll, target, ruleset.Dice) &&
             PlayerHasHookedEffect(ruleset, player, GameEventKind.PassRoll, GameEventStage.AfterRoll, SkillEffect.PassReroll))
         {
@@ -7993,14 +8204,47 @@ public sealed class MatchService
             : square.X >= ruleset.PitchWidth / 2;
     }
 
-    private static Player? FindTouchbackReceiver(MatchState match, LeagueTeam receivingTeam)
+    private static MatchState CreatePendingTouchback(MatchState match, LeagueTeam receivingTeam, IReadOnlyList<MatchLogEntry> log)
     {
-        return receivingTeam.Players.FirstOrDefault(player =>
+        var legalSquares = TouchbackReceiverSquares(match, receivingTeam);
+        if (legalSquares.Length == 0)
+        {
+            throw new InvalidOperationException("Receiving team has no standing player for touchback.");
+        }
+
+        var pendingPlayer = receivingTeam.Players.First(player =>
             match.Placements.Any(placement =>
                 placement.PlayerId == player.Id &&
                 placement.TeamId == receivingTeam.Id &&
                 placement.State == PlayerPitchState.Standing &&
                 placement.Square is not null));
+
+        return match with
+        {
+            Ball = new BallState(),
+            PendingBallPlacement = new PendingBallPlacementChoice
+            {
+                TeamId = receivingTeam.Id,
+                PlayerId = pendingPlayer.Id,
+                LegalSquares = legalSquares,
+                Reason = "Touchback"
+            },
+            PendingKickoffEvent = null,
+            Log = [.. match.Log, .. log]
+        };
+    }
+
+    private static PitchSquare[] TouchbackReceiverSquares(MatchState match, LeagueTeam receivingTeam)
+    {
+        return receivingTeam.Players
+            .Select(player => match.Placements.FirstOrDefault(placement =>
+                placement.PlayerId == player.Id &&
+                placement.TeamId == receivingTeam.Id &&
+                placement.State == PlayerPitchState.Standing &&
+                placement.Square is not null)?.Square)
+            .OfType<PitchSquare>()
+            .Distinct()
+            .ToArray();
     }
 
     private static bool IsOnPitch(Ruleset ruleset, PitchSquare square)

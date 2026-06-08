@@ -292,10 +292,6 @@ public partial class MatchScreen : VBoxContainer
         _doneButton.Pressed += async () => await CompleteCurrentStepAsync();
         footer.AddChild(_doneButton);
 
-        var backButton = ActionButton("Back");
-        backButton.Pressed += back;
-        footer.AddChild(backButton);
-
         RefreshRoster();
         RefreshPitch();
         CallDeferred(nameof(InitializePitchZoom));
@@ -2437,6 +2433,7 @@ public partial class MatchScreen : VBoxContainer
             _ when _match.PendingSendOff is PendingSendOffChoice pending => SendOffSummary(pending),
             _ when _match.PendingStandFirm is PendingStandFirmChoice pending => StandFirmSummary(pending),
             _ when _match.PendingDivingTackle is PendingDivingTackleChoice pending => DivingTackleSummary(pending),
+            _ when _match.PendingBallPlacement is PendingBallPlacementChoice { Reason: "Touchback" } => "Choose a receiving player to carry the touchback.",
             _ when _match.PendingBallPlacement is PendingBallPlacementChoice pending => $"Choose where {FindPlayer(pending.PlayerId)?.Name ?? "player"} places the ball with {pending.Reason}.",
             _ when _match.PendingBombThrow is PendingBombThrowChoice pending => BombThrowSummary(pending),
             _ when _match.PendingBlock is PendingBlockChoice pending => $"Choose block dice for {FindPlayer(pending.AttackerPlayerId)?.Name ?? "attacker"}'s block.",
