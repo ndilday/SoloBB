@@ -1301,6 +1301,29 @@ if (friendlyPassBounceResult.PendingReroll is not null)
 Assert(friendlyPassBounceResult.Phase == MatchPhase.OffensivePlayerTurn, "friendly catch on an inaccurate pass scatter should avoid turnover");
 Assert(friendlyPassBounceResult.Ball.CarrierPlayerId == passBounceReceiver.Id, "friendly player should be able to recover a scattered pass");
 
+// A dropped pass that bounces onto a standing opponent now lets that opponent attempt the catch.
+var opponentBounceCatcher = awayLeague.Teams[0].Players[2];
+var opponentBounceAwayTeam = awayLeague.Teams[0] with
+{
+    Players = awayLeague.Teams[0].Players
+        .Select(player => player.Id == opponentBounceCatcher.Id ? player with { Stats = player.Stats with { Agility = 2 } } : player)
+        .ToArray()
+};
+var opponentBounceMatch = passReadyMatch with
+{
+    Placements = passReadyMatch.Placements
+        .Select(placement => placement.PlayerId == opponentBounceCatcher.Id
+            ? placement with { Square = new PitchSquare(4, 2), State = PlayerPitchState.Standing }
+            : placement)
+        .ToArray()
+};
+var opponentBounceService = new MatchService(new FixedDiceRoller(d6: [2, 1, 1, 6], d8: [7]));
+opponentBounceService.RegisterTeams(loadedLeague.Teams[0], opponentBounceAwayTeam);
+var opponentBounceResult = opponentBounceService.PassBall(opponentBounceMatch, ruleset, loadedLeague.Teams[0], passerPlayer.Id, passReceiver.Id);
+
+Assert(opponentBounceResult.Ball.CarrierPlayerId == opponentBounceCatcher.Id, "a dropped pass that bounces onto a standing opponent should let them catch it");
+Assert(opponentBounceResult.Phase == MatchPhase.DefensiveTurn, "an opponent catching a dropped pass should be a turnover");
+
 var interceptionMatch = passReadyMatch with
 {
     Placements = passReadyMatch.Placements
@@ -2454,6 +2477,75 @@ Assert(failedGoForItMatch.PendingBlock is null && failedGoForItMatch.PendingPush
 Assert(failedGoForItPlayer.State == PlayerPitchState.Casualty, "failed go-for-it injury roll of 10+ should injure the player");
 Assert(failedGoForItMatch.Ball.CarrierPlayerId is null, "failed ball carrier go-for-it should drop the ball");
 Assert(failedGoForItMatch.Ball.Square == new PitchSquare(8, 0), "failed ball carrier go-for-it should scatter the ball");
+
+// A loose ball that scatters onto a Standing opponent must force a catch attempt rather than
+// silently resting on top of the player (which previously hid the catcher under the ball).
+var bounceCatcher = awayLeague.Teams[0].Players[1];
+var bounceCatchAwayTeam = awayLeague.Teams[0] with
+{
+    Players = awayLeague.Teams[0].Players
+        .Select(player => player.Id == bounceCatcher.Id ? player with { Stats = player.Stats with { Agility = 2 } } : player)
+        .ToArray()
+};
+var bounceCatchMatch = offensiveTurnMatch with
+{
+    Ball = new BallState { CarrierPlayerId = playerToPlace.Id },
+    Placements = offensiveTurnMatch.Placements
+        .Select(placement => placement.PlayerId == bounceCatcher.Id
+            ? placement with { Square = new PitchSquare(8, 0), State = PlayerPitchState.Standing }
+            : placement)
+        .ToArray()
+};
+var bounceCatchService = new MatchService(new FixedDiceRoller(d6: [1, 6, 6, 6, 6, 6], d8: [5]));
+bounceCatchService.RegisterTeams(loadedLeague.Teams[0], bounceCatchAwayTeam);
+var bounceCatchPending = bounceCatchService.MovePlayer(
+    bounceCatchMatch,
+    ruleset,
+    loadedLeague.Teams[0],
+    playerToPlace.Id,
+    new(7, 0));
+var bounceCatchResult = bounceCatchService.ResolvePendingReroll(bounceCatchPending, ruleset, loadedLeague.Teams[0], useTeamReroll: false);
+
+Assert(bounceCatchResult.Ball.CarrierPlayerId == bounceCatcher.Id, "a ball scattering onto a standing opponent should trigger a catch attempt instead of resting on them");
+Assert(bounceCatchResult.Ball.Square is null, "a caught scattered ball must not also be left resting on a square");
+
+// A missed catch keeps the ball bouncing until it reaches a square no standing player holds,
+// so it never comes to rest sharing a square with a player.
+var bounceMissService = new MatchService(new FixedDiceRoller(d6: [1, 6, 6, 6, 6, 1], d8: [5, 5]));
+bounceMissService.RegisterTeams(loadedLeague.Teams[0], bounceCatchAwayTeam);
+var bounceMissPending = bounceMissService.MovePlayer(
+    bounceCatchMatch,
+    ruleset,
+    loadedLeague.Teams[0],
+    playerToPlace.Id,
+    new(7, 0));
+var bounceMissResult = bounceMissService.ResolvePendingReroll(bounceMissPending, ruleset, loadedLeague.Teams[0], useTeamReroll: false);
+
+Assert(bounceMissResult.Ball.CarrierPlayerId is null, "a missed catch on a scattered ball should leave the ball loose, not carried");
+Assert(bounceMissResult.Ball.Square == new PitchSquare(9, 0), "a missed catch should bounce the ball on past the player to the next empty square");
+
+// A prone/stunned player cannot catch, and the ball cannot rest on them either: it bounces on.
+var proneBounceMatch = offensiveTurnMatch with
+{
+    Ball = new BallState { CarrierPlayerId = playerToPlace.Id },
+    Placements = offensiveTurnMatch.Placements
+        .Select(placement => placement.PlayerId == bounceCatcher.Id
+            ? placement with { Square = new PitchSquare(8, 0), State = PlayerPitchState.Prone }
+            : placement)
+        .ToArray()
+};
+var proneBounceService = new MatchService(new FixedDiceRoller(d6: [1, 6, 6, 6, 6], d8: [5, 5]));
+proneBounceService.RegisterTeams(loadedLeague.Teams[0], awayLeague.Teams[0]);
+var proneBouncePending = proneBounceService.MovePlayer(
+    proneBounceMatch,
+    ruleset,
+    loadedLeague.Teams[0],
+    playerToPlace.Id,
+    new(7, 0));
+var proneBounceResult = proneBounceService.ResolvePendingReroll(proneBouncePending, ruleset, loadedLeague.Teams[0], useTeamReroll: false);
+
+Assert(proneBounceResult.Ball.CarrierPlayerId is null, "a prone player cannot catch a loose ball");
+Assert(proneBounceResult.Ball.Square == new PitchSquare(9, 0), "a loose ball scattering onto a prone player should bounce on to the next empty square, not rest on them");
 
 var dodgeReadyMatch = offensiveTurnMatch with
 {

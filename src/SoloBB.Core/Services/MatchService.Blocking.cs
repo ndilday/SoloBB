@@ -794,8 +794,8 @@ public sealed partial class MatchService
                 {
                     var dropSquare = ball.CarrierPlayerId == attacker.Id ? attackerPlacement.Square! : defenderPlacement.Square!;
                     var scatterSquare = ScatterFrom(ruleset, dropSquare);
-                    var landing = ResolveLooseBallLanding(ruleset, scatterSquare);
-                    ball = new BallState { Square = landing.Square };
+                    var landing = ResolveLooseBall(match, ruleset, scatterSquare);
+                    ball = landing.Ball;
                     wrestleLog.Add(new MatchLogEntry { Message = $"Ball scatters to {scatterSquare.X},{scatterSquare.Y}." });
                     wrestleLog.AddRange(landing.Log);
                 }
@@ -1430,8 +1430,8 @@ public sealed partial class MatchService
             else
             {
                 var scatterSquare = ScatterFrom(ruleset, square);
-                var landing = ResolveLooseBallLanding(ruleset, scatterSquare);
-                nextMatch = nextMatch with { Ball = new BallState { Square = landing.Square } };
+                var landing = ResolveLooseBall(nextMatch, ruleset, scatterSquare);
+                nextMatch = nextMatch with { Ball = landing.Ball };
                 log.AddRange(landing.Log.Prepend(new MatchLogEntry { Message = $"Ball scatters to {scatterSquare.X},{scatterSquare.Y}." }));
             }
         }
@@ -1511,8 +1511,8 @@ public sealed partial class MatchService
             else
             {
                 var scatterSquare = ScatterFrom(ruleset, destination);
-                var landing = ResolveLooseBallLanding(ruleset, scatterSquare);
-                ball = new BallState { Square = landing.Square };
+                var landing = ResolveLooseBall(match, ruleset, scatterSquare);
+                ball = landing.Ball;
                 log.Add(new MatchLogEntry { Message = stripBall && !knockDown ? $"Strip Ball knocks the ball loose to {scatterSquare.X},{scatterSquare.Y}." : $"Ball scatters to {scatterSquare.X},{scatterSquare.Y}." });
                 log.AddRange(landing.Log);
             }
@@ -1520,8 +1520,8 @@ public sealed partial class MatchService
         else if (ball.CarrierPlayerId is null && ball.Square == destination)
         {
             var scatterSquare = ScatterFrom(ruleset, destination);
-            var landing = ResolveLooseBallLanding(ruleset, scatterSquare);
-            ball = new BallState { Square = landing.Square };
+            var landing = ResolveLooseBall(match, ruleset, scatterSquare);
+            ball = landing.Ball;
             log.Add(new MatchLogEntry { Message = $"Ball is pushed from {destination.X},{destination.Y} to {scatterSquare.X},{scatterSquare.Y}." });
             log.AddRange(landing.Log);
         }
@@ -1622,8 +1622,8 @@ public sealed partial class MatchService
         if (ball.CarrierPlayerId == placement.PlayerId && placement.Square is PitchSquare square)
         {
             var scatterSquare = ScatterFrom(ruleset, square);
-            var landing = ResolveLooseBallLanding(ruleset, scatterSquare);
-            ball = new BallState { Square = landing.Square };
+            var landing = ResolveLooseBall(match, ruleset, scatterSquare);
+            ball = landing.Ball;
             log.Add(new MatchLogEntry { Message = $"Ball scatters in from the crowd to {scatterSquare.X},{scatterSquare.Y}." });
             log.AddRange(landing.Log);
         }

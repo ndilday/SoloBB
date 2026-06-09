@@ -167,9 +167,14 @@ public partial class MatchScreen : VBoxContainer
         }
         else if (_match.Ball.Square is PitchSquare ballSquare && _pitchTiles.TryGetValue(ballSquare, out var ballTile))
         {
-            ballTile.SetOverlay(BallSprite(0));
+            // A loose ball can rest on a square occupied by a player. Use the small held-ball
+            // frame there so the player underneath stays visible; the full-tile frame would hide them.
+            var occupant = _match.Placements.FirstOrDefault(placement => placement.Square == ballSquare);
+            ballTile.SetOverlay(BallSprite(occupant is null ? 0 : 4));
             ballTile.Text = "";
-            ballTile.TooltipText = "Ball";
+            ballTile.TooltipText = occupant is null
+                ? "Ball"
+                : $"Loose ball on {FindPlayer(occupant.PlayerId)?.Name ?? "player"}";
         }
 
         if (_animationBallSquare is null &&
@@ -297,6 +302,11 @@ public partial class MatchScreen : VBoxContainer
             return "Pass Preview";
         }
 
+        if (_previewHandOffReceiverId is not null)
+        {
+            return "Hand-off Preview";
+        }
+
         if (_throwTeamMateMode || _kickTeamMateMode)
         {
             return _kickTeamMateMode ? "Kick Team-Mate" : "Throw Team-Mate";
@@ -335,8 +345,11 @@ public partial class MatchScreen : VBoxContainer
             MatchPhase.OffensivePlayerTurn or MatchPhase.DefensiveTurn when _previewBlitzDefenderId is Guid blitzDefenderId => BlitzPreviewSummary(blitzDefenderId),
             MatchPhase.OffensivePlayerTurn or MatchPhase.DefensiveTurn when _previewFoulVictimId is Guid victimId => FoulPreviewSummary(victimId),
             MatchPhase.OffensivePlayerTurn or MatchPhase.DefensiveTurn when _previewPassTargetSquare is PitchSquare passTargetSquare => PassPreviewSummary(passTargetSquare),
+            MatchPhase.OffensivePlayerTurn or MatchPhase.DefensiveTurn when _previewHandOffReceiverId is Guid handOffReceiver => $"Right-click {FindPlayer(handOffReceiver)?.Name ?? "team-mate"} again to confirm the hand-off.",
             MatchPhase.OffensivePlayerTurn or MatchPhase.DefensiveTurn when _throwTeamMateMode || _kickTeamMateMode => LaunchPreviewSummary(),
             MatchPhase.OffensivePlayerTurn or MatchPhase.DefensiveTurn when _previewDestination is not null => $"Click {_previewDestination.X + 1},{_previewDestination.Y + 1} again to confirm movement.",
+            MatchPhase.OffensivePlayerTurn or MatchPhase.DefensiveTurn when _passMode => "Right-click a team-mate or target square to aim the pass, then right-click again to confirm.",
+            MatchPhase.OffensivePlayerTurn or MatchPhase.DefensiveTurn when _handOffMode => "Right-click an adjacent team-mate to aim the hand-off, then right-click again to confirm.",
             MatchPhase.OffensivePlayerTurn or MatchPhase.DefensiveTurn => $"{activeTeam.Name}: choose a ready player or continue the turn.",
             _ => $"{activeTeam.Name}: resolve {_match.Phase}."
         };

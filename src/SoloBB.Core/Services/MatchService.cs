@@ -6,8 +6,14 @@ public sealed partial class MatchService
 {
     private const int MaxGoForItsPerActivation = 3;
     private const int SprintGoForItsPerActivation = 4;
+
+    // Safety cap so a loose ball that keeps scattering onto players (or back in off throw-ins)
+    // can never recurse forever; once hit the ball simply comes to rest.
+    private const int MaxLooseBallBounces = 32;
+
     private readonly IDiceRoller _dice;
     private Dictionary<Guid, string> _playerNames = [];
+    private Dictionary<Guid, LeagueTeam> _teamsById = [];
 
     public MatchService(IDiceRoller? dice = null)
     {
@@ -27,9 +33,17 @@ public sealed record DiceRoll2D6(int First, int Second)
 
 public sealed record BallLanding(PitchSquare Square, IReadOnlyList<MatchLogEntry> Log);
 
+/// <summary>
+/// Outcome of a loose ball coming to rest: either a resting <see cref="Ball"/> square or a
+/// player who caught it as it bounced, plus the bounce/catch log to append at the call site.
+/// </summary>
+sealed record LooseBallResolution(BallState Ball, IReadOnlyList<MatchLogEntry> Log);
+
 sealed record InjuryResolution(PlayerPitchState State, CasualtyRoll? Casualty = null);
 
 sealed record CatchAttempt(int Roll, int? Reroll, bool Success);
+
+sealed record CatchResolution(CatchAttempt Attempt, int Target, int TackleZones);
 
 sealed record PassAttempt(int Roll, int? Reroll, int FinalRoll, bool Success, bool Fumbled, bool SafePassPreventedFumble);
 

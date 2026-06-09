@@ -1,3 +1,4 @@
+using System;
 using Godot;
 
 namespace SoloBB.Godot.Scripts.Screens;
@@ -14,6 +15,14 @@ public partial class PitchTileView : Button
     private readonly TextureRect _markingLayer;
     private readonly TextureRect _pieceLayer;
     private readonly TextureRect _overlayLayer;
+
+    /// <summary>
+    /// Raised when the tile is clicked, carrying the mouse button used. Unlike the
+    /// base <see cref="BaseButton.Pressed"/> signal this distinguishes left from right
+    /// clicks, which the match screen relies on to separate movement/selection (left)
+    /// from Pass / Hand-off targeting (right).
+    /// </summary>
+    public event Action<MouseButton>? Clicked;
 
     public PitchTileView()
     {
@@ -33,6 +42,21 @@ public partial class PitchTileView : Button
         AddChild(_markingLayer);
         AddChild(_pieceLayer);
         AddChild(_overlayLayer);
+    }
+
+    public override void _GuiInput(InputEvent @event)
+    {
+        if (Disabled)
+        {
+            return;
+        }
+
+        if (@event is InputEventMouseButton { Pressed: true } mouseButton &&
+            mouseButton.ButtonIndex is MouseButton.Left or MouseButton.Right)
+        {
+            Clicked?.Invoke(mouseButton.ButtonIndex);
+            AcceptEvent();
+        }
     }
 
     public void SetTile(Texture2D? texture) => _tileLayer.Texture = texture;

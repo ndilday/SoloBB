@@ -11,11 +11,19 @@ namespace SoloBB.Godot.Scripts.Screens;
 
 public partial class MatchScreen : VBoxContainer
 {
-    private async Task HandlePitchSquareAsync(PitchSquare square)
+    private async Task HandlePitchSquareAsync(PitchSquare square, MouseButton button)
     {
         ResetEndTurnConfirmation();
         try
         {
+            // Right-click is reserved for aiming and confirming Pass / Hand-off targets so that
+            // an ordinary left-click while a thrower is selected can never be mistaken for a throw.
+            if (button == MouseButton.Right)
+            {
+                await HandleTargetingClickAsync(square);
+                return;
+            }
+
             if (_match.PendingPush is not null)
             {
                 await ChoosePushSquareAsync(square);
@@ -64,14 +72,6 @@ public partial class MatchScreen : VBoxContainer
                 return;
             }
 
-            if (_passMode &&
-                _selectedPlayerId is Guid selectedPasserId &&
-                IsLegalPassTargetSquare(selectedPasserId, square))
-            {
-                await HandlePassTargetAsync(selectedPasserId, square, occupied?.TeamId == _match.ActiveTeamId ? occupied.PlayerId : null);
-                return;
-            }
-
             if (occupied is not null)
             {
                 if (_selectedPlayerId == occupied.PlayerId &&
@@ -94,18 +94,6 @@ public partial class MatchScreen : VBoxContainer
                     return;
                 }
 
-                if (_selectedPlayerId is Guid handOffCarrierId && IsHandingOff(handOffCarrierId) && IsLegalHandOffTarget(handOffCarrierId, occupied.PlayerId))
-                {
-                    await HandleHandOffTargetAsync(handOffCarrierId, occupied.PlayerId);
-                    return;
-                }
-
-                if (_selectedPlayerId is Guid passerId && IsLegalPassTarget(passerId, occupied.PlayerId))
-                {
-                    await HandlePassTargetAsync(passerId, square, occupied.PlayerId);
-                    return;
-                }
-
                 if (_selectedPlayerId is Guid foulerId && IsLegalFoulTarget(foulerId, occupied.PlayerId))
                 {
                     await HandleFoulTargetAsync(foulerId, occupied.PlayerId);
@@ -124,12 +112,6 @@ public partial class MatchScreen : VBoxContainer
 
             if (_match.Phase is MatchPhase.OffensivePlayerTurn or MatchPhase.DefensiveTurn)
             {
-                if (_passMode && IsLegalPassTargetSquare(playerId, square))
-                {
-                    await HandlePassTargetAsync(playerId, square, receiverId: null);
-                    return;
-                }
-
                 await HandleMovementSquareAsync(square, playerId);
                 return;
             }
@@ -181,9 +163,58 @@ public partial class MatchScreen : VBoxContainer
             return;
         }
 
+        // Starting a movement preview supersedes any in-progress Pass / Hand-off aim.
+        _previewPassReceiverId = null;
+        _previewPassTargetSquare = null;
+        _previewHandOffReceiverId = null;
         _previewDestination = square;
         _previewPath = BuildMovementPath(PlayerSquare(playerId)!, square);
         RefreshPitch();
+    }
+
+    /// <summary>
+    /// Handles a right-click on a pitch square. Right-click is reserved for declaring the target of
+    /// a Pass or Hand-off: the first click aims (sets a preview) and a second right-click on the same
+    /// target confirms it. Anything that is not a legal target is ignored except for a gentle nudge
+    /// when the selected player is actually in a Pass / Hand-off mode.
+    /// </summary>
+    private async Task HandleTargetingClickAsync(PitchSquare square)
+    {
+        if (_selectedPlayerId is not Guid actorId)
+        {
+            return;
+        }
+
+        var occupied = _match.Placements.FirstOrDefault(placement => placement.Square == square);
+        if (occupied is not null)
+        {
+            if (IsHandingOff(actorId) && IsLegalHandOffTarget(actorId, occupied.PlayerId))
+            {
+                await HandleHandOffTargetAsync(actorId, occupied.PlayerId);
+                return;
+            }
+
+            if (IsLegalPassTarget(actorId, occupied.PlayerId))
+            {
+                await HandlePassTargetAsync(actorId, square, occupied.PlayerId);
+                return;
+            }
+        }
+
+        if (_passMode && IsLegalPassTargetSquare(actorId, square))
+        {
+            await HandlePassTargetAsync(actorId, square, occupied?.TeamId == _match.ActiveTeamId ? occupied.PlayerId : null);
+            return;
+        }
+
+        if (_passMode)
+        {
+            _summaryLabel.Text = "Right-click a legal pass target (team-mate or square) to aim, then right-click again to confirm.";
+        }
+        else if (IsHandingOff(actorId))
+        {
+            _summaryLabel.Text = "Right-click an adjacent standing team-mate to aim the hand-off, then right-click again to confirm.";
+        }
     }
 
     private async Task HandlePendingKickoffEventSquareAsync(PitchSquare square)
@@ -558,6 +589,7 @@ public partial class MatchScreen : VBoxContainer
 
         _previewPassReceiverId = receiverId;
         _previewPassTargetSquare = targetSquare;
+        _previewHandOffReceiverId = null;
         _previewBlockDefenderId = null;
         _previewFoulVictimId = null;
         _previewDestination = null;
@@ -589,9 +621,29 @@ public partial class MatchScreen : VBoxContainer
 
     private async Task HandleHandOffTargetAsync(Guid carrierId, Guid receiverId)
     {
+        if (_previewHandOffReceiverId == receiverId)
+        {
+            await ConfirmHandOffAsync(carrierId, receiverId);
+            return;
+        }
+
+        _previewHandOffReceiverId = receiverId;
+        _previewPassReceiverId = null;
+        _previewPassTargetSquare = null;
+        _previewBlockDefenderId = null;
+        _previewFoulVictimId = null;
+        _previewDestination = null;
+        _previewPath = [];
+        RefreshRoster();
+        RefreshPitch();
+    }
+
+    private async Task ConfirmHandOffAsync(Guid carrierId, Guid receiverId)
+    {
         var beforeMatch = _match;
         var logStart = _match.Log.Count;
         var activeTeamBeforeHandOff = _match.ActiveTeamId;
+        _previewHandOffReceiverId = null;
         try
         {
             var service = CreateMatchService();

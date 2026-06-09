@@ -900,14 +900,14 @@ public partial class MatchScreen : VBoxContainer
         var preview = ResolvePassPreview(targetSquare);
         if (preview is null)
         {
-            return $"Click {targetName} again to confirm the pass.";
+            return $"Right-click {targetName} again to confirm the pass.";
         }
 
         var interceptionText = preview.EligibleInterceptorPlayerIds.Count == 0
             ? "no eligible interceptors"
             : $"{preview.EligibleInterceptorPlayerIds.Count} eligible interceptor{(preview.EligibleInterceptorPlayerIds.Count == 1 ? "" : "s")}";
         var catchText = preview.CatchTarget is int catchTarget ? $", catch {catchTarget}+" : ", no catch target";
-        return $"Pass preview: {preview.RangeName} pass {preview.PassTarget}+{catchText}, {interceptionText}. Click {targetName} again to throw.";
+        return $"Pass preview: {preview.RangeName} pass {preview.PassTarget}+{catchText}, {interceptionText}. Right-click {targetName} again to throw.";
     }
 
     private string PassSquareTooltip(PitchSquare targetSquare)
@@ -1380,6 +1380,7 @@ public partial class MatchScreen : VBoxContainer
         _previewFoulVictimId = null;
         _previewPassReceiverId = null;
         _previewPassTargetSquare = null;
+        _previewHandOffReceiverId = null;
         _previewLaunchedPlayerId = null;
         _previewLaunchTargetSquare = null;
     }

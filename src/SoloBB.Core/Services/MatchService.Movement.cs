@@ -611,8 +611,8 @@ public sealed partial class MatchService
         if (ball.CarrierPlayerId == player.Id)
         {
             var scatterSquare = ScatterFrom(ruleset, destination);
-            var landing = ResolveLooseBallLanding(ruleset, scatterSquare);
-            ball = new BallState { Square = landing.Square };
+            var landing = ResolveLooseBall(match, ruleset, scatterSquare);
+            ball = landing.Ball;
             log.Add(new MatchLogEntry { Message = $"Ball scatters to {scatterSquare.X},{scatterSquare.Y}." });
             log.AddRange(landing.Log);
         }
@@ -662,8 +662,8 @@ public sealed partial class MatchService
         if (ball.CarrierPlayerId == player.Id)
         {
             var scatterSquare = ScatterFrom(ruleset, destination);
-            var landing = ResolveLooseBallLanding(ruleset, scatterSquare);
-            ball = new BallState { Square = landing.Square };
+            var landing = ResolveLooseBall(match, ruleset, scatterSquare);
+            ball = landing.Ball;
             log.Add(new MatchLogEntry { Message = $"Ball scatters to {scatterSquare.X},{scatterSquare.Y}." });
             log.AddRange(landing.Log);
         }

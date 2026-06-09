@@ -330,7 +330,7 @@ public partial class MatchScreen : VBoxContainer
                 var tile = new PitchTileView { TooltipText = $"{x + 1},{y + 1}" };
                 ClearPitchButtonChrome(tile);
                 tile.AddThemeFontSizeOverride("font_size", 10);
-                tile.Pressed += async () => await HandlePitchSquareAsync(square);
+                tile.Clicked += async button => await HandlePitchSquareAsync(square, button);
 
                 _pitchTiles[square] = tile;
                 _pitchGrid.AddChild(tile);

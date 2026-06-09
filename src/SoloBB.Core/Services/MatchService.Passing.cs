@@ -630,7 +630,7 @@ public sealed partial class MatchService
             : ApplyTurnover(droppedMatch, ruleset, team.Id);
     }
 
-    private MatchState BounceBall(MatchState match, Ruleset ruleset, LeagueTeam originalTeam, PitchSquare square, bool allowDivingCatch = true, LeagueTeam? opposingTeam = null)
+    private MatchState BounceBall(MatchState match, Ruleset ruleset, LeagueTeam originalTeam, PitchSquare square, bool allowDivingCatch = true, LeagueTeam? opposingTeam = null, int bounce = 0)
     {
         if (!IsOnPitch(ruleset, square))
         {
@@ -642,101 +642,138 @@ public sealed partial class MatchService
                     .. match.Log,
                     .. landing.Log
                 ]
-            }, ruleset, originalTeam, landing.Square, allowDivingCatch: true, opposingTeam);
+            }, ruleset, originalTeam, landing.Square, allowDivingCatch, opposingTeam, bounce + 1);
+        }
+
+        if (bounce >= MaxLooseBallBounces)
+        {
+            return match with { Ball = new BallState { Square = square } };
         }
 
         var receiverPlacement = match.Placements.FirstOrDefault(placement =>
             placement.Square == square &&
             placement.State == PlayerPitchState.Standing);
 
-        if (receiverPlacement is null)
+        if (receiverPlacement is not null)
         {
-            if (allowDivingCatch)
+            // Any Standing player on the square - team-mate or opponent - must try to catch it.
+            // Without the opponent's roster (some unit tests thread only one team) we cannot roll
+            // their catch, so the ball is left loose on them rather than guessed at.
+            if (CatchingTeam(receiverPlacement.TeamId, originalTeam, opposingTeam) is not LeagueTeam catcherTeam)
             {
-                var divingCatchPlacement = FindDivingCatchReceiver(match, ruleset, originalTeam, square);
-                if (divingCatchPlacement is not null)
-                {
-                    var divingReceiver = FindTeamPlayer(originalTeam, divingCatchPlacement.PlayerId);
-                    var divingTackleZones = PlayerHasHookedEffect(ruleset, divingReceiver, GameEventKind.CatchRoll, GameEventStage.ModifyTarget, SkillEffect.NervesOfSteel)
-                        ? 0
-                        : CountOpposingTackleZones(match, originalTeam.Id, divingReceiver.Id, square);
-                    var divingDisturbingPresence = DisturbingPresenceModifier(match, ruleset, opposingTeam, square);
-                    var divingTarget = CatchTarget(ruleset, divingReceiver, match.Weather, divingTackleZones, divingDisturbingPresence);
-                    var divingAttempt = RollCatch(ruleset, divingReceiver, divingTarget);
-                    var movedMatch = match with
-                    {
-                        Placements = match.Placements
-                            .Select(placement => placement.PlayerId == divingReceiver.Id
-                                ? placement with { Square = square }
-                                : placement)
-                            .ToArray()
-                    };
-
-                    if (divingAttempt.Success)
-                    {
-                        return movedMatch with
-                        {
-                            Ball = new BallState { CarrierPlayerId = divingReceiver.Id },
-                            Log =
-                            [
-                                .. movedMatch.Log,
-                                new MatchLogEntry { Message = $"{divingReceiver.Name} uses Diving Catch at {square.X},{square.Y}: {FormatCatchAttempt(divingAttempt, divingTarget)}, success." }
-                            ]
-                        };
-                    }
-
-                    var divingNextSquare = ScatterFrom(ruleset, square);
-                    return BounceBall(movedMatch with
-                    {
-                        Log =
-                        [
-                            .. movedMatch.Log,
-                            new MatchLogEntry { Message = $"{divingReceiver.Name} uses Diving Catch at {square.X},{square.Y}: {FormatCatchAttempt(divingAttempt, divingTarget)}, failed." }
-                        ]
-                    }, ruleset, originalTeam, divingNextSquare, opposingTeam: opposingTeam);
-                }
+                return match with { Ball = new BallState { Square = square } };
             }
 
-            return match with { Ball = new BallState { Square = square } };
-        }
+            var catcher = FindTeamPlayer(catcherTeam, receiverPlacement.PlayerId);
+            var catcherOpponents = receiverPlacement.TeamId == originalTeam.Id ? opposingTeam : originalTeam;
+            var catchResult = AttemptCatchAt(match, ruleset, catcher, receiverPlacement.TeamId, catcherOpponents, square);
 
-        if (receiverPlacement.TeamId != originalTeam.Id)
-        {
-            return match with { Ball = new BallState { Square = square } };
-        }
-
-        var receiver = FindTeamPlayer(originalTeam, receiverPlacement.PlayerId);
-        var receiverTackleZones = PlayerHasHookedEffect(ruleset, receiver, GameEventKind.CatchRoll, GameEventStage.ModifyTarget, SkillEffect.NervesOfSteel)
-            ? 0
-            : CountOpposingTackleZones(match, originalTeam.Id, receiver.Id, receiverPlacement.Square!);
-        var receiverDisturbingPresence = DisturbingPresenceModifier(match, ruleset, opposingTeam, receiverPlacement.Square!);
-        var target = CatchTarget(ruleset, receiver, match.Weather, receiverTackleZones, receiverDisturbingPresence);
-        var catchAttempt = RollCatch(ruleset, receiver, target);
-
-        if (catchAttempt.Success)
-        {
-            return match with
+            if (catchResult.Attempt.Success)
             {
-                Ball = new BallState { CarrierPlayerId = receiver.Id },
+                return match with
+                {
+                    Ball = new BallState { CarrierPlayerId = catcher.Id },
+                    Log =
+                    [
+                        .. match.Log,
+                        new MatchLogEntry { Message = $"{catcher.Name} catches the bouncing ball: {FormatCatchAttempt(catchResult.Attempt, catchResult.Target)}." }
+                    ]
+                };
+            }
+
+            var missSquare = ScatterFrom(ruleset, square);
+            return BounceBall(match with
+            {
                 Log =
                 [
                     .. match.Log,
-                    new MatchLogEntry { Message = $"{receiver.Name} catches the bouncing ball: {FormatCatchAttempt(catchAttempt, target)}." }
+                    new MatchLogEntry { Message = $"{catcher.Name} fails to catch the bouncing ball: {FormatCatchAttempt(catchResult.Attempt, catchResult.Target)}." }
                 ]
-            };
+            }, ruleset, originalTeam, missSquare, allowDivingCatch, opposingTeam, bounce + 1);
         }
 
-        var nextSquare = ScatterFrom(ruleset, square);
-        var nextMatch = match with
+        if (allowDivingCatch && FindDivingCatchReceiver(match, ruleset, originalTeam, square) is PlayerPlacement divingCatchPlacement)
         {
-            Log =
-            [
-                .. match.Log,
-                new MatchLogEntry { Message = $"{receiver.Name} fails to catch the bouncing ball: {FormatCatchAttempt(catchAttempt, target)}." }
-            ]
-        };
+            var divingReceiver = FindTeamPlayer(originalTeam, divingCatchPlacement.PlayerId);
+            var divingCatch = AttemptCatchAt(match, ruleset, divingReceiver, originalTeam.Id, opposingTeam, square);
+            var movedMatch = match with
+            {
+                Placements = match.Placements
+                    .Select(placement => placement.PlayerId == divingReceiver.Id
+                        ? placement with { Square = square }
+                        : placement)
+                    .ToArray()
+            };
 
-        return BounceBall(nextMatch, ruleset, originalTeam, nextSquare, opposingTeam: opposingTeam);
+            if (divingCatch.Attempt.Success)
+            {
+                return movedMatch with
+                {
+                    Ball = new BallState { CarrierPlayerId = divingReceiver.Id },
+                    Log =
+                    [
+                        .. movedMatch.Log,
+                        new MatchLogEntry { Message = $"{divingReceiver.Name} uses Diving Catch at {square.X},{square.Y}: {FormatCatchAttempt(divingCatch.Attempt, divingCatch.Target)}, success." }
+                    ]
+                };
+            }
+
+            var divingNextSquare = ScatterFrom(ruleset, square);
+            return BounceBall(movedMatch with
+            {
+                Log =
+                [
+                    .. movedMatch.Log,
+                    new MatchLogEntry { Message = $"{divingReceiver.Name} uses Diving Catch at {square.X},{square.Y}: {FormatCatchAttempt(divingCatch.Attempt, divingCatch.Target)}, failed." }
+                ]
+            }, ruleset, originalTeam, divingNextSquare, allowDivingCatch, opposingTeam, bounce + 1);
+        }
+
+        // No one can catch it here. The ball cannot settle on a Prone or Stunned player, so it keeps
+        // bouncing until it reaches a genuinely empty square.
+        if (match.Placements.Any(placement => PlacementOccupiesSquare(placement, square) && OccupiesPitch(placement.State)))
+        {
+            var clearedSquare = ScatterFrom(ruleset, square);
+            return BounceBall(match with
+            {
+                Log =
+                [
+                    .. match.Log,
+                    new MatchLogEntry { Message = $"Ball bounces off a downed player to {clearedSquare.X},{clearedSquare.Y}." }
+                ]
+            }, ruleset, originalTeam, clearedSquare, allowDivingCatch, opposingTeam, bounce + 1);
+        }
+
+        return match with { Ball = new BallState { Square = square } };
+    }
+
+    /// <summary>
+    /// Resolves the roster for whichever team a Standing catcher belongs to. The acting team is always
+    /// threaded in; the opposing roster comes from the threaded value when present and otherwise from
+    /// the registry, so an opponent who happens to be standing under a bouncing ball can still catch.
+    /// </summary>
+    private LeagueTeam? CatchingTeam(Guid teamId, LeagueTeam originalTeam, LeagueTeam? opposingTeam)
+    {
+        if (teamId == originalTeam.Id)
+        {
+            return originalTeam;
+        }
+
+        return opposingTeam is not null && opposingTeam.Id == teamId ? opposingTeam : RegisteredTeam(teamId);
+    }
+
+    /// <summary>
+    /// Rolls a catch for <paramref name="catcher"/> at <paramref name="square"/>, applying opposing
+    /// tackle zones (unless Nerves of Steel), Disturbing Presence, and weather to the target.
+    /// </summary>
+    private CatchResolution AttemptCatchAt(MatchState match, Ruleset ruleset, Player catcher, Guid catcherTeamId, LeagueTeam? disturbingPresenceTeam, PitchSquare square)
+    {
+        var tackleZones = PlayerHasHookedEffect(ruleset, catcher, GameEventKind.CatchRoll, GameEventStage.ModifyTarget, SkillEffect.NervesOfSteel)
+            ? 0
+            : CountOpposingTackleZones(match, catcherTeamId, catcher.Id, square);
+        var disturbingPresence = DisturbingPresenceModifier(match, ruleset, disturbingPresenceTeam, square);
+        var target = CatchTarget(ruleset, catcher, match.Weather, tackleZones, disturbingPresence);
+        return new CatchResolution(RollCatch(ruleset, catcher, target), target, tackleZones);
     }
 
     private MatchState ResolveBallLanding(MatchState match, Ruleset ruleset, LeagueTeam originalTeam, PitchSquare square, bool allowDivingCatch = true, LeagueTeam? opposingTeam = null)
@@ -744,15 +781,35 @@ public sealed partial class MatchService
         return BounceBall(match, ruleset, originalTeam, square, allowDivingCatch, opposingTeam);
     }
 
-    private BallLanding ResolveLooseBallLanding(Ruleset ruleset, PitchSquare square)
+    /// <summary>
+    /// Resolves where a ball that has just come loose finally settles. A ball that scatters onto
+    /// a square held by a Standing player (either team) forces that player to attempt a catch;
+    /// on a miss it bounces again, and a ball leaving the pitch is thrown back in. The ball only
+    /// comes to rest on a square that no Standing player can catch it from, so it never silently
+    /// shares a square with a player who could have caught it.
+    /// </summary>
+    private LooseBallResolution ResolveLooseBall(MatchState match, Ruleset ruleset, PitchSquare square)
     {
-        if (IsOnPitch(ruleset, square))
+        // Reuse the single bounce/catch loop used for passes and kick-offs (minus Diving Catch, which
+        // only applies to thrown or kicked balls). This needs both rosters to roll catches; if the
+        // teams were not registered (some unit tests) fall back to simply dropping the ball where it
+        // lands, throwing it back in if it left the pitch.
+        if (RegisteredTeam(match.HomeTeamId) is not LeagueTeam homeTeam || RegisteredTeam(match.AwayTeamId) is not LeagueTeam awayTeam)
         {
-            return new BallLanding(square, []);
+            if (!IsOnPitch(ruleset, square))
+            {
+                var throwIn = ResolveThrowIn(ruleset, square);
+                return new LooseBallResolution(new BallState { Square = throwIn.Square }, throwIn.Log);
+            }
+
+            return new LooseBallResolution(new BallState { Square = square }, []);
         }
 
-        return ResolveThrowIn(ruleset, square);
+        var resolved = BounceBall(match, ruleset, homeTeam, square, allowDivingCatch: false, opposingTeam: awayTeam);
+        return new LooseBallResolution(resolved.Ball, [.. resolved.Log.Skip(match.Log.Count)]);
     }
+
+    private LeagueTeam? RegisteredTeam(Guid teamId) => _teamsById.GetValueOrDefault(teamId);
 
     private BallLanding ResolveThrowIn(Ruleset ruleset, PitchSquare outOfBoundsSquare)
     {

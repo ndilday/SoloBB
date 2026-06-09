@@ -10,6 +10,11 @@ public sealed partial class MatchService
     {
         _playerNames = homeTeam.Players.Concat(awayTeam.Players)
             .ToDictionary(p => p.Id, p => p.Name);
+        _teamsById = new Dictionary<Guid, LeagueTeam>
+        {
+            [homeTeam.Id] = homeTeam,
+            [awayTeam.Id] = awayTeam
+        };
     }
 
     private string PlayerName(Guid playerId) =>

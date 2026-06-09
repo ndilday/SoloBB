@@ -67,6 +67,7 @@ public partial class MatchScreen : VBoxContainer
     private Guid? _previewFoulVictimId;
     private Guid? _previewPassReceiverId;
     private PitchSquare? _previewPassTargetSquare;
+    private Guid? _previewHandOffReceiverId;
     private Guid? _previewLaunchedPlayerId;
     private PitchSquare? _previewLaunchTargetSquare;
     private PitchSquare? _animationBallSquare;
