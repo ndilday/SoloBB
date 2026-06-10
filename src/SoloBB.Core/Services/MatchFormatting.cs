@@ -22,6 +22,14 @@ public static class MatchFormatting
         return kind switch
         {
             PendingRerollKind.GoForIt => "go-for-it",
+            PendingRerollKind.ThrowTeamMate => "throw team-mate",
+            PendingRerollKind.KickTeamMate => "kick team-mate",
+            PendingRerollKind.Landing => "landing",
+            PendingRerollKind.BombThrow => "bomb throw",
+            PendingRerollKind.BombCatch => "bomb catch",
+            PendingRerollKind.HypnoticGaze => "Hypnotic Gaze",
+            PendingRerollKind.JumpUp => "Jump Up",
+            PendingRerollKind.Dauntless => "Dauntless",
             _ => kind.ToString().ToLowerInvariant()
         };
     }

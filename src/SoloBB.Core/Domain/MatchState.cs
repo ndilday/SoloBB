@@ -318,7 +318,16 @@ public enum PendingRerollKind
     Dodge,
     GoForIt,
     Pickup,
-    Pass
+    Pass,
+    Catch,
+    ThrowTeamMate,
+    KickTeamMate,
+    Landing,
+    BombThrow,
+    BombCatch,
+    HypnoticGaze,
+    JumpUp,
+    Dauntless
 }
 
 public sealed record PendingRerollContext
@@ -336,6 +345,39 @@ public sealed record PendingRerollContext
     public bool UseCloudBurster { get; init; }
     public bool IsDumpOff { get; init; }
     public bool IsHailMary { get; init; }
+
+    // Catch reroll context: the player who threw/handed the ball, plus the original pass result so the
+    // catch can be re-resolved and logged after a reroll. Pass-range/roll/target are unused for hand-offs.
+    public CatchResumeKind CatchResume { get; init; }
+    public Guid? CatchPasserPlayerId { get; init; }
+    public string? CatchPassRangeName { get; init; }
+    public int CatchPassRoll { get; init; }
+    public int CatchPassTarget { get; init; }
+
+    // Bounce-catch reroll context: enough to re-enter the loose-ball bounce at the catch square and
+    // continue it with a forced roll once the reroll choice resolves. The team ids are reused by the
+    // bomb-catch reroll to carry the throwing/opposing teams.
+    public Guid? BounceOriginalTeamId { get; init; }
+    public Guid? BounceOpposingTeamId { get; init; }
+    public bool BounceAllowDivingCatch { get; init; }
+    public int BounceCount { get; init; }
+
+    // Shared re-entry context for the remaining single-roll reroll prompts (Throw/Kick Team-Mate,
+    // landing, bomb throw/catch, Hypnotic Gaze, Jump Up, Dauntless). Only the fields relevant to a
+    // given reroll kind are populated.
+    public Guid? SecondaryPlayerId { get; init; }
+    public string? LaunchKind { get; init; }
+    public int CollisionDepth { get; init; }
+    public bool BombThrownBack { get; init; }
+    public int DefenderStrengthBonus { get; init; }
+    public bool PreventFollowUp { get; init; }
+}
+
+public enum CatchResumeKind
+{
+    PassLanding,
+    HandOff,
+    Bounce
 }
 
 public sealed record PendingDivingTackleChoice

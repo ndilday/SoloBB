@@ -69,7 +69,7 @@ public partial class MatchScreen : VBoxContainer
             var canPlace = IsLegalPlacementTarget(square);
             var canTargetKickoff = IsLegalKickoffTarget(square);
             var canMove = _selectedPlayerId is Guid movingPlayerId && IsLegalMovementTarget(movingPlayerId, square);
-            var canPassSquare = _selectedPlayerId is Guid passingPlayerId && IsLegalPassTargetSquare(passingPlayerId, square);
+            var canPassSquare = _passMode && _selectedPlayerId is Guid passingPlayerId && IsLegalPassTargetSquare(passingPlayerId, square);
             var canPush = IsLegalPushSquare(square);
             var canFollowUp = IsLegalFollowUpSquare(square);
             var canPlaceBall = IsLegalBallPlacementSquare(square);
@@ -88,6 +88,7 @@ public partial class MatchScreen : VBoxContainer
             tile.SetMarking(PitchMarkingTexture(square));
             tile.SetPiece(null);
             tile.SetOverlay(null);
+            tile.SetStatus(null);
             tile.Disabled = !canPlace && !canTargetKickoff && !canMove && !canPassSquare && !canPush && !canFollowUp && !canPlaceBall && !canThrowBomb && !canLaunchTarget;
             tile.TooltipText = canLaunchTarget
                 ? LaunchSquareTooltip(square)
@@ -125,7 +126,7 @@ public partial class MatchScreen : VBoxContainer
                 ? ActivatedPieceModulate
                 : Colors.White;
             tile.SetPiece(player is null ? null : PlayerSprite(team, player, placement), pieceModulate);
-            tile.SetOverlay(placement.State == PlayerPitchState.Stunned ? StunnedSprite(0) : null);
+            tile.SetStatus(placement.State == PlayerPitchState.Stunned ? StunnedSprite(0) : null);
             if (isSelected)
             {
                 tile.SetHighlight(AtlasCell(_pitchTileSheet, "overlay:selected", 0, 3));
@@ -135,7 +136,7 @@ public partial class MatchScreen : VBoxContainer
             var canBlockTarget = _selectedPlayerId is Guid attackerId && IsLegalBlockTarget(attackerId, placement.PlayerId);
             var canBlitzTarget = _selectedPlayerId is Guid blitzerId && IsLegalBlitzTarget(blitzerId, placement.PlayerId);
             var canKickoffBlitzTarget = _selectedPlayerId is Guid kickoffBlitzerId && IsLegalKickoffBlitzTarget(kickoffBlitzerId, placement.PlayerId);
-            var canPassTarget = _selectedPlayerId is Guid passerId && IsLegalPassTarget(passerId, placement.PlayerId);
+            var canPassTarget = _passMode && _selectedPlayerId is Guid passerId && IsLegalPassTarget(passerId, placement.PlayerId);
             var canHandOffTarget = _selectedPlayerId is Guid handOffCarrierId && IsHandingOff(handOffCarrierId) && IsLegalHandOffTarget(handOffCarrierId, placement.PlayerId);
             var canFoulTarget = _selectedPlayerId is Guid foulerId && IsLegalFoulTarget(foulerId, placement.PlayerId);
             var canPushTarget = IsLegalPushSquare(placement.Square!);
@@ -769,7 +770,7 @@ public partial class MatchScreen : VBoxContainer
         }
 
         _blockDiceBox.Visible = true;
-        _blockDiceBox.AddChild(new Label { Text = "Block dice:" });
+        _blockDiceBox.AddChild(new Label { Text = pending.Rolls.Count > 1 ? "Block dice:" : "Block die:" });
         foreach (var roll in pending.Rolls)
         {
             var button = new Button
@@ -784,7 +785,9 @@ public partial class MatchScreen : VBoxContainer
             _blockDiceBox.AddChild(button);
         }
 
-        if (TeamRerollsRemaining(pending.AttackerTeamId) > 0)
+        // A single-die block keeps the existing reroll-on-bad-result prompt, so only offer the
+        // up-front "reroll all" button when there is more than one die to reroll.
+        if (pending.Rolls.Count > 1 && TeamRerollsRemaining(pending.AttackerTeamId) > 0)
         {
             var rerollButton = new Button { Text = $"Reroll ({TeamRerollsRemaining(pending.AttackerTeamId)})" };
             rerollButton.TooltipText = "Use a team reroll to reroll all block dice.";
@@ -807,7 +810,7 @@ public partial class MatchScreen : VBoxContainer
         }
 
         _setupChoiceBox.Visible = true;
-        var button = new Button { Text = "Return to Reserve" };
+        var button = ActionButton("Return to Reserve");
         button.TooltipText = "Remove the selected setup player from the pitch so another reserve player can be placed.";
         button.Pressed += async () => await ReturnSelectedSetupPlayerToReserveAsync();
         _setupChoiceBox.AddChild(button);

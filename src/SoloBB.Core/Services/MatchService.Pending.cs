@@ -123,6 +123,19 @@ public sealed partial class MatchService
                 forcedPassRoll: passReroll);
         }
 
+        if (pending.Kind is PendingRerollKind.Catch
+            or PendingRerollKind.ThrowTeamMate
+            or PendingRerollKind.KickTeamMate
+            or PendingRerollKind.Landing
+            or PendingRerollKind.BombThrow
+            or PendingRerollKind.BombCatch
+            or PendingRerollKind.HypnoticGaze
+            or PendingRerollKind.JumpUp
+            or PendingRerollKind.Dauntless)
+        {
+            return ResolveActionReroll(baseMatch, ruleset, team, opposingTeam, player, pending, useTeamReroll, skillId);
+        }
+
         if (!useTeamReroll && string.IsNullOrWhiteSpace(skillId))
         {
             return ResolveDeclinedMovementReroll(baseMatch, ruleset, team, player, pending);
@@ -209,6 +222,263 @@ public sealed partial class MatchService
 
         return ContinueMovementAfterRerollSuccess(rerolledMatch, ruleset, team, opposingTeam, player, pending, reroll);
     }
+
+    /// <summary>
+    /// Routes a single-roll reroll choice (catch, throw/kick team-mate, landing, bomb throw/catch,
+    /// Hypnotic Gaze, Jump Up, Dauntless) to the right re-entry continuation. Each continuation re-runs
+    /// only the rolled step with a forced value, never the action declaration, so activations and any
+    /// pre-roll consumable rolls are not repeated.
+    /// </summary>
+    private MatchState ResolveActionReroll(
+        MatchState baseMatch,
+        Ruleset ruleset,
+        LeagueTeam team,
+        LeagueTeam? opposingTeam,
+        Player player,
+        PendingRerollChoice pending,
+        bool useTeamReroll,
+        string? skillId)
+    {
+        var context = pending.Context;
+        var (eventKind, resolve) = pending.Kind switch
+        {
+            PendingRerollKind.Catch => (
+                GameEventKind.CatchRoll,
+                (Func<MatchState, int, MatchState>)((m, roll) => ResolveForcedCatch(m, ruleset, team, opposingTeam, player, context, roll))),
+            PendingRerollKind.HypnoticGaze => (
+                GameEventKind.SpecialAction,
+                (m, roll) => ResolveHypnoticGazeRoll(m, ruleset, team, player, opposingTeam!, context.SecondaryPlayerId!.Value, roll)),
+            PendingRerollKind.ThrowTeamMate or PendingRerollKind.KickTeamMate => (
+                GameEventKind.ThrowTeamMate,
+                (m, roll) => ResolveTeamMateThrow(m, ruleset, team, opposingTeam, player, FindTeamPlayer(team, context.SecondaryPlayerId!.Value), context.Destination, context.LaunchKind!, roll)),
+            PendingRerollKind.Landing => (
+                GameEventKind.SpecialAction,
+                (m, roll) => ResolveLaunchedPlayerLanding(m, ruleset, team, opposingTeam, player, context.Destination, context.LaunchKind!, context.CollisionDepth, roll)),
+            PendingRerollKind.BombThrow => (
+                GameEventKind.BombThrow,
+                (m, roll) => ResolveBombThrow(m, ruleset, team, opposingTeam!, player, context.Destination, context.BombThrownBack, roll)),
+            PendingRerollKind.BombCatch => (
+                GameEventKind.BombThrow,
+                (m, roll) => ResolveBombLanding(m, ruleset, ResolveBounceTeam(context.BounceOriginalTeamId!.Value, team, opposingTeam), ResolveBounceTeam(context.BounceOpposingTeamId!.Value, team, opposingTeam), context.Destination, roll)),
+            PendingRerollKind.JumpUp => (
+                GameEventKind.BlockRoll,
+                (m, roll) => ResolveJumpUpRoll(m, ruleset, team, opposingTeam!, player, context.SecondaryPlayerId!.Value, roll)),
+            PendingRerollKind.Dauntless => (
+                GameEventKind.BlockRoll,
+                (m, roll) => ResolveDauntlessRoll(m, ruleset, team, opposingTeam!, player, context.SecondaryPlayerId!.Value, context.DefenderStrengthBonus, context.PreventFollowUp, roll)),
+            _ => throw new InvalidOperationException($"Unsupported action reroll kind {pending.Kind}.")
+        };
+
+        return ResolveSimpleReroll(baseMatch, ruleset, team, player, pending, useTeamReroll, skillId, eventKind, resolve);
+    }
+
+    /// <summary>
+    /// Generic team/Pro reroll handler for single-roll choices. Applies the Loner check before a team
+    /// reroll, the Pro check for a Pro skill reroll, logs the outcome, and then re-runs the rolled step
+    /// via <paramref name="resolveWithForcedRoll"/> with either the original roll (declined) or the new
+    /// roll (rerolled).
+    /// </summary>
+    private MatchState ResolveSimpleReroll(
+        MatchState baseMatch,
+        Ruleset ruleset,
+        LeagueTeam team,
+        Player player,
+        PendingRerollChoice pending,
+        bool useTeamReroll,
+        string? skillId,
+        GameEventKind eventKind,
+        Func<MatchState, int, MatchState> resolveWithForcedRoll)
+    {
+        var label = FormatRerollKind(pending.Kind);
+        if (!useTeamReroll && string.IsNullOrWhiteSpace(skillId))
+        {
+            return resolveWithForcedRoll(baseMatch, pending.Roll);
+        }
+
+        if (useTeamReroll &&
+            SkillHookResolver.PlayerHasHookedEffect(ruleset, player, eventKind, GameEventStage.AfterRoll, SkillEffect.Loner))
+        {
+            var lonerRoll = _dice.RollD6();
+            if (lonerRoll < 4)
+            {
+                return resolveWithForcedRoll(
+                    baseMatch with
+                    {
+                        Log = [.. baseMatch.Log, new MatchLogEntry { Message = $"{player.Name} checks Loner: rolled {lonerRoll} vs 4+, team reroll cannot be used." }]
+                    },
+                    pending.Roll);
+            }
+
+            baseMatch = baseMatch with
+            {
+                Log = [.. baseMatch.Log, new MatchLogEntry { Message = $"{player.Name} checks Loner: rolled {lonerRoll} vs 4+, team reroll may be used." }]
+            };
+        }
+
+        var rerolledMatch = useTeamReroll
+            ? SpendTeamReroll(baseMatch, ruleset, team)
+            : baseMatch;
+
+        if (string.Equals(skillId, "pro", StringComparison.OrdinalIgnoreCase))
+        {
+            var proRoll = _dice.RollD6();
+            if (proRoll < 3)
+            {
+                return resolveWithForcedRoll(
+                    rerolledMatch with
+                    {
+                        Log = [.. rerolledMatch.Log, new MatchLogEntry { Message = $"{player.Name} attempts Pro: rolled {proRoll}, no reroll." }]
+                    },
+                    pending.Roll);
+            }
+
+            rerolledMatch = rerolledMatch with
+            {
+                Log = [.. rerolledMatch.Log, new MatchLogEntry { Message = $"{player.Name} attempts Pro: rolled {proRoll}, reroll available." }]
+            };
+        }
+
+        var reroll = _dice.RollD6();
+        rerolledMatch = rerolledMatch with
+        {
+            Log =
+            [
+                .. rerolledMatch.Log,
+                new MatchLogEntry
+                {
+                    Message = useTeamReroll
+                        ? $"{team.Name} uses a team reroll: {label} rerolled from {pending.Roll} to {reroll} vs {pending.Target}+."
+                        : $"{player.Name} uses {skillId}: {label} rerolled from {pending.Roll} to {reroll} vs {pending.Target}+."
+                }
+            ]
+        };
+
+        return resolveWithForcedRoll(rerolledMatch, reroll);
+    }
+
+    private static IReadOnlyList<string> AvailableProReroll(Ruleset ruleset, Player player, GameEventKind eventKind)
+    {
+        return SkillHookResolver.PlayerHasHookedEffect(ruleset, player, eventKind, GameEventStage.AfterRoll, SkillEffect.Pro)
+            ? ["pro"]
+            : [];
+    }
+
+    /// <summary>
+    /// True when the acting player may reroll a failed action roll: the team has a team reroll available
+    /// this turn, or the player has Pro hooked for the roll's event.
+    /// </summary>
+    private bool ActionRerollOffered(MatchState match, Ruleset ruleset, LeagueTeam team, Player player, GameEventKind eventKind)
+    {
+        return CanUseTeamReroll(match, ruleset, team) || AvailableProReroll(ruleset, player, eventKind).Count > 0;
+    }
+
+    private static PendingRerollContext ActionRerollContext(MatchState preRollMatch, PitchSquare destination)
+    {
+        return new PendingRerollContext
+        {
+            MatchBeforeRoll = preRollMatch,
+            Action = PlayerTurnAction.Special,
+            Destination = destination,
+            Path = [],
+            StepIndex = 0,
+            MovementAllowance = 0
+        };
+    }
+
+    private MatchState CreatePendingActionReroll(
+        MatchState preRollMatch,
+        Ruleset ruleset,
+        LeagueTeam team,
+        Player player,
+        PendingRerollKind kind,
+        GameEventKind eventKind,
+        int roll,
+        int target,
+        PendingRerollContext context,
+        string failMessage)
+    {
+        return preRollMatch with
+        {
+            PendingReroll = new PendingRerollChoice
+            {
+                TeamId = team.Id,
+                PlayerId = player.Id,
+                Kind = kind,
+                Roll = roll,
+                Target = target,
+                TeamRerollAvailable = CanUseTeamReroll(preRollMatch, ruleset, team),
+                SkillRerollIds = AvailableProReroll(ruleset, player, eventKind),
+                Context = context
+            },
+            Log = [.. preRollMatch.Log, new MatchLogEntry { Message = failMessage }]
+        };
+    }
+
+    private MatchState ResolveForcedCatch(
+        MatchState match,
+        Ruleset ruleset,
+        LeagueTeam team,
+        LeagueTeam? opposingTeam,
+        Player catcher,
+        PendingRerollContext context,
+        int catchRoll)
+    {
+        switch (context.CatchResume)
+        {
+            case CatchResumeKind.Bounce:
+                var bounceOriginal = ResolveBounceTeam(context.BounceOriginalTeamId!.Value, team, opposingTeam);
+                var bounceOpposing = context.BounceOpposingTeamId is Guid opposingId
+                    ? ResolveBounceTeam(opposingId, team, opposingTeam)
+                    : null;
+                return BounceBall(
+                    match,
+                    ruleset,
+                    bounceOriginal,
+                    context.Destination,
+                    context.BounceAllowDivingCatch,
+                    bounceOpposing,
+                    context.BounceCount,
+                    forcedCatchRoll: catchRoll);
+
+            case CatchResumeKind.HandOff:
+                var carrier = FindTeamPlayer(team, context.CatchPasserPlayerId!.Value);
+                var receiverPlacement = FindStandingPlacement(match, catcher.Id, team.Id, "receiver");
+                return ResolveHandOffCatch(match, ruleset, team, opposingTeam, carrier, catcher, receiverPlacement, catchRoll);
+
+            default:
+                var passer = FindTeamPlayer(team, context.CatchPasserPlayerId!.Value);
+                return ResolvePassLanding(
+                    match,
+                    ruleset,
+                    team,
+                    opposingTeam,
+                    passer,
+                    intendedReceiver: null,
+                    context.Destination,
+                    context.CatchPassRangeName!,
+                    context.CatchPassRoll,
+                    context.CatchPassTarget,
+                    catchRoll);
+        }
+    }
+
+    private LeagueTeam ResolveBounceTeam(Guid teamId, LeagueTeam team, LeagueTeam? opposingTeam)
+    {
+        if (RegisteredTeam(teamId) is LeagueTeam registered)
+        {
+            return registered;
+        }
+
+        if (team.Id == teamId)
+        {
+            return team;
+        }
+
+        return opposingTeam?.Id == teamId
+            ? opposingTeam
+            : throw new InvalidOperationException("Unable to resolve the team for a bounce-catch reroll.");
+    }
+
     public MatchState ResolvePendingDivingTackle(
         MatchState match,
         Ruleset ruleset,

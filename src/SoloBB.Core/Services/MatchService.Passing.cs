@@ -58,18 +58,51 @@ public sealed partial class MatchService
 
         // Handing off ends the carrier's activation regardless of whether the catch succeeds.
         var activatedMatch = CompleteActivation(handOffAction.Match, carrierPlayerId, team.Id);
+
+        return ResolveHandOffCatch(activatedMatch, ruleset, team, opposingTeam, carrier, receiver, receiverPlacement);
+    }
+
+    private MatchState ResolveHandOffCatch(
+        MatchState activatedMatch,
+        Ruleset ruleset,
+        LeagueTeam team,
+        LeagueTeam? opposingTeam,
+        Player carrier,
+        Player receiver,
+        PlayerPlacement receiverPlacement,
+        int? forcedCatchRoll = null)
+    {
         var handOffTackleZones = PlayerHasHookedEffect(ruleset, receiver, GameEventKind.CatchRoll, GameEventStage.ModifyTarget, SkillEffect.NervesOfSteel)
             ? 0
-            : CountOpposingTackleZones(match, team.Id, receiver.Id, receiverPlacement.Square!);
-        var disturbingPresence = DisturbingPresenceModifier(match, ruleset, opposingTeam, receiverPlacement.Square!);
-        var target = CatchTarget(ruleset, receiver, match.Weather, handOffTackleZones, disturbingPresence);
-        var catchAttempt = RollCatch(ruleset, receiver, target);
+            : CountOpposingTackleZones(activatedMatch, team.Id, receiver.Id, receiverPlacement.Square!);
+        var disturbingPresence = DisturbingPresenceModifier(activatedMatch, ruleset, opposingTeam, receiverPlacement.Square!);
+        var target = CatchTarget(ruleset, receiver, activatedMatch.Weather, handOffTackleZones, disturbingPresence);
+        var catchAttempt = RollCatch(ruleset, receiver, target, forcedCatchRoll);
+
+        if (forcedCatchRoll is null && !catchAttempt.Success && catchAttempt.Reroll is null &&
+            CatchRerollOffered(activatedMatch, ruleset, team, receiver))
+        {
+            return CreatePendingCatchReroll(
+                activatedMatch,
+                ruleset,
+                team,
+                receiver,
+                catchAttempt.Roll,
+                target,
+                CatchResumeKind.HandOff,
+                PlayerTurnAction.HandOff,
+                receiverPlacement.Square!,
+                carrier.Id,
+                passRangeName: null,
+                passRoll: 0,
+                passTarget: 0);
+        }
 
         if (catchAttempt.Success)
         {
             return activatedMatch with
             {
-                Ball = new BallState { CarrierPlayerId = receiverPlayerId },
+                Ball = new BallState { CarrierPlayerId = receiver.Id },
                 Log =
                 [
                     .. activatedMatch.Log,
@@ -570,7 +603,8 @@ public sealed partial class MatchService
         PitchSquare targetSquare,
         string passRangeName,
         int passRoll,
-        int passTarget)
+        int passTarget,
+        int? forcedCatchRoll = null)
     {
         var receiverPlacement = match.Placements.FirstOrDefault(placement =>
             placement.Square == targetSquare &&
@@ -597,7 +631,26 @@ public sealed partial class MatchService
             : CountOpposingTackleZones(match, team.Id, receiver.Id, receiverPlacement.Square!);
         var catchDisturbingPresence = DisturbingPresenceModifier(match, ruleset, opposingTeam, receiverPlacement.Square!);
         var catchTarget = CatchTarget(ruleset, receiver, match.Weather, catchTackleZones, catchDisturbingPresence);
-        var catchAttempt = RollCatch(ruleset, receiver, catchTarget);
+        var catchAttempt = RollCatch(ruleset, receiver, catchTarget, forcedCatchRoll);
+
+        if (forcedCatchRoll is null && !catchAttempt.Success && catchAttempt.Reroll is null &&
+            CatchRerollOffered(match, ruleset, team, receiver))
+        {
+            return CreatePendingCatchReroll(
+                match,
+                ruleset,
+                team,
+                receiver,
+                catchAttempt.Roll,
+                catchTarget,
+                CatchResumeKind.PassLanding,
+                PlayerTurnAction.Pass,
+                receiverPlacement.Square!,
+                passer.Id,
+                passRangeName,
+                passRoll,
+                passTarget);
+        }
 
         if (catchAttempt.Success)
         {
@@ -630,7 +683,7 @@ public sealed partial class MatchService
             : ApplyTurnover(droppedMatch, ruleset, team.Id);
     }
 
-    private MatchState BounceBall(MatchState match, Ruleset ruleset, LeagueTeam originalTeam, PitchSquare square, bool allowDivingCatch = true, LeagueTeam? opposingTeam = null, int bounce = 0)
+    private MatchState BounceBall(MatchState match, Ruleset ruleset, LeagueTeam originalTeam, PitchSquare square, bool allowDivingCatch = true, LeagueTeam? opposingTeam = null, int bounce = 0, int? forcedCatchRoll = null)
     {
         if (!IsOnPitch(ruleset, square))
         {
@@ -666,7 +719,7 @@ public sealed partial class MatchService
 
             var catcher = FindTeamPlayer(catcherTeam, receiverPlacement.PlayerId);
             var catcherOpponents = receiverPlacement.TeamId == originalTeam.Id ? opposingTeam : originalTeam;
-            var catchResult = AttemptCatchAt(match, ruleset, catcher, receiverPlacement.TeamId, catcherOpponents, square);
+            var catchResult = AttemptCatchAt(match, ruleset, catcher, receiverPlacement.TeamId, catcherOpponents, square, forcedCatchRoll);
 
             if (catchResult.Attempt.Success)
             {
@@ -679,6 +732,28 @@ public sealed partial class MatchService
                         new MatchLogEntry { Message = $"{catcher.Name} catches the bouncing ball: {FormatCatchAttempt(catchResult.Attempt, catchResult.Target)}." }
                     ]
                 };
+            }
+
+            // The catcher may spend a team reroll (or Pro) on the bounce catch, but only during their own
+            // team's turn - a player cannot use a team reroll on the opponent's turn. Skill rerolls already
+            // baked into the attempt (Catch/Monstrous Mouth) are not re-offered.
+            if (forcedCatchRoll is null && catchResult.Attempt.Reroll is null &&
+                catcherTeam.Id == match.ActiveTeamId &&
+                match.Phase is MatchPhase.OffensivePlayerTurn or MatchPhase.DefensiveTurn &&
+                CatchRerollOffered(match, ruleset, catcherTeam, catcher))
+            {
+                return CreatePendingBounceCatchReroll(
+                    match,
+                    ruleset,
+                    catcherTeam,
+                    catcher,
+                    catchResult.Attempt.Roll,
+                    catchResult.Target,
+                    square,
+                    originalTeam,
+                    opposingTeam,
+                    allowDivingCatch,
+                    bounce);
             }
 
             var missSquare = ScatterFrom(ruleset, square);
@@ -766,14 +841,61 @@ public sealed partial class MatchService
     /// Rolls a catch for <paramref name="catcher"/> at <paramref name="square"/>, applying opposing
     /// tackle zones (unless Nerves of Steel), Disturbing Presence, and weather to the target.
     /// </summary>
-    private CatchResolution AttemptCatchAt(MatchState match, Ruleset ruleset, Player catcher, Guid catcherTeamId, LeagueTeam? disturbingPresenceTeam, PitchSquare square)
+    private CatchResolution AttemptCatchAt(MatchState match, Ruleset ruleset, Player catcher, Guid catcherTeamId, LeagueTeam? disturbingPresenceTeam, PitchSquare square, int? forcedCatchRoll = null)
     {
         var tackleZones = PlayerHasHookedEffect(ruleset, catcher, GameEventKind.CatchRoll, GameEventStage.ModifyTarget, SkillEffect.NervesOfSteel)
             ? 0
             : CountOpposingTackleZones(match, catcherTeamId, catcher.Id, square);
         var disturbingPresence = DisturbingPresenceModifier(match, ruleset, disturbingPresenceTeam, square);
         var target = CatchTarget(ruleset, catcher, match.Weather, tackleZones, disturbingPresence);
-        return new CatchResolution(RollCatch(ruleset, catcher, target), target, tackleZones);
+        return new CatchResolution(RollCatch(ruleset, catcher, target, forcedCatchRoll), target, tackleZones);
+    }
+
+    private MatchState CreatePendingBounceCatchReroll(
+        MatchState preCatchMatch,
+        Ruleset ruleset,
+        LeagueTeam catcherTeam,
+        Player catcher,
+        int roll,
+        int target,
+        PitchSquare catchSquare,
+        LeagueTeam originalTeam,
+        LeagueTeam? opposingTeam,
+        bool allowDivingCatch,
+        int bounce)
+    {
+        return preCatchMatch with
+        {
+            PendingReroll = new PendingRerollChoice
+            {
+                TeamId = catcherTeam.Id,
+                PlayerId = catcher.Id,
+                Kind = PendingRerollKind.Catch,
+                Roll = roll,
+                Target = target,
+                TeamRerollAvailable = CanUseTeamReroll(preCatchMatch, ruleset, catcherTeam),
+                SkillRerollIds = AvailableCatchSkillRerolls(ruleset, catcher),
+                Context = new PendingRerollContext
+                {
+                    MatchBeforeRoll = preCatchMatch,
+                    Action = PlayerTurnAction.Move,
+                    Destination = catchSquare,
+                    Path = [],
+                    StepIndex = 0,
+                    MovementAllowance = 0,
+                    CatchResume = CatchResumeKind.Bounce,
+                    BounceOriginalTeamId = originalTeam.Id,
+                    BounceOpposingTeamId = opposingTeam?.Id,
+                    BounceAllowDivingCatch = allowDivingCatch,
+                    BounceCount = bounce
+                }
+            },
+            Log =
+            [
+                .. preCatchMatch.Log,
+                new MatchLogEntry { Message = $"{catcher.Name} failed to catch the bouncing ball on {roll} vs {target}+. Choose whether to reroll." }
+            ]
+        };
     }
 
     private MatchState ResolveBallLanding(MatchState match, Ruleset ruleset, LeagueTeam originalTeam, PitchSquare square, bool allowDivingCatch = true, LeagueTeam? opposingTeam = null)
@@ -913,27 +1035,96 @@ public sealed partial class MatchService
             .ToArray();
     }
 
-    private CatchAttempt RollCatch(Ruleset ruleset, Player player, int target)
+    private CatchAttempt RollCatch(Ruleset ruleset, Player player, int target, int? forcedRoll = null)
     {
         if (PlayerHasHookedSkillId(ruleset, player, GameEventKind.CatchRoll, GameEventStage.BeforeRoll, "no-hands"))
         {
             return new CatchAttempt(0, null, false);
         }
 
-        var roll = _dice.RollD6();
+        var roll = forcedRoll ?? _dice.RollD6();
         if (RollSucceeds(roll, target, ruleset.Dice))
         {
             return new CatchAttempt(roll, null, true);
         }
 
-        if (!PlayerHasHookedEffect(ruleset, player, GameEventKind.CatchRoll, GameEventStage.AfterRoll, SkillEffect.CatchReroll) &&
-            !PlayerHasHookedEffect(ruleset, player, GameEventKind.CatchRoll, GameEventStage.AfterRoll, SkillEffect.MonstrousMouth))
+        // A forced roll is a replay of an already-resolved catch (e.g. the result of a team reroll), so the
+        // single per-roll skill reroll has already been spent; do not apply Catch/Monstrous Mouth again.
+        if (forcedRoll is not null ||
+            (!PlayerHasHookedEffect(ruleset, player, GameEventKind.CatchRoll, GameEventStage.AfterRoll, SkillEffect.CatchReroll) &&
+            !PlayerHasHookedEffect(ruleset, player, GameEventKind.CatchRoll, GameEventStage.AfterRoll, SkillEffect.MonstrousMouth)))
         {
             return new CatchAttempt(roll, null, false);
         }
 
         var reroll = _dice.RollD6();
         return new CatchAttempt(roll, reroll, RollSucceeds(reroll, target, ruleset.Dice));
+    }
+
+    /// <summary>
+    /// A team reroll (or Pro) may be spent on a failed catch only when the catcher's own catch skill
+    /// reroll was not already used on the same roll. The acting team must also have a team reroll
+    /// available this turn or the catcher must have Pro.
+    /// </summary>
+    private bool CatchRerollOffered(MatchState match, Ruleset ruleset, LeagueTeam team, Player catcher)
+    {
+        return CanUseTeamReroll(match, ruleset, team) || AvailableCatchSkillRerolls(ruleset, catcher).Count > 0;
+    }
+
+    private static IReadOnlyList<string> AvailableCatchSkillRerolls(Ruleset ruleset, Player catcher)
+    {
+        return PlayerHasHookedEffect(ruleset, catcher, GameEventKind.CatchRoll, GameEventStage.AfterRoll, SkillEffect.Pro)
+            ? ["pro"]
+            : [];
+    }
+
+    private MatchState CreatePendingCatchReroll(
+        MatchState preCatchMatch,
+        Ruleset ruleset,
+        LeagueTeam team,
+        Player catcher,
+        int roll,
+        int target,
+        CatchResumeKind resumeKind,
+        PlayerTurnAction action,
+        PitchSquare catchSquare,
+        Guid passerPlayerId,
+        string? passRangeName,
+        int passRoll,
+        int passTarget)
+    {
+        return preCatchMatch with
+        {
+            PendingReroll = new PendingRerollChoice
+            {
+                TeamId = team.Id,
+                PlayerId = catcher.Id,
+                Kind = PendingRerollKind.Catch,
+                Roll = roll,
+                Target = target,
+                TeamRerollAvailable = CanUseTeamReroll(preCatchMatch, ruleset, team),
+                SkillRerollIds = AvailableCatchSkillRerolls(ruleset, catcher),
+                Context = new PendingRerollContext
+                {
+                    MatchBeforeRoll = preCatchMatch,
+                    Action = action,
+                    Destination = catchSquare,
+                    Path = [],
+                    StepIndex = 0,
+                    MovementAllowance = 0,
+                    CatchResume = resumeKind,
+                    CatchPasserPlayerId = passerPlayerId,
+                    CatchPassRangeName = passRangeName,
+                    CatchPassRoll = passRoll,
+                    CatchPassTarget = passTarget
+                }
+            },
+            Log =
+            [
+                .. preCatchMatch.Log,
+                new MatchLogEntry { Message = $"{catcher.Name} failed catch on {roll} vs {target}+. Choose whether to reroll." }
+            ]
+        };
     }
 
     private static string FormatCatchAttempt(CatchAttempt attempt, int target)

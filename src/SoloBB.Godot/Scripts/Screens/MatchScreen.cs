@@ -232,10 +232,6 @@ public partial class MatchScreen : VBoxContainer
         _sendOffChoiceBox.AddThemeConstantOverride("separation", 4);
         decisionActions.AddChild(_sendOffChoiceBox);
 
-        _setupChoiceBox = new HBoxContainer();
-        _setupChoiceBox.AddThemeConstantOverride("separation", 4);
-        decisionActions.AddChild(_setupChoiceBox);
-
         _passModeButton = ActionButton("Pass");
         _passModeButton.Pressed += async () => await DeclarePassModeAsync();
         footer.AddChild(_passModeButton);
@@ -283,6 +279,13 @@ public partial class MatchScreen : VBoxContainer
             RefreshPitch();
         };
         footer.AddChild(_kickTeamMateModeButton);
+
+        // Placed in the footer (to the left of the done/Finish Setup button) rather than in the
+        // decision-action row so that showing/hiding the "Return to Reserve" button does not change
+        // the decision panel's height and reflow the body and footer below it.
+        _setupChoiceBox = new HBoxContainer();
+        _setupChoiceBox.AddThemeConstantOverride("separation", 4);
+        footer.AddChild(_setupChoiceBox);
 
         _doneButton = ActionButton("Advance", primary: true);
         _doneButton.Pressed += async () => await CompleteCurrentStepAsync();

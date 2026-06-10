@@ -1089,7 +1089,20 @@ public partial class MatchScreen : VBoxContainer
         _selectedPlayerId = playerId;
         if (IsPlayerTurnPhase())
         {
-            _currentActivationPlayerId = playerId;
+            // Selecting a player who already has an activation resumes it and makes them current.
+            // Selecting a fresh player while a different player's activation is still in progress is
+            // only a *tentative* pick: keep the in-progress player current (and re-selectable) so a
+            // stray click does not finalize them. They are promoted to current only once this newly
+            // picked player actually commits to an action (the Confirm*/Declare* handlers do that).
+            var keepInProgressCurrent =
+                CurrentTurnActivation(playerId) is null &&
+                _currentActivationPlayerId is Guid inProgress &&
+                inProgress != playerId &&
+                IsActivationOngoing(inProgress);
+            if (!keepInProgressCurrent)
+            {
+                _currentActivationPlayerId = playerId;
+            }
         }
 
         var activation = CurrentTurnActivation(playerId);
@@ -1170,6 +1183,10 @@ public partial class MatchScreen : VBoxContainer
                 }
                 else
                 {
+                    // The player has already started the activation (moved before aiming), so the
+                    // declared action is committed for good and cannot be taken back. Toggling the
+                    // mode off here only hides the targeting affordance; the player must still see the
+                    // Pass / Hand-off through (or end their activation by activating a team-mate).
                     if (isPass) _passMode = false;
                     else _handOffMode = false;
                 }
@@ -1235,6 +1252,8 @@ public partial class MatchScreen : VBoxContainer
                 }
                 else
                 {
+                    // Already started: the Blitz is committed for good and cannot be taken back.
+                    // Toggling the mode off here only hides the targeting affordance.
                     _blitzMode = false;
                 }
 

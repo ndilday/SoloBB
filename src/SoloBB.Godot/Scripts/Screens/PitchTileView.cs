@@ -15,6 +15,7 @@ public partial class PitchTileView : Button
     private readonly TextureRect _markingLayer;
     private readonly TextureRect _pieceLayer;
     private readonly TextureRect _overlayLayer;
+    private readonly TextureRect _statusLayer;
 
     /// <summary>
     /// Raised when the tile is clicked, carrying the mouse button used. Unlike the
@@ -37,11 +38,13 @@ public partial class PitchTileView : Button
         _markingLayer = BuildLayer(TextureRect.StretchModeEnum.Scale);
         _pieceLayer = BuildLayer(TextureRect.StretchModeEnum.KeepAspectCentered);
         _overlayLayer = BuildLayer(TextureRect.StretchModeEnum.KeepAspectCentered);
+        _statusLayer = BuildStatusLayer();
         AddChild(_tileLayer);
         AddChild(_highlightLayer);
         AddChild(_markingLayer);
         AddChild(_pieceLayer);
         AddChild(_overlayLayer);
+        AddChild(_statusLayer);
     }
 
     public override void _GuiInput(InputEvent @event)
@@ -76,6 +79,28 @@ public partial class PitchTileView : Button
     }
 
     public void SetOverlay(Texture2D? texture) => _overlayLayer.Texture = texture;
+
+    /// <summary>
+    /// Sets the status overlay (e.g. the stunned stars), anchored to the top half of
+    /// the tile so it sits above a downed player's body rather than over or below it.
+    /// </summary>
+    public void SetStatus(Texture2D? texture) => _statusLayer.Texture = texture;
+
+    private static TextureRect BuildStatusLayer()
+    {
+        var layer = new TextureRect
+        {
+            MouseFilter = MouseFilterEnum.Ignore,
+            StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
+            TextureFilter = TextureFilterEnum.Nearest
+        };
+        layer.SetAnchorsPreset(LayoutPreset.TopWide);
+        layer.OffsetLeft = 0;
+        layer.OffsetTop = 0;
+        layer.OffsetRight = 0;
+        layer.OffsetBottom = 16;
+        return layer;
+    }
 
     private static TextureRect BuildLayer(TextureRect.StretchModeEnum stretchMode)
     {

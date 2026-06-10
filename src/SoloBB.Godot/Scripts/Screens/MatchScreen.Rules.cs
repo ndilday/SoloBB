@@ -162,9 +162,11 @@ public partial class MatchScreen : VBoxContainer
             return false;
         }
 
-        // Only an uncommitted declaration (a Pass/Blitz/Hand-off declared but not yet acted on)
-        // locks selection, because switching away would orphan it. A player who has actually
-        // started moving may be left where they are simply by activating someone else.
+        // A still-uncommitted declaration (a Pass/Blitz/Hand-off declared but not yet acted on)
+        // locks selection, because switching away would orphan it and it can still be cancelled
+        // cleanly. Once the player has started moving the action is committed for good: from then on
+        // a stray click is caught by the tentative selection in SelectPlayer (which keeps them
+        // "current" and resumable) rather than by refusing the click.
         if (_currentActivationPlayerId is Guid activeId && activeId != playerId)
         {
             var activeActivation = CurrentTurnActivation(activeId);

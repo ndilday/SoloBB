@@ -21,7 +21,7 @@ public sealed partial class MatchService
     }
 }
 
-public sealed record BlockStrength(int AttackerStrength, int DefenderStrength, int Dice);
+public sealed record BlockStrength(int AttackerStrength, int DefenderStrength, int Dice, int? DauntlessRoll = null, bool DauntlessReachedStrength = false, int DauntlessTarget = 0);
 
 public sealed record PassRange(string Name, int TargetModifier);
 
@@ -39,7 +39,10 @@ public sealed record BallLanding(PitchSquare Square, IReadOnlyList<MatchLogEntry
 /// </summary>
 sealed record LooseBallResolution(BallState Ball, IReadOnlyList<MatchLogEntry> Log);
 
-sealed record InjuryResolution(PlayerPitchState State, CasualtyRoll? Casualty = null);
+sealed record InjuryResolution(
+    PlayerPitchState State,
+    CasualtyRoll? Casualty = null,
+    IReadOnlyList<MatchLogEntry>? Log = null);
 
 sealed record CatchAttempt(int Roll, int? Reroll, bool Success);
 

@@ -599,13 +599,10 @@ public sealed partial class MatchService
         var ball = match.Ball;
         var log = new List<MatchLogEntry>
         {
-            new() { Message = $"{player.Name} go-for-it {goForItNumber}: rolled {roll}, failed." },
-            new() { Message = $"{player.Name} falls at {destination.X},{destination.Y} and is {FormatPitchState(injury.State)}." }
+            new() { Message = $"{player.Name} go-for-it {goForItNumber}: rolled {roll}, failed." }
         };
-        if (injury.Casualty is not null)
-        {
-            log.Add(new MatchLogEntry { Message = $"{player.Name} casualty roll {injury.Casualty.Roll}: {FormatCasualtyResult(injury.Casualty.Result)}." });
-        }
+        log.AddRange(injury.Log ?? []);
+        log.Add(new MatchLogEntry { Message = $"{player.Name} falls at {destination.X},{destination.Y} and is {FormatPitchState(injury.State)}." });
         log.AddRange(apothecary.Log);
 
         if (ball.CarrierPlayerId == player.Id)
@@ -650,13 +647,10 @@ public sealed partial class MatchService
         var ball = match.Ball;
         var log = new List<MatchLogEntry>
         {
-            new() { Message = $"{player.Name} dodges to {destination.X},{destination.Y}: rolled {roll} vs {target}+, failed." },
-            new() { Message = $"{player.Name} falls at {destination.X},{destination.Y} and is {FormatPitchState(injury.State)}{(armBarApplies ? " after Arm Bar" : "")}." }
+            new() { Message = $"{player.Name} dodges to {destination.X},{destination.Y}: rolled {roll} vs {target}+, failed." }
         };
-        if (injury.Casualty is not null)
-        {
-            log.Add(new MatchLogEntry { Message = $"{player.Name} casualty roll {injury.Casualty.Roll}: {FormatCasualtyResult(injury.Casualty.Result)}." });
-        }
+        log.AddRange(injury.Log ?? []);
+        log.Add(new MatchLogEntry { Message = $"{player.Name} falls at {destination.X},{destination.Y} and is {FormatPitchState(injury.State)}{(armBarApplies ? " after Arm Bar" : "")}." });
         log.AddRange(apothecary.Log);
 
         if (ball.CarrierPlayerId == player.Id)

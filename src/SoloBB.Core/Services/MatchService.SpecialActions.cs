@@ -243,24 +243,46 @@ public sealed partial class MatchService
             return context.Match;
         }
 
-        var roll = _dice.RollD6();
-        var target = Math.Clamp(context.Actor.Stats.Agility, 2, 6);
+        return ResolveHypnoticGazeRoll(context.Match, ruleset, attackerTeam, context.Actor, targetTeam, targetPlayerId);
+    }
+
+    private MatchState ResolveHypnoticGazeRoll(
+        MatchState match,
+        Ruleset ruleset,
+        LeagueTeam actorTeam,
+        Player actor,
+        LeagueTeam targetTeam,
+        Guid targetPlayerId,
+        int? forcedRoll = null)
+    {
+        var targetPlayer = FindTeamPlayer(targetTeam, targetPlayerId);
+        var roll = forcedRoll ?? _dice.RollD6();
+        var target = Math.Clamp(actor.Stats.Agility, 2, 6);
         if (!RollSucceeds(roll, target, ruleset.Dice))
         {
-            return context.Match with
+            if (forcedRoll is null && ActionRerollOffered(match, ruleset, actorTeam, actor, GameEventKind.SpecialAction))
             {
-                Log = [.. context.Match.Log, new MatchLogEntry { Message = $"{context.Actor.Name} uses Hypnotic Gaze on {context.Target.Name}: rolled {roll} vs {target}+, failed." }]
+                var square = FindPlacement(match, targetPlayerId)?.Square ?? new PitchSquare(0, 0);
+                return CreatePendingActionReroll(
+                    match, ruleset, actorTeam, actor, PendingRerollKind.HypnoticGaze, GameEventKind.SpecialAction, roll, target,
+                    ActionRerollContext(match, square) with { SecondaryPlayerId = targetPlayerId },
+                    $"{actor.Name} uses Hypnotic Gaze on {targetPlayer.Name}: rolled {roll} vs {target}+, failed. Choose whether to reroll.");
+            }
+
+            return match with
+            {
+                Log = [.. match.Log, new MatchLogEntry { Message = $"{actor.Name} uses Hypnotic Gaze on {targetPlayer.Name}: rolled {roll} vs {target}+, failed." }]
             };
         }
 
-        return context.Match with
+        return match with
         {
-            Placements = context.Match.Placements
-                .Select(placement => placement.PlayerId == context.Target.Id
+            Placements = match.Placements
+                .Select(placement => placement.PlayerId == targetPlayerId
                     ? placement with { TackleZonesLost = true }
                     : placement)
                 .ToArray(),
-            Log = [.. context.Match.Log, new MatchLogEntry { Message = $"{context.Actor.Name} uses Hypnotic Gaze on {context.Target.Name}: rolled {roll} vs {target}+, tackle zone removed." }]
+            Log = [.. match.Log, new MatchLogEntry { Message = $"{actor.Name} uses Hypnotic Gaze on {targetPlayer.Name}: rolled {roll} vs {target}+, tackle zone removed." }]
         };
     }
 
@@ -319,22 +341,7 @@ public sealed partial class MatchService
             return action.Match;
         }
 
-        var passRange = ResolvePassRange(placement.Square!, targetSquare) ?? throw new InvalidOperationException("The target is out of passing range.");
-        var passTarget = PassingTarget(ruleset, bomber, passRange, action.Match.Weather);
-        var passRoll = _dice.RollD6();
-        var landingSquare = RollSucceeds(passRoll, passTarget, ruleset.Dice)
-            ? targetSquare
-            : ScatterFrom(ruleset, targetSquare);
-        var nextMatch = action.Match with
-        {
-            Log =
-            [
-                .. action.Match.Log,
-                new MatchLogEntry { Message = $"{bomber.Name} throws a bomb to {targetSquare.X},{targetSquare.Y}: rolled {passRoll} vs {passTarget}+{(landingSquare == targetSquare ? "." : $", scatters to {landingSquare.X},{landingSquare.Y}.")}" }
-            ]
-        };
-
-        return ResolveBombLanding(nextMatch, ruleset, throwingTeam, opposingTeam, landingSquare);
+        return ResolveBombThrow(action.Match, ruleset, throwingTeam, opposingTeam, bomber, targetSquare, thrownBack: false);
     }
 
     public MatchState ThrowPendingBomb(
@@ -358,24 +365,51 @@ public sealed partial class MatchService
         }
 
         var thrower = FindTeamPlayer(throwingTeam, pending.ThrowerPlayerId);
+        return ResolveBombThrow(match with { PendingBombThrow = null }, ruleset, throwingTeam, opposingTeam, thrower, targetSquare, thrownBack: true);
+    }
+
+    /// <summary>
+    /// Resolves a bomb throw (Bombardier or a caught bomb thrown back) as a Pass-style test, offering a
+    /// team/Pro reroll on a miss before the bomb scatters and lands.
+    /// </summary>
+    private MatchState ResolveBombThrow(
+        MatchState match,
+        Ruleset ruleset,
+        LeagueTeam throwingTeam,
+        LeagueTeam opposingTeam,
+        Player thrower,
+        PitchSquare targetSquare,
+        bool thrownBack,
+        int? forcedRoll = null)
+    {
         var throwerPlacement = FindStandingPlacement(match, thrower.Id, throwingTeam.Id, "bomb thrower");
         var passRange = ResolvePassRange(throwerPlacement.Square!, targetSquare) ?? throw new InvalidOperationException("The target is out of passing range.");
         var passTarget = PassingTarget(ruleset, thrower, passRange, match.Weather);
-        var passRoll = _dice.RollD6();
-        var landingSquare = RollSucceeds(passRoll, passTarget, ruleset.Dice)
-            ? targetSquare
-            : ScatterFrom(ruleset, targetSquare);
-        var thrownMatch = match with
+        var passRoll = forcedRoll ?? _dice.RollD6();
+        var accurate = RollSucceeds(passRoll, passTarget, ruleset.Dice);
+        var bombText = thrownBack ? "the caught bomb" : "a bomb";
+
+        if (!accurate && forcedRoll is null &&
+            throwingTeam.Id == match.ActiveTeamId &&
+            ActionRerollOffered(match, ruleset, throwingTeam, thrower, GameEventKind.BombThrow))
         {
-            PendingBombThrow = null,
+            return CreatePendingActionReroll(
+                match, ruleset, throwingTeam, thrower, PendingRerollKind.BombThrow, GameEventKind.BombThrow, passRoll, passTarget,
+                ActionRerollContext(match, targetSquare) with { BombThrownBack = thrownBack },
+                $"{thrower.Name} throws {bombText} to {targetSquare.X},{targetSquare.Y}: rolled {passRoll} vs {passTarget}+, off target. Choose whether to reroll.");
+        }
+
+        var landingSquare = accurate ? targetSquare : ScatterFrom(ruleset, targetSquare);
+        var nextMatch = match with
+        {
             Log =
             [
                 .. match.Log,
-                new MatchLogEntry { Message = $"{thrower.Name} throws the caught bomb to {targetSquare.X},{targetSquare.Y}: rolled {passRoll} vs {passTarget}+{(landingSquare == targetSquare ? "." : $", scatters to {landingSquare.X},{landingSquare.Y}.")}" }
+                new MatchLogEntry { Message = $"{thrower.Name} throws {bombText} to {targetSquare.X},{targetSquare.Y}: rolled {passRoll} vs {passTarget}+{(accurate ? "." : $", scatters to {landingSquare.X},{landingSquare.Y}.")}" }
             ]
         };
 
-        return ResolveBombLanding(thrownMatch, ruleset, throwingTeam, opposingTeam, landingSquare);
+        return ResolveBombLanding(nextMatch, ruleset, throwingTeam, opposingTeam, landingSquare);
     }
 
     public MatchState ThrowTeamMate(
@@ -436,30 +470,7 @@ public sealed partial class MatchService
             }
         }
 
-        var passRange = ResolvePassRange(context.ActorPlacement.Square!, targetSquare) ?? throw new InvalidOperationException("The target is out of passing range.");
-        var throwModifier = PlayerHasHookedEffect(ruleset, context.Actor, GameEventKind.PassRoll, GameEventStage.ModifyTarget, SkillEffect.StrongArm) ? -1 : 0;
-        var passTarget = Math.Clamp(PassingTarget(ruleset, context.Actor, passRange, nextMatch.Weather) + throwModifier + 1, 2, 6);
-        var passRoll = _dice.RollD6();
-        var accurate = RollSucceeds(passRoll, passTarget, ruleset.Dice);
-        var landingSquare = accurate
-            ? targetSquare
-            : ScatterLaunchedPlayer(ruleset, targetSquare, context.Launched, inaccurateDistance: 3);
-
-        nextMatch = nextMatch with
-        {
-            Placements = nextMatch.Placements
-                .Select(placement => placement.PlayerId == context.Launched.Id
-                    ? placement with { Square = null }
-                    : placement)
-                .ToArray(),
-            Log =
-            [
-                .. nextMatch.Log,
-                new MatchLogEntry { Message = $"{context.Actor.Name} throws {context.Launched.Name} to {targetSquare.X},{targetSquare.Y}: {passRange.Name} rolled {passRoll} vs {passTarget}+{(accurate ? ", accurate." : $", inaccurate to {landingSquare.X},{landingSquare.Y}.")}" }
-            ]
-        };
-
-        return ResolveLaunchedPlayerLanding(nextMatch, ruleset, team, opposingTeam, context.Launched, landingSquare, "thrown");
+        return ResolveTeamMateThrow(nextMatch, ruleset, team, opposingTeam, context.Actor, context.Launched, targetSquare, "thrown");
     }
 
     public MatchState KickTeamMate(
@@ -478,25 +489,73 @@ public sealed partial class MatchService
             return action.Match;
         }
 
-        var kickRoll = _dice.RollD6();
-        var landingSquare = kickRoll == 1
-            ? ScatterLaunchedPlayer(ruleset, targetSquare, context.Launched, inaccurateDistance: 3)
-            : targetSquare;
-        var nextMatch = action.Match with
+        return ResolveTeamMateThrow(action.Match, ruleset, team, opposingTeam, context.Actor, context.Launched, targetSquare, "kicked");
+    }
+
+    /// <summary>
+    /// Resolves the accuracy roll for a launched team-mate (a Pass-style test when thrown, a 1-scatters
+    /// roll when kicked), offering a team/Pro reroll on a miss, then resolves where the player lands.
+    /// </summary>
+    private MatchState ResolveTeamMateThrow(
+        MatchState match,
+        Ruleset ruleset,
+        LeagueTeam team,
+        LeagueTeam? opposingTeam,
+        Player actor,
+        Player launched,
+        PitchSquare targetSquare,
+        string launchKind,
+        int? forcedRoll = null)
+    {
+        var isThrow = launchKind == "thrown";
+        var actorPlacement = FindStandingPlacement(match, actor.Id, team.Id, "launcher");
+        PassRange? passRange = null;
+        int rollTarget;
+        if (isThrow)
         {
-            Placements = action.Match.Placements
-                .Select(placement => placement.PlayerId == context.Launched.Id
+            passRange = ResolvePassRange(actorPlacement.Square!, targetSquare) ?? throw new InvalidOperationException("The target is out of passing range.");
+            var throwModifier = PlayerHasHookedEffect(ruleset, actor, GameEventKind.PassRoll, GameEventStage.ModifyTarget, SkillEffect.StrongArm) ? -1 : 0;
+            rollTarget = Math.Clamp(PassingTarget(ruleset, actor, passRange, match.Weather) + throwModifier + 1, 2, 6);
+        }
+        else
+        {
+            // A kicked team-mate only scatters on a 1, i.e. it succeeds on a 2+.
+            rollTarget = 2;
+        }
+
+        var roll = forcedRoll ?? _dice.RollD6();
+        var accurate = isThrow ? RollSucceeds(roll, rollTarget, ruleset.Dice) : roll != 1;
+
+        if (!accurate && forcedRoll is null && ActionRerollOffered(match, ruleset, team, actor, GameEventKind.ThrowTeamMate))
+        {
+            var verb = isThrow ? "throws" : "kicks";
+            var rollText = isThrow ? $"rolled {roll} vs {rollTarget}+" : $"rolled {roll}";
+            return CreatePendingActionReroll(
+                match, ruleset, team, actor,
+                isThrow ? PendingRerollKind.ThrowTeamMate : PendingRerollKind.KickTeamMate,
+                GameEventKind.ThrowTeamMate, roll, rollTarget,
+                ActionRerollContext(match, targetSquare) with { SecondaryPlayerId = launched.Id, LaunchKind = launchKind },
+                $"{actor.Name} {verb} {launched.Name} to {targetSquare.X},{targetSquare.Y}: {rollText}, inaccurate. Choose whether to reroll.");
+        }
+
+        var landingSquare = accurate
+            ? targetSquare
+            : ScatterLaunchedPlayer(ruleset, targetSquare, launched, inaccurateDistance: 3);
+        var message = isThrow
+            ? $"{actor.Name} throws {launched.Name} to {targetSquare.X},{targetSquare.Y}: {passRange!.Name} rolled {roll} vs {rollTarget}+{(accurate ? ", accurate." : $", inaccurate to {landingSquare.X},{landingSquare.Y}.")}"
+            : $"{actor.Name} kicks {launched.Name} to {targetSquare.X},{targetSquare.Y}: rolled {roll}{(accurate ? ", on target." : $", scatters to {landingSquare.X},{landingSquare.Y}.")}";
+
+        var nextMatch = match with
+        {
+            Placements = match.Placements
+                .Select(placement => placement.PlayerId == launched.Id
                     ? placement with { Square = null }
                     : placement)
                 .ToArray(),
-            Log =
-            [
-                .. action.Match.Log,
-                new MatchLogEntry { Message = $"{context.Actor.Name} kicks {context.Launched.Name} to {targetSquare.X},{targetSquare.Y}: rolled {kickRoll}{(kickRoll == 1 ? $", scatters to {landingSquare.X},{landingSquare.Y}." : ", on target.")}" }
-            ]
+            Log = [.. match.Log, new MatchLogEntry { Message = message }]
         };
 
-        return ResolveLaunchedPlayerLanding(nextMatch, ruleset, team, opposingTeam, context.Launched, landingSquare, "kicked");
+        return ResolveLaunchedPlayerLanding(nextMatch, ruleset, team, opposingTeam, launched, landingSquare, launchKind);
     }
 
     private MatchState ResolveFoulAfterActivation(
@@ -849,7 +908,7 @@ public sealed partial class MatchService
             : result;
     }
 
-    private MatchState ResolveBombLanding(MatchState match, Ruleset ruleset, LeagueTeam throwingTeam, LeagueTeam opposingTeam, PitchSquare landingSquare)
+    private MatchState ResolveBombLanding(MatchState match, Ruleset ruleset, LeagueTeam throwingTeam, LeagueTeam opposingTeam, PitchSquare landingSquare, int? forcedCatchRoll = null)
     {
         var catcherPlacement = match.Placements.FirstOrDefault(current =>
             current.Square == landingSquare &&
@@ -863,10 +922,22 @@ public sealed partial class MatchService
         var catcherTeam = catcherPlacement.TeamId == throwingTeam.Id ? throwingTeam : opposingTeam;
         var otherTeam = catcherPlacement.TeamId == throwingTeam.Id ? opposingTeam : throwingTeam;
         var catcher = FindTeamPlayer(catcherTeam, catcherPlacement.PlayerId);
-        var catchRoll = _dice.RollD6();
+        var catchRoll = forcedCatchRoll ?? _dice.RollD6();
         var catchTarget = CatchTarget(ruleset, catcher, match.Weather, CountOpposingTackleZones(match, catcherTeam.Id, catcher.Id, landingSquare));
         if (!RollSucceeds(catchRoll, catchTarget, ruleset.Dice))
         {
+            // The catching team may reroll the catch, but only during their own turn (a team reroll can't
+            // be used on the opponent's turn). The throwing team is the active team here.
+            if (forcedCatchRoll is null &&
+                catcherTeam.Id == match.ActiveTeamId &&
+                ActionRerollOffered(match, ruleset, catcherTeam, catcher, GameEventKind.BombThrow))
+            {
+                return CreatePendingActionReroll(
+                    match, ruleset, catcherTeam, catcher, PendingRerollKind.BombCatch, GameEventKind.BombThrow, catchRoll, catchTarget,
+                    ActionRerollContext(match, landingSquare) with { BounceOriginalTeamId = throwingTeam.Id, BounceOpposingTeamId = opposingTeam.Id },
+                    $"{catcher.Name} attempts to catch the bomb: rolled {catchRoll} vs {catchTarget}+, failed. Choose whether to reroll.");
+            }
+
             return ResolveBombExplosion(match with
             {
                 Log =
@@ -988,7 +1059,8 @@ public sealed partial class MatchService
         Player launchedPlayer,
         PitchSquare landingSquare,
         string launchKind,
-        int collisionDepth = 0)
+        int collisionDepth = 0,
+        int? forcedRoll = null)
     {
         if (!IsOnPitch(ruleset, landingSquare))
         {
@@ -1049,9 +1121,17 @@ public sealed partial class MatchService
         }
 
         var target = LandingTarget(ruleset, launchedPlayer, CountOpposingTackleZones(match, team.Id, launchedPlayer.Id, landingSquare));
-        var roll = _dice.RollD6();
+        var roll = forcedRoll ?? _dice.RollD6();
         if (!RollSucceeds(roll, target, ruleset.Dice))
         {
+            if (forcedRoll is null && ActionRerollOffered(match, ruleset, team, launchedPlayer, GameEventKind.SpecialAction))
+            {
+                return CreatePendingActionReroll(
+                    match, ruleset, team, launchedPlayer, PendingRerollKind.Landing, GameEventKind.SpecialAction, roll, target,
+                    ActionRerollContext(match, landingSquare) with { LaunchKind = launchKind, CollisionDepth = collisionDepth },
+                    $"{launchedPlayer.Name} attempts to land after being {launchKind}: rolled {roll} vs {target}+, failed. Choose whether to reroll.");
+            }
+
             var injury = ResolveFallInjury(launchedPlayer);
             var crashMatch = KnockLaunchedPlayerDown(match, ruleset, team, launchedPlayer, landingSquare, injury, $"{launchedPlayer.Name} attempts to land after being {launchKind}: rolled {roll} vs {target}+, failed.");
             return ApplyTurnover(crashMatch, ruleset, team.Id);
@@ -1099,6 +1179,7 @@ public sealed partial class MatchService
         injury = apothecary.Injury;
         var ball = nextMatch.Ball;
         var log = new List<MatchLogEntry> { new() { Message = message } };
+        log.AddRange(injury.Log ?? []);
         if (ball.CarrierPlayerId == launchedPlayer.Id)
         {
             var scatterSquare = ScatterFrom(ruleset, landingSquare);

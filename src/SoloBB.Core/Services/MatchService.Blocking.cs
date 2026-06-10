@@ -34,48 +34,13 @@ public sealed partial class MatchService
                 throw new InvalidOperationException("Blocks require adjacent players.");
             }
 
-            var jumpUpRoll = _dice.RollD6();
-            var jumpUpTarget = Math.Clamp(attacker.Stats.Agility + 1, 2, 6);
             var jumpUpAction = BeginPlayerAction(match, ruleset, attackerTeam, attacker, PlayerTurnAction.Block, goForItsUsed: 0);
             if (jumpUpAction.Prevented)
             {
                 return jumpUpAction.Match;
             }
 
-            var activatedJumpUpMatch = jumpUpAction.Match;
-            if (!RollSucceeds(jumpUpRoll, jumpUpTarget, ruleset.Dice))
-            {
-                return activatedJumpUpMatch with
-                {
-                    Log =
-                    [
-                        .. activatedJumpUpMatch.Log,
-                        new MatchLogEntry { Message = $"{attacker.Name} attempts a Jump Up block: rolled {jumpUpRoll} vs {jumpUpTarget}+, failed and remains prone." }
-                    ]
-                };
-            }
-
-            match = activatedJumpUpMatch with
-            {
-                Placements = activatedJumpUpMatch.Placements
-                    .Select(placement => placement.PlayerId == attackerPlayerId
-                        ? placement with { State = PlayerPitchState.Standing, StunnedRecoveryHalf = null, StunnedRecoveryTurn = null, Casualty = null }
-                        : placement)
-                    .ToArray(),
-                Log =
-                [
-                    .. activatedJumpUpMatch.Log,
-                    new MatchLogEntry { Message = $"{attacker.Name} attempts a Jump Up block: rolled {jumpUpRoll} vs {jumpUpTarget}+, success." }
-                ]
-            };
-            attackerPlacement = match.Placements.First(placement => placement.PlayerId == attackerPlayerId);
-            var jumpUpFoulAppearance = ResolveFoulAppearance(match, ruleset, attacker, defender);
-            if (jumpUpFoulAppearance.BlockPrevented)
-            {
-                return jumpUpFoulAppearance.Match;
-            }
-
-            return ResolveBlock(match, ruleset, attackerTeam, attacker, attackerPlacement, defenderTeam, defender);
+            return ResolveJumpUpRoll(jumpUpAction.Match, ruleset, attackerTeam, defenderTeam, attacker, defenderPlayerId);
         }
 
         attackerPlacement = ValidateBlock(match, attackerTeam, attackerPlayerId, defenderTeam, defenderPlayerId);
@@ -93,6 +58,87 @@ public sealed partial class MatchService
         }
 
         return ResolveBlock(activatedMatch, ruleset, attackerTeam, attacker, attackerPlacement, defenderTeam, defender);
+    }
+
+    /// <summary>
+    /// Resolves the Jump Up agility roll a prone player makes to stand and block, offering a team/Pro
+    /// reroll on a failure before the attempt fizzles.
+    /// </summary>
+    private MatchState ResolveJumpUpRoll(
+        MatchState match,
+        Ruleset ruleset,
+        LeagueTeam attackerTeam,
+        LeagueTeam defenderTeam,
+        Player attacker,
+        Guid defenderPlayerId,
+        int? forcedRoll = null)
+    {
+        var defender = FindTeamPlayer(defenderTeam, defenderPlayerId);
+        var defenderPlacement = FindStandingPlacement(match, defenderPlayerId, defenderTeam.Id, "defender");
+        var jumpUpRoll = forcedRoll ?? _dice.RollD6();
+        var jumpUpTarget = Math.Clamp(attacker.Stats.Agility + 1, 2, 6);
+        if (!RollSucceeds(jumpUpRoll, jumpUpTarget, ruleset.Dice))
+        {
+            if (forcedRoll is null && ActionRerollOffered(match, ruleset, attackerTeam, attacker, GameEventKind.BlockRoll))
+            {
+                return CreatePendingActionReroll(
+                    match, ruleset, attackerTeam, attacker, PendingRerollKind.JumpUp, GameEventKind.BlockRoll, jumpUpRoll, jumpUpTarget,
+                    ActionRerollContext(match, defenderPlacement.Square!) with { SecondaryPlayerId = defenderPlayerId },
+                    $"{attacker.Name} attempts a Jump Up block: rolled {jumpUpRoll} vs {jumpUpTarget}+, failed. Choose whether to reroll.");
+            }
+
+            return match with
+            {
+                Log =
+                [
+                    .. match.Log,
+                    new MatchLogEntry { Message = $"{attacker.Name} attempts a Jump Up block: rolled {jumpUpRoll} vs {jumpUpTarget}+, failed and remains prone." }
+                ]
+            };
+        }
+
+        var stoodMatch = match with
+        {
+            Placements = match.Placements
+                .Select(placement => placement.PlayerId == attacker.Id
+                    ? placement with { State = PlayerPitchState.Standing, StunnedRecoveryHalf = null, StunnedRecoveryTurn = null, Casualty = null }
+                    : placement)
+                .ToArray(),
+            Log =
+            [
+                .. match.Log,
+                new MatchLogEntry { Message = $"{attacker.Name} attempts a Jump Up block: rolled {jumpUpRoll} vs {jumpUpTarget}+, success." }
+            ]
+        };
+
+        var attackerPlacement = stoodMatch.Placements.First(placement => placement.PlayerId == attacker.Id);
+        var jumpUpFoulAppearance = ResolveFoulAppearance(stoodMatch, ruleset, attacker, defender);
+        if (jumpUpFoulAppearance.BlockPrevented)
+        {
+            return jumpUpFoulAppearance.Match;
+        }
+
+        return ResolveBlock(stoodMatch, ruleset, attackerTeam, attacker, attackerPlacement, defenderTeam, defender);
+    }
+
+    /// <summary>
+    /// Re-enters a block with a forced Dauntless roll after the player has chosen to reroll (or declined),
+    /// resuming just before the block dice are rolled.
+    /// </summary>
+    private MatchState ResolveDauntlessRoll(
+        MatchState match,
+        Ruleset ruleset,
+        LeagueTeam attackerTeam,
+        LeagueTeam defenderTeam,
+        Player attacker,
+        Guid defenderPlayerId,
+        int defenderStrengthBonus,
+        bool preventFollowUp,
+        int forcedRoll)
+    {
+        var defender = FindTeamPlayer(defenderTeam, defenderPlayerId);
+        var attackerPlacement = match.Placements.First(placement => placement.PlayerId == attacker.Id);
+        return ResolveBlock(match, ruleset, attackerTeam, attacker, attackerPlacement, defenderTeam, defender, defenderStrengthBonus, preventFollowUp, forcedRoll);
     }
 
     public MatchState MultipleBlockPlayer(
@@ -656,10 +702,31 @@ public sealed partial class MatchService
         LeagueTeam defenderTeam,
         Player defender,
         int defenderStrengthBonus = 0,
-        bool preventFollowUp = false)
+        bool preventFollowUp = false,
+        int? forcedDauntlessRoll = null)
     {
         var defenderPlacement = match.Placements.First(placement => placement.PlayerId == defender.Id);
-        var strength = ResolveBlockStrength(match, ruleset, attackerTeam, attackerPlacement, defenderTeam, defenderPlacement, attacker, defender, defenderStrengthBonus);
+        var strength = ResolveBlockStrength(match, ruleset, attackerTeam, attackerPlacement, defenderTeam, defenderPlacement, attacker, defender, defenderStrengthBonus, forcedDauntlessRoll);
+
+        // A failed Dauntless roll may be rerolled before the block dice are rolled. Skip the prompt while a
+        // Multiple Block is mid-sequence so its continuation state machine is not interrupted.
+        if (forcedDauntlessRoll is null &&
+            strength.DauntlessRoll is int dauntlessRoll &&
+            !strength.DauntlessReachedStrength &&
+            match.PendingMultipleBlock is null &&
+            ActionRerollOffered(match, ruleset, attackerTeam, attacker, GameEventKind.BlockRoll))
+        {
+            return CreatePendingActionReroll(
+                match, ruleset, attackerTeam, attacker, PendingRerollKind.Dauntless, GameEventKind.BlockRoll, dauntlessRoll, strength.DauntlessTarget,
+                ActionRerollContext(match, defenderPlacement.Square!) with
+                {
+                    SecondaryPlayerId = defender.Id,
+                    DefenderStrengthBonus = defenderStrengthBonus,
+                    PreventFollowUp = preventFollowUp
+                },
+                $"{attacker.Name} uses Dauntless against {defender.Name}: rolled {dauntlessRoll} vs {strength.DauntlessTarget}+, did not match strength. Choose whether to reroll.");
+        }
+
         var rolls = Enumerable.Range(0, strength.Dice).Select(_ => _dice.RollD6()).ToArray();
         var attackerAction = GetActivation(match, attacker.Id, attackerTeam.Id)?.Action ?? PlayerTurnAction.Block;
         if (attackerAction == PlayerTurnAction.Block &&
@@ -690,30 +757,27 @@ public sealed partial class MatchService
             };
         }
 
-        if (rolls.Length > 1)
+        // Present the roll for the player to confirm, even for a single die, so 1-die
+        // blocks display the same way 2-die blocks do.
+        return match with
         {
-            return match with
+            PendingBlock = new PendingBlockChoice
             {
-                PendingBlock = new PendingBlockChoice
-                {
-                    AttackerTeamId = attackerTeam.Id,
-                    DefenderTeamId = defenderTeam.Id,
-                    AttackerPlayerId = attacker.Id,
-                    DefenderPlayerId = defender.Id,
-                    Rolls = rolls,
-                    AttackerStrength = strength.AttackerStrength,
-                    DefenderStrength = strength.DefenderStrength,
-                    PreventFollowUp = preventFollowUp
-                },
-                Log =
-                [
-                    .. match.Log,
-                    new MatchLogEntry { Message = $"{attacker.Name} blocks {defender.Name}: ST {strength.AttackerStrength}-{strength.DefenderStrength}, rolled {string.Join(", ", rolls)}. Choose block dice." }
-                ]
-            };
-        }
-
-        return ResolveChosenBlockDie(match, ruleset, attackerTeam, attacker, attackerPlacement, defenderTeam, defender, defenderPlacement, strength, rolls, rolls[0], preventFollowUp);
+                AttackerTeamId = attackerTeam.Id,
+                DefenderTeamId = defenderTeam.Id,
+                AttackerPlayerId = attacker.Id,
+                DefenderPlayerId = defender.Id,
+                Rolls = rolls,
+                AttackerStrength = strength.AttackerStrength,
+                DefenderStrength = strength.DefenderStrength,
+                PreventFollowUp = preventFollowUp
+            },
+            Log =
+            [
+                .. match.Log,
+                new MatchLogEntry { Message = $"{attacker.Name} blocks {defender.Name}: ST {strength.AttackerStrength}-{strength.DefenderStrength}, rolled {string.Join(", ", rolls)}. {(rolls.Length > 1 ? "Choose block dice." : "Confirm block die.")}" }
+            ]
+        };
     }
 
     private MatchState ResolveChosenBlockDie(
@@ -1269,19 +1333,25 @@ public sealed partial class MatchService
         PlayerPlacement defenderPlacement,
         Player attacker,
         Player defender,
-        int defenderStrengthBonus = 0)
+        int defenderStrengthBonus = 0,
+        int? forcedDauntlessRoll = null)
     {
         var attackerAssists = CountAssists(match, ruleset, attackerTeam, defenderTeam, defenderPlacement, attackerPlacement.PlayerId);
         var defenderAssists = CountAssists(match, ruleset, defenderTeam, attackerTeam, attackerPlacement, defenderPlacement.PlayerId);
         var attackerAction = GetActivation(match, attacker.Id, attackerTeam.Id)?.Action ?? PlayerTurnAction.Block;
         var attackerBaseStrength = attacker.Stats.Strength + (attackerAction == PlayerTurnAction.Blitz && PlayerHasHookedEffect(ruleset, attacker, GameEventKind.BlockRoll, GameEventStage.BeforeRoll, SkillEffect.Horns) ? 1 : 0);
+        int? dauntlessRoll = null;
+        var dauntlessReached = false;
+        var dauntlessTarget = 0;
         if (attackerBaseStrength < defender.Stats.Strength &&
             PlayerHasHookedEffect(ruleset, attacker, GameEventKind.BlockRoll, GameEventStage.BeforeRoll, SkillEffect.Dauntless))
         {
-            var dauntlessRoll = _dice.RollD6();
+            dauntlessTarget = Math.Clamp(defender.Stats.Strength - attackerBaseStrength + 1, 2, 6);
+            dauntlessRoll = forcedDauntlessRoll ?? _dice.RollD6();
             if (dauntlessRoll + attackerBaseStrength > defender.Stats.Strength)
             {
                 attackerBaseStrength = defender.Stats.Strength;
+                dauntlessReached = true;
             }
         }
 
@@ -1289,7 +1359,7 @@ public sealed partial class MatchService
         var defenderStrength = defender.Stats.Strength + defenderAssists + defenderStrengthBonus;
         var dice = ResolveBlockDice(attackerStrength, defenderStrength);
 
-        return new BlockStrength(attackerStrength, defenderStrength, dice);
+        return new BlockStrength(attackerStrength, defenderStrength, dice, dauntlessRoll, dauntlessReached, dauntlessTarget);
     }
 
     private int CountAssists(MatchState match, Ruleset ruleset, LeagueTeam assistingTeam, LeagueTeam opposingTeam, PlayerPlacement targetPlacement, Guid primaryPlayerId)
@@ -1407,6 +1477,7 @@ public sealed partial class MatchService
         var apothecary = CreatePendingApothecaryIfAvailable(nextMatch, placement, player.Name, injury);
         nextMatch = apothecary.Match;
         injury = apothecary.Injury;
+        log.AddRange(injury.Log ?? []);
         log.AddRange(apothecary.Log);
 
         if (match.Ball.CarrierPlayerId == player.Id)
@@ -1533,6 +1604,8 @@ public sealed partial class MatchService
             nextState = placement.State;
             injury = new InjuryResolution(nextState);
         }
+
+        log.AddRange(injury.Log ?? []);
 
         return match with
         {
@@ -1681,14 +1754,17 @@ public sealed partial class MatchService
         {
             if (!armBarApplies || armorRoll + 1 <= player.Stats.Armor)
             {
-                return new InjuryResolution(PlayerPitchState.Prone);
+                return WithInjuryLog(new InjuryResolution(PlayerPitchState.Prone), player, armorRoll, 0, player.Stats.Armor, armorBroken: false, injuryRoll: null, injuryModifier: 0);
             }
 
-            return ResolveInjury(Roll2D6());
+            // Arm Bar's +1 is what broke the armour, so the injury roll itself is unmodified.
+            var armBarInjuryRoll = Roll2D6();
+            return WithInjuryLog(ResolveInjury(armBarInjuryRoll), player, armorRoll, 1, player.Stats.Armor, armorBroken: true, injuryRoll: armBarInjuryRoll, injuryModifier: 0);
         }
 
         var injuryRoll = Roll2D6();
-        return ResolveInjury(armBarApplies ? injuryRoll + 1 : injuryRoll);
+        var injuryModifier = armBarApplies ? 1 : 0;
+        return WithInjuryLog(ResolveInjury(injuryRoll + injuryModifier), player, armorRoll, 0, player.Stats.Armor, armorBroken: true, injuryRoll, injuryModifier);
     }
     private static MatchState AwardCasualtyIfCaused(MatchState match, LeagueTeam team, Player player, LeagueTeam victimTeam, Guid victimPlayerId)
     {
@@ -1771,14 +1847,58 @@ public sealed partial class MatchService
         {
             if (hasIronHardSkin || !hasMightyBlowArmor || armorRoll + 1 <= defender.Stats.Armor)
             {
-                return new InjuryResolution(PlayerPitchState.Prone);
+                return WithInjuryLog(new InjuryResolution(PlayerPitchState.Prone), defender, armorRoll, 0, defender.Stats.Armor, armorBroken: false, injuryRoll: null, injuryModifier: 0);
             }
 
-            return ResolveInjury(ruleset, defender, Roll2D6());
+            // Mighty Blow's +1 broke the armour, so the injury roll itself is unmodified.
+            var mightyBlowInjuryRoll = Roll2D6();
+            return WithInjuryLog(ResolveInjury(ruleset, defender, mightyBlowInjuryRoll), defender, armorRoll, 1, defender.Stats.Armor, armorBroken: true, injuryRoll: mightyBlowInjuryRoll, injuryModifier: 0);
         }
 
         var injuryRoll = Roll2D6();
-        return ResolveInjury(ruleset, defender, hasMightyBlowInjury ? injuryRoll + 1 : injuryRoll);
+        var injuryModifier = hasMightyBlowInjury ? 1 : 0;
+        var armorNote = clawsBreaksArmor && armorRoll <= defender.Stats.Armor ? "Claws" : null;
+        return WithInjuryLog(ResolveInjury(ruleset, defender, injuryRoll + injuryModifier), defender, armorRoll, 0, defender.Stats.Armor, armorBroken: true, injuryRoll, injuryModifier, armorNote);
+    }
+
+    /// <summary>
+    /// Attaches armour/injury/casualty roll detail lines to an <see cref="InjuryResolution"/> so the
+    /// resolution carries its own log. Application sites (block knockdowns, pushes, dodge/go-for-it falls)
+    /// splice <see cref="InjuryResolution.Log"/> into the match log next to the outcome they already report.
+    /// </summary>
+    private static InjuryResolution WithInjuryLog(
+        InjuryResolution injury,
+        Player victim,
+        int armorRoll,
+        int armorModifier,
+        int armorValue,
+        bool armorBroken,
+        int? injuryRoll,
+        int injuryModifier,
+        string? armorNote = null)
+    {
+        var noteText = armorNote is null ? "" : $" ({armorNote})";
+        var log = new List<MatchLogEntry>
+        {
+            new() { Message = $"{victim.Name} armour roll {FormatModifiedRoll(armorRoll, armorModifier)} vs AV {armorValue}+, {(armorBroken ? "broken" : "holds")}{noteText}." }
+        };
+
+        if (armorBroken && injuryRoll is int roll)
+        {
+            log.Add(new MatchLogEntry { Message = $"{victim.Name} injury roll {FormatModifiedRoll(roll, injuryModifier)}: {FormatPitchState(injury.State)}." });
+        }
+
+        if (injury.Casualty is not null)
+        {
+            log.Add(new MatchLogEntry { Message = $"{victim.Name} casualty roll {injury.Casualty.Roll}: {FormatCasualtyResult(injury.Casualty.Result)}." });
+        }
+
+        return injury with { Log = log };
+    }
+
+    private static string FormatModifiedRoll(int roll, int modifier)
+    {
+        return modifier == 0 ? $"{roll}" : $"{roll} +{modifier} = {roll + modifier}";
     }
 
     private InjuryResolution ResolveInjury(int injuryRoll)

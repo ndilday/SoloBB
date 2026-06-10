@@ -29,7 +29,7 @@ Coverage states:
 | Hotseat match creation | tested | Smoke section: match creation, setup, and persistence | Creates placements, active teams, rerolls, leader availability, staff, and apothecaries. |
 | Match persistence | tested | Smoke section: match creation, setup, and persistence | Match state round-trips through JSON. |
 | Setup formation rules | tested | Smoke section: match creation, setup, and persistence | Covers side-of-pitch, line-of-scrimmage, wide-zone, player-count, and unavailable-player guards. |
-| Kickoff scatter and touchbacks | tested | Smoke section: kickoff, weather, and kickoff events | Includes Kick skill scatter reduction. |
+| Kickoff scatter and touchbacks | tested | Smoke section: kickoff, weather, and kickoff events | Includes Kick skill scatter reduction and a team/skill reroll on a dropped kickoff catch. |
 | Kickoff table | partially implemented | Smoke section: kickoff, weather, and kickoff events | Tests Get the Ref, Cheering Fans, Changing Weather, High Kick, Quick Snap, Solid Defence, Throw a Rock. |
 | Kickoff Blitz event | partially implemented | Smoke section: kickoff, weather, and kickoff events | Event state and blocks exist; full timing should be reviewed against tabletop rules. |
 | Weather | tested | Smoke section: kickoff, weather, and kickoff events | Weather affects passing, catching, pickup, and rush targets where currently implemented. |
@@ -47,8 +47,8 @@ Coverage states:
 | Pickup | tested | Smoke section: movement, ball pickup, and scoring | Includes Sure Hands, Big Hand, Extra Arms, weather, tackle zones, and failures. |
 | Ball landing and bouncing | tested | Smoke sections: movement/scoring and hand-offs/passing | Covers chained bounces and friendly recovery avoiding turnovers. |
 | Touchdowns | tested | Smoke section: movement, ball pickup, and scoring | Scores and resets to setup. |
-| Hand-offs | tested | Smoke section: hand-offs, passing, and interference | Includes catches, failed handoffs, turnovers, and bouncing. |
-| Passing | tested | Smoke section: hand-offs, passing, and interference | Includes pass ranges, weather, Pass reroll, accurate/inaccurate/fumbled passes, Safe Pass, and empty target squares. |
+| Hand-offs | tested | Smoke section: hand-offs, passing, and interference | Includes catches, failed handoffs, team/skill reroll on a dropped catch, turnovers, and bouncing. |
+| Passing | tested | Smoke section: hand-offs, passing, and interference | Includes pass ranges, weather, Pass reroll, team/skill reroll on a dropped catch, accurate/inaccurate/fumbled passes, Safe Pass, and empty target squares. |
 | Interference/interceptions | tested | Smoke section: hand-offs, passing, and interference | Includes multiple eligible interceptors and Cloud Burster. |
 | Hail Mary Pass | tested | Smoke section: hand-offs, passing, and interference | Simplified special pass behavior is covered. |
 | Dump-Off | tested | Smoke section: hand-offs, passing, and interference | Exists as an explicit method; full block-interrupt timing should be reviewed. |
@@ -77,12 +77,12 @@ Coverage states:
 | Dodge | tested | Movement skills section | Reroll offered and Tackle cancellation covered. |
 | Tackle | tested | Movement skills section | Cancels Dodge reroll. |
 | Sure Hands | tested | Movement/scoring section | Pickup reroll and Strip Ball immunity. |
-| Catch | tested | Hand-offs/passing section | Catch reroll behavior. |
+| Catch | tested | Hand-offs/passing section | Catch reroll behavior, including a team/skill reroll on dropped pass, hand-off, and bouncing-ball catches. |
 | Pass | tested | Hand-offs/passing section | Optional pass reroll. |
 | Sure Feet | tested | Movement skills section | Rush reroll behavior. |
 | Sprint | tested | Movement skills section | Extra rush allowance. |
 | Leap | tested | Movement skills section | Leap movement and failure behavior. |
-| Jump Up | tested | Movement skills section | Standing movement and block-from-prone behavior. |
+| Jump Up | tested | Movement skills section | Standing movement and block-from-prone behavior, including a team/Pro reroll on a failed Jump Up roll. |
 | Diving Catch | tested | Hand-offs/passing section | Nearby accurate-pass catch behavior. |
 | Diving Tackle | partially implemented | Movement skills section | Behavior exists; coach-choice timing needs review. |
 | Safe Pair of Hands | tested | Blocking section | Creates a legal ball-placement choice when the carrier is knocked down. |
@@ -91,7 +91,7 @@ Coverage states:
 | Grab | tested | Blocking section | Push control and Side Step interaction. |
 | Guard | tested | Blocking section | Marked assist behavior. |
 | Defensive | tested | Blocking section | Cancels opposing Guard assists. |
-| Dauntless | tested | Blocking section | Strength challenge behavior. |
+| Dauntless | tested | Blocking section | Strength challenge behavior, including a team/Pro reroll on a failed Dauntless roll before the block dice. |
 | Horns | tested | Blocking section | Blitz strength modifier. |
 | Juggernaut | tested | Blocking section | Blitz block-result interaction. |
 | Brawler | tested | Blocking section | Both Down reroll behavior. |
@@ -138,11 +138,11 @@ Coverage states:
 | --- | --- | --- | --- |
 | Bone-head | tested | Movement skills section | Failed checks waste the action and remove tackle zones until the player successfully starts a later action or is reset. |
 | Loner | tested | Movement skills section | Failed Loner checks prevent team-reroll use without spending the reroll. |
-| Throw Team-Mate / Right Stuff | tested | Throw and kick team-mate section | Right Stuff validation, launch, landing, crash, turnover, and touchdown behavior. |
-| Always Hungry / Swoop / Kick Team-Mate | tested | Throw and kick team-mate section | Always Hungry casualty, Swoop scatter, and Kick Team-Mate launch/landing behavior. |
+| Throw Team-Mate / Right Stuff | tested | Throw and kick team-mate section | Right Stuff validation, launch, landing, crash, turnover, and touchdown behavior, including team/Pro rerolls on the throw and landing rolls. |
+| Always Hungry / Swoop / Kick Team-Mate | tested | Throw and kick team-mate section | Always Hungry casualty, Swoop scatter, and Kick Team-Mate launch/landing behavior, including a reroll on the kick accuracy roll. |
 | Really Stupid / Take Root / Animal Savagery / Unchannelled Fury / Bloodlust | partially implemented | Movement skills section | Reliability checks are implemented and tested. Animal Savagery and Bloodlust currently use simplified action-wasted behavior rather than full teammate-injury/bite resolution. |
 | No Hands | tested | Movement skills section | Prevents pickup and catch attempts; failed pickup bounces the ball. |
 | Stunty / Titchy | partially implemented | Movement skills section | Dodge modifiers are implemented and tested. Full Titchy no-tackle-zone behavior and full Stunty injury nuance should still be reviewed. |
 | Regeneration / Decay / Plague Ridden / Pick-me-up | tested | Blocking/injuries and movement/scoring sections | Regeneration, Decay, Pick-me-up recovery, and simplified Plague Ridden roster replacement are covered. |
-| Chainsaw / Stab / Bombardier / Projectile Vomit / Breathe Fire | partially implemented | Special actions section | Explicit special-action APIs with armor/injury, bomb catch/explosion, activation, and ball-drop coverage. Secret Weapon send-offs and deeper weapon timing remain for drive/UI work. |
-| Ball and Chain / Hypnotic Gaze / Swarming | partially implemented | Special actions section | Ball and Chain random movement/blocking and Hypnotic Gaze tackle-zone removal are covered. Swarming remains data-only. |
+| Chainsaw / Stab / Bombardier / Projectile Vomit / Breathe Fire | partially implemented | Special actions section | Explicit special-action APIs with armor/injury, bomb catch/explosion, activation, and ball-drop coverage, including team/Pro rerolls on the bomb throw and a friendly bomb catch. Secret Weapon send-offs and deeper weapon timing remain for drive/UI work. |
+| Ball and Chain / Hypnotic Gaze / Swarming | partially implemented | Special actions section | Ball and Chain random movement/blocking and Hypnotic Gaze tackle-zone removal (with a reroll on the gaze roll) are covered. Swarming remains data-only. |

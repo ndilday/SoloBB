@@ -68,8 +68,10 @@ public sealed partial class MatchService
             return CreatePendingTouchback(kickoffMatch, receivingTeam, [.. log, new MatchLogEntry { Message = "Touchback. Choose a receiving player to carry the ball." }]);
         }
 
-        var bouncedMatch = ResolveKickoffLanding(kickoffMatch, ruleset, receivingTeam, scatterSquare);
-        return bouncedMatch with
+        // Transition to the receiving team's turn before the ball lands so the catch happens during their
+        // turn; that lets the receiving team spend a team reroll on it, and any resulting pending reroll
+        // is captured against the already-transitioned state.
+        var preLanding = kickoffMatch with
         {
             Phase = MatchPhase.OffensivePlayerTurn,
             DriveState = DriveState.InProgress,
@@ -77,11 +79,13 @@ public sealed partial class MatchService
             PendingKickoffEvent = null,
             Log =
             [
-                .. bouncedMatch.Log,
+                .. kickoffMatch.Log,
                 .. log,
                 new MatchLogEntry { Message = "Kickoff resolved. Offensive player turn begins." }
             ]
         };
+
+        return ResolveKickoffLanding(preLanding, ruleset, receivingTeam, scatterSquare);
     }
 
     private KickoffEventResult ResolveKickoffEvent(MatchState match, Ruleset ruleset, Guid receivingTeamId, Guid kickingTeamId, int roll)
@@ -259,18 +263,19 @@ public sealed partial class MatchService
             return CreatePendingTouchback(baseMatch, receivingTeam, [new MatchLogEntry { Message = $"Touchback after {FormatKickoffEventKind(pending.Kind)}. Choose a receiving player to carry the ball." }]);
         }
 
-        var landedMatch = ResolveKickoffLanding(baseMatch, ruleset, receivingTeam, landingSquare);
-        return landedMatch with
+        var preLanding = baseMatch with
         {
             Phase = MatchPhase.OffensivePlayerTurn,
             DriveState = DriveState.InProgress,
             Activations = [],
             Log =
             [
-                .. landedMatch.Log,
+                .. baseMatch.Log,
                 new MatchLogEntry { Message = $"{FormatKickoffEventKind(pending.Kind)} complete. Kickoff resolved. Offensive player turn begins." }
             ]
         };
+
+        return ResolveKickoffLanding(preLanding, ruleset, receivingTeam, landingSquare);
     }
 
     private PendingKickoffEventChoice? CreatePendingKickoffEvent(
