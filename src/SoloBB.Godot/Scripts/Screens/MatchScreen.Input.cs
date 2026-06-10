@@ -594,6 +594,10 @@ public partial class MatchScreen : VBoxContainer
         _previewFoulVictimId = null;
         _previewDestination = null;
         _previewPath = [];
+        var passerPl = _match.Placements.FirstOrDefault(p => p.PlayerId == passerId);
+        _previewPassLinePath = passerPl?.Square is PitchSquare passerSq
+            ? BuildMovementPath(passerSq, targetSquare)
+            : [];
         RefreshRoster();
         RefreshPitch();
     }
@@ -606,6 +610,7 @@ public partial class MatchScreen : VBoxContainer
         _match = service.PassBall(_match, _ruleset, ActiveTeam(), passerId, targetSquare, OpponentTeam());
         _previewPassReceiverId = null;
         _previewPassTargetSquare = null;
+        _previewPassLinePath = [];
 
         // The pass completes the player's action. Deselect so the spent passer cannot be
         // re-selected to move again under the already-resolved Pass action.

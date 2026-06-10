@@ -64,6 +64,15 @@ public partial class MatchScreen : VBoxContainer
         RefreshStandFirmChoice();
         RefreshDivingTackleChoice();
         RefreshSetupChoice();
+        // Resolve the current pass preview range name once so each tile can look it up cheaply.
+        string? passPreviewRangeName = null;
+        if (_previewPassTargetSquare is PitchSquare passPreviewTarget && _selectedPlayerId is Guid passPreviewerId)
+        {
+            var passPreviewPl = _match.Placements.FirstOrDefault(pl => pl.PlayerId == passPreviewerId);
+            if (passPreviewPl?.Square is PitchSquare passerSq)
+                passPreviewRangeName = ResolvePassRange(passerSq, passPreviewTarget)?.Name;
+        }
+
         foreach (var (square, tile) in _pitchTiles)
         {
             var canPlace = IsLegalPlacementTarget(square);
@@ -78,13 +87,20 @@ public partial class MatchScreen : VBoxContainer
                 _previewLaunchedPlayerId is Guid launchedId &&
                 IsLegalLaunchTargetSquare(launchActorId, launchedId, square);
             var isPreview = _previewPath.Contains(square);
-            var pathMarker = canLaunchTarget ? "L" : canThrowBomb ? "B" : canPlaceBall ? "o" : canFollowUp ? "F" : canPush ? ">" : _previewPassTargetSquare == square ? "P" : MovementPathMarker(square);
+            var isOnPassLine = _previewPassLinePath.Contains(square);
+            var pathMarker = canLaunchTarget ? "L" : canThrowBomb ? "B" : canPlaceBall ? "o" : canFollowUp ? "F" : canPush ? ">" : _previewPassTargetSquare == square ? "P" : isOnPassLine ? "." : MovementPathMarker(square);
             tile.Text = "";
             tile.Icon = null;
             tile.SetTile(PitchTileTexture(square, canPlace || canTargetKickoff || canMove || canPassSquare || canPush || canFollowUp || canPlaceBall || canThrowBomb || canLaunchTarget, pathMarker));
             var isGfi = pathMarker?.StartsWith('!') == true ||
                 (canMove && _selectedPlayerId is Guid gfiPlayerId && IsGoForItMovementTarget(gfiPlayerId, square));
-            tile.SetHighlight(PitchHighlightTexture(canPlace || canTargetKickoff || canMove || canPassSquare || canPush || canFollowUp || canPlaceBall || canThrowBomb || canLaunchTarget, pathMarker), isGfi ? GoForItPathColor : null);
+            var passLineActive = isOnPassLine || _previewPassTargetSquare == square;
+            var passRangeHighlightColor = passLineActive && passPreviewRangeName is not null
+                ? (Color?)PassRangeHighlightColor(passPreviewRangeName)
+                : null;
+            // Pass range squares stay clickable but are not highlighted until a target is right-clicked.
+            var highlightCanUse = canPlace || canTargetKickoff || canMove || canPush || canFollowUp || canPlaceBall || canThrowBomb || canLaunchTarget || passLineActive;
+            tile.SetHighlight(PitchHighlightTexture(highlightCanUse, pathMarker), passRangeHighlightColor ?? (isGfi ? GoForItPathColor : null));
             tile.SetMarking(PitchMarkingTexture(square));
             tile.SetPiece(null);
             tile.SetOverlay(null);
@@ -130,6 +146,10 @@ public partial class MatchScreen : VBoxContainer
             if (isSelected)
             {
                 tile.SetHighlight(AtlasCell(_pitchTileSheet, "overlay:selected", 0, 3));
+            }
+            else if (PassPreviewRole(placement.PlayerId) == "interceptor")
+            {
+                tile.SetHighlight(AtlasCell(_pitchTileSheet, "overlay:legal", 1, 3), InterceptorColor);
             }
             tile.Text = "";
             tile.TooltipText = PlayerPitchTooltip(placement);
@@ -750,6 +770,15 @@ public partial class MatchScreen : VBoxContainer
     {
         return new Color("285c31");
     }
+
+    private static Color PassRangeHighlightColor(string rangeName) => rangeName switch
+    {
+        "quick" => new Color("40b090"),
+        "short" => new Color("4d79c7"),
+        "long" => new Color("d98532"),
+        "long bomb" => new Color("a33f3f"),
+        _ => new Color("e9e1c8")
+    };
 
     private static string FormatCasualtyResult(CasualtyResult result)
     {

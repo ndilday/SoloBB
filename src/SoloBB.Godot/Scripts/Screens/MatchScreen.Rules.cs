@@ -1382,6 +1382,7 @@ public partial class MatchScreen : VBoxContainer
         _previewFoulVictimId = null;
         _previewPassReceiverId = null;
         _previewPassTargetSquare = null;
+        _previewPassLinePath = [];
         _previewHandOffReceiverId = null;
         _previewLaunchedPlayerId = null;
         _previewLaunchTargetSquare = null;

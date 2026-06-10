@@ -67,6 +67,7 @@ public partial class MatchScreen : VBoxContainer
     private Guid? _previewFoulVictimId;
     private Guid? _previewPassReceiverId;
     private PitchSquare? _previewPassTargetSquare;
+    private IReadOnlyList<PitchSquare> _previewPassLinePath = [];
     private Guid? _previewHandOffReceiverId;
     private Guid? _previewLaunchedPlayerId;
     private PitchSquare? _previewLaunchTargetSquare;
@@ -139,6 +140,7 @@ public partial class MatchScreen : VBoxContainer
         _previewFoulVictimId = null;
         _previewPassReceiverId = null;
         _previewPassTargetSquare = null;
+        _previewPassLinePath = [];
         _previewLaunchedPlayerId = null;
         _previewLaunchTargetSquare = null;
         _animationBallSquare = null;
