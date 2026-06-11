@@ -53,7 +53,7 @@ public sealed partial class MatchService
             throw new InvalidOperationException($"Both teams must have at least {minimumPlayersToField} players available.");
         }
 
-        return new MatchState
+        var initialMatch = new MatchState
         {
             Id = Guid.NewGuid(),
             RulesetId = ruleset.Id,
@@ -66,8 +66,8 @@ public sealed partial class MatchService
             AwayRerollsRemaining = awayTeam.Rerolls,
             HomeTeamRerolls = homeTeam.Rerolls,
             AwayTeamRerolls = awayTeam.Rerolls,
-            HomeBribesRemaining = homeInducements.Bribes + PreGameService.SelectedInducementCount(homeInducements, "bribe"),
-            AwayBribesRemaining = awayInducements.Bribes + PreGameService.SelectedInducementCount(awayInducements, "bribe"),
+            HomeBribesRemaining = homeInducements.Bribes + PreGameService.SelectedInducementCount(homeInducements, "bribe") + SelectedOptionEffectCount(ruleset, homeInducements, "biased-referee", "referee-friendly"),
+            AwayBribesRemaining = awayInducements.Bribes + PreGameService.SelectedInducementCount(awayInducements, "bribe") + SelectedOptionEffectCount(ruleset, awayInducements, "biased-referee", "referee-friendly"),
             HomeTreasurySpent = homeInducements.TreasurySpent,
             AwayTreasurySpent = awayInducements.TreasurySpent,
             HomeLeaderRerollAvailable = HasLeaderPlayer(ruleset, homeTeam),
@@ -78,6 +78,20 @@ public sealed partial class MatchService
             AwayAssistantCoaches = awayTeam.AssistantCoaches,
             HomeApothecariesRemaining = homeTeam.Apothecaries,
             AwayApothecariesRemaining = awayTeam.Apothecaries,
+            HomeBloodweiserKegs = PreGameService.SelectedInducementCount(homeInducements, "bloodweiser-keg") + SelectedOptionEffectCount(ruleset, homeInducements, "infamous-coaching-staff", "staff-recovery"),
+            AwayBloodweiserKegs = PreGameService.SelectedInducementCount(awayInducements, "bloodweiser-keg") + SelectedOptionEffectCount(ruleset, awayInducements, "infamous-coaching-staff", "staff-recovery"),
+            HomeWeatherMagesRemaining = PreGameService.SelectedInducementCount(homeInducements, "weather-mage"),
+            AwayWeatherMagesRemaining = PreGameService.SelectedInducementCount(awayInducements, "weather-mage"),
+            HomeSpecialPlaysRemaining = PreGameService.SelectedInducementCount(homeInducements, "special-play"),
+            AwaySpecialPlaysRemaining = PreGameService.SelectedInducementCount(awayInducements, "special-play"),
+            HomeHasMasterChef = PreGameService.SelectedInducementCount(homeInducements, "halfling-master-chef") > 0,
+            AwayHasMasterChef = PreGameService.SelectedInducementCount(awayInducements, "halfling-master-chef") > 0,
+            HomeWizardEffect = SelectedOptionEffect(ruleset, homeInducements, "wizard"),
+            AwayWizardEffect = SelectedOptionEffect(ruleset, awayInducements, "wizard"),
+            HomeWizardsRemaining = PreGameService.SelectedInducementCount(homeInducements, "wizard"),
+            AwayWizardsRemaining = PreGameService.SelectedInducementCount(awayInducements, "wizard"),
+            HomeBribeRollModifier = SelectedOptionEffectCount(ruleset, homeInducements, "biased-referee", "referee-friendly") - SelectedOptionEffectCount(ruleset, awayInducements, "biased-referee", "referee-intimidating"),
+            AwayBribeRollModifier = SelectedOptionEffectCount(ruleset, awayInducements, "biased-referee", "referee-friendly") - SelectedOptionEffectCount(ruleset, homeInducements, "biased-referee", "referee-intimidating"),
             Placements = CreateInitialPlacements(homeTeam, awayTeam),
             SecretWeaponPlayerIds =
             [
@@ -93,6 +107,58 @@ public sealed partial class MatchService
             [
                 new MatchLogEntry { Message = $"Created hotseat match: {homeTeam.Name} vs {awayTeam.Name}. Defense sets up first." }
             ]
+        };
+
+        return ApplyMasterChef(initialMatch);
+    }
+
+    public MatchState UseWeatherMage(MatchState match, LeagueTeam team)
+    {
+        EnsureInducementCanBeUsed(match, team, "Weather Mage");
+        if (TeamWeatherMagesRemaining(match, team.Id) <= 0)
+        {
+            throw new InvalidOperationException($"{team.Name} has no Weather Mage remaining.");
+        }
+
+        var roll = Roll2D6();
+        var weather = ResolveWeather(roll);
+        return SpendWeatherMage(match, team.Id) with
+        {
+            Weather = weather,
+            Log = [.. match.Log, new MatchLogEntry { Message = $"{team.Name} uses a Weather Mage: weather roll {roll}, now {FormatWeather(weather)}." }]
+        };
+    }
+
+    public MatchState UseSpecialPlay(MatchState match, LeagueTeam team)
+    {
+        EnsureInducementCanBeUsed(match, team, "Special Play");
+        if (TeamSpecialPlaysRemaining(match, team.Id) <= 0)
+        {
+            throw new InvalidOperationException($"{team.Name} has no Special Play remaining.");
+        }
+
+        var roll = _dice.RollD6();
+        var spent = SpendSpecialPlay(match, team.Id);
+        var result = roll switch
+        {
+            <= 2 => AddTeamReroll(spent, team.Id),
+            3 => AddTeamBribe(spent, team.Id),
+            4 => AddTeamApothecary(spent, team.Id),
+            5 => AddTeamCheerleader(spent, team.Id),
+            _ => AddTeamAssistantCoach(spent, team.Id)
+        };
+        var benefit = roll switch
+        {
+            <= 2 => "one team reroll",
+            3 => "one bribe",
+            4 => "one apothecary",
+            5 => "one cheerleader",
+            _ => "one assistant coach"
+        };
+
+        return result with
+        {
+            Log = [.. match.Log, new MatchLogEntry { Message = $"{team.Name} reveals a Special Play: rolled {roll}, gaining {benefit} for this match." }]
         };
     }
     public MatchState AdvancePhase(MatchState match, Ruleset? ruleset = null)
@@ -945,7 +1011,7 @@ public sealed partial class MatchService
         var recoveredMatch = ResolveKnockoutRecoveries(match);
         var resetPlacements = ResetAvailablePlayersToReserve(recoveredMatch);
 
-        return recoveredMatch with
+        var secondHalfMatch = recoveredMatch with
         {
             Half = 2,
             Drive = recoveredMatch.Drive + 1,
@@ -979,6 +1045,8 @@ public sealed partial class MatchService
             PendingKickoffEvent = null,
             Log = [.. recoveredMatch.Log, new MatchLogEntry { Message = "Second half begins. First-half receiving team kicks off." }]
         };
+
+        return ApplyMasterChef(secondHalfMatch);
     }
     private static MatchState IncrementTeamTurn(MatchState match, Guid teamId)
     {
@@ -1149,7 +1217,8 @@ public sealed partial class MatchService
             }
 
             var roll = _dice.RollD6();
-            var target = HasActivePickMeUp(match, placement.TeamId) ? 3 : 4;
+            var recoveryBonus = TeamBloodweiserKegs(match, placement.TeamId) + (HasActivePickMeUp(match, placement.TeamId) ? 1 : 0);
+            var target = Math.Max(2, 4 - recoveryBonus);
             if (roll >= target)
             {
                 placements.Add(placement with
@@ -1183,6 +1252,143 @@ public sealed partial class MatchService
             placement.TeamId == teamId &&
             match.PickMeUpPlayerIds.Contains(placement.PlayerId) &&
             placement.State is PlayerPitchState.Standing or PlayerPitchState.Prone or PlayerPitchState.Stunned or PlayerPitchState.Reserve);
+    }
+
+    private MatchState ApplyMasterChef(MatchState match)
+    {
+        var nextMatch = match;
+        if (match.HomeHasMasterChef)
+        {
+            nextMatch = ResolveMasterChef(nextMatch, match.HomeTeamId);
+        }
+
+        if (match.AwayHasMasterChef)
+        {
+            nextMatch = ResolveMasterChef(nextMatch, match.AwayTeamId);
+        }
+
+        return nextMatch;
+    }
+
+    private MatchState ResolveMasterChef(MatchState match, Guid teamId)
+    {
+        var successes = Enumerable.Range(0, 3).Count(_ => _dice.RollD6() >= 4);
+        var opponentId = GetOpponentTeamId(match, teamId);
+        var availableToSteal = TeamRerollsRemaining(match, opponentId);
+        var stolen = Math.Min(successes, availableToSteal);
+        var nextMatch = SetTeamRerollsRemaining(match, teamId, TeamRerollsRemaining(match, teamId) + stolen);
+        nextMatch = SetTeamRerollsRemaining(nextMatch, opponentId, availableToSteal - stolen);
+        return nextMatch with
+        {
+            Log =
+            [
+                .. match.Log,
+                new MatchLogEntry { Message = $"{(teamId == match.HomeTeamId ? "Home" : "Away")} Master Chef rolls {successes} success{(successes == 1 ? "" : "es")} and steals {stolen} reroll{(stolen == 1 ? "" : "s")} for half {match.Half}." }
+            ]
+        };
+    }
+
+    private static void EnsureInducementCanBeUsed(MatchState match, LeagueTeam team, string name)
+    {
+        EnsureNoPendingChoices(match);
+        if (match.ActiveTeamId != team.Id || match.Phase is not (MatchPhase.OffensivePlayerTurn or MatchPhase.DefensiveTurn))
+        {
+            throw new InvalidOperationException($"{name} can only be used at the start of that team's turn.");
+        }
+
+        if (match.Activations.Count > 0)
+        {
+            throw new InvalidOperationException($"{name} must be used before activating a player.");
+        }
+    }
+
+    private static int TeamBloodweiserKegs(MatchState match, Guid teamId)
+    {
+        return teamId == match.HomeTeamId ? match.HomeBloodweiserKegs : match.AwayBloodweiserKegs;
+    }
+
+    private static int TeamWeatherMagesRemaining(MatchState match, Guid teamId)
+    {
+        return teamId == match.HomeTeamId ? match.HomeWeatherMagesRemaining : match.AwayWeatherMagesRemaining;
+    }
+
+    private static int TeamSpecialPlaysRemaining(MatchState match, Guid teamId)
+    {
+        return teamId == match.HomeTeamId ? match.HomeSpecialPlaysRemaining : match.AwaySpecialPlaysRemaining;
+    }
+
+    private static MatchState SpendWeatherMage(MatchState match, Guid teamId)
+    {
+        return teamId == match.HomeTeamId
+            ? match with { HomeWeatherMagesRemaining = Math.Max(0, match.HomeWeatherMagesRemaining - 1) }
+            : match with { AwayWeatherMagesRemaining = Math.Max(0, match.AwayWeatherMagesRemaining - 1) };
+    }
+
+    private static MatchState SpendSpecialPlay(MatchState match, Guid teamId)
+    {
+        return teamId == match.HomeTeamId
+            ? match with { HomeSpecialPlaysRemaining = Math.Max(0, match.HomeSpecialPlaysRemaining - 1) }
+            : match with { AwaySpecialPlaysRemaining = Math.Max(0, match.AwaySpecialPlaysRemaining - 1) };
+    }
+
+    private static MatchState SetTeamRerollsRemaining(MatchState match, Guid teamId, int value)
+    {
+        return teamId == match.HomeTeamId
+            ? match with { HomeRerollsRemaining = Math.Max(0, value) }
+            : match with { AwayRerollsRemaining = Math.Max(0, value) };
+    }
+
+    private static MatchState AddTeamReroll(MatchState match, Guid teamId)
+    {
+        return SetTeamRerollsRemaining(match, teamId, TeamRerollsRemaining(match, teamId) + 1);
+    }
+
+    private static MatchState AddTeamBribe(MatchState match, Guid teamId)
+    {
+        return teamId == match.HomeTeamId
+            ? match with { HomeBribesRemaining = match.HomeBribesRemaining + 1 }
+            : match with { AwayBribesRemaining = match.AwayBribesRemaining + 1 };
+    }
+
+    private static MatchState AddTeamApothecary(MatchState match, Guid teamId)
+    {
+        return teamId == match.HomeTeamId
+            ? match with { HomeApothecariesRemaining = match.HomeApothecariesRemaining + 1 }
+            : match with { AwayApothecariesRemaining = match.AwayApothecariesRemaining + 1 };
+    }
+
+    private static MatchState AddTeamCheerleader(MatchState match, Guid teamId)
+    {
+        return teamId == match.HomeTeamId
+            ? match with { HomeCheerleaders = match.HomeCheerleaders + 1 }
+            : match with { AwayCheerleaders = match.AwayCheerleaders + 1 };
+    }
+
+    private static MatchState AddTeamAssistantCoach(MatchState match, Guid teamId)
+    {
+        return teamId == match.HomeTeamId
+            ? match with { HomeAssistantCoaches = match.HomeAssistantCoaches + 1 }
+            : match with { AwayAssistantCoaches = match.AwayAssistantCoaches + 1 };
+    }
+
+    private static int SelectedOptionEffectCount(Ruleset ruleset, TeamInducementPlan plan, string inducementId, string effect)
+    {
+        var definition = ruleset.Inducements.First(inducement => string.Equals(inducement.Id, inducementId, StringComparison.OrdinalIgnoreCase));
+        return plan.Inducements
+            .Where(selected => string.Equals(selected.InducementId, inducementId, StringComparison.OrdinalIgnoreCase))
+            .Where(selected => definition.Options.Any(option =>
+                string.Equals(option.Id, selected.OptionId, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(option.Effect, effect, StringComparison.OrdinalIgnoreCase)))
+            .Sum(selected => selected.Count);
+    }
+
+    private static string SelectedOptionEffect(Ruleset ruleset, TeamInducementPlan plan, string inducementId)
+    {
+        var definition = ruleset.Inducements.First(inducement => string.Equals(inducement.Id, inducementId, StringComparison.OrdinalIgnoreCase));
+        var selected = plan.Inducements.FirstOrDefault(current => string.Equals(current.InducementId, inducementId, StringComparison.OrdinalIgnoreCase));
+        return selected is null
+            ? ""
+            : definition.Options.FirstOrDefault(option => string.Equals(option.Id, selected.OptionId, StringComparison.OrdinalIgnoreCase))?.Effect ?? "";
     }
 
     private static MatchState RecoverStunnedPlayers(MatchState match, Guid teamId)

@@ -19,6 +19,7 @@ public sealed record TeamInducementPlan
 public sealed record SelectedInducement
 {
     public required string InducementId { get; init; }
+    public string OptionId { get; init; } = "";
     public int Count { get; init; }
 }
 
@@ -62,6 +63,19 @@ public sealed record AvailableInducementSummary
     public required string Kind { get; init; }
     public required string Description { get; init; }
     public bool MatchEffectImplemented { get; init; }
+    public IReadOnlyList<InducementOptionSummary> PickerOptions { get; init; } = [];
+}
+
+public sealed record InducementOptionSummary
+{
+    public required string Id { get; init; }
+    public required string Name { get; init; }
+    public int Cost { get; init; }
+    public required string Effect { get; init; }
+    public required string Description { get; init; }
+    public string PositionId { get; init; } = "";
+    public PlayerStats? Stats { get; init; }
+    public IReadOnlyList<string> Skills { get; init; } = [];
 }
 
 public sealed record EligibleStarPlayerSummary

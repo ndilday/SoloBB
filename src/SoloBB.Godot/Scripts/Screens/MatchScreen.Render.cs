@@ -77,6 +77,7 @@ public partial class MatchScreen : VBoxContainer
         {
             var canPlace = IsLegalPlacementTarget(square);
             var canTargetKickoff = IsLegalKickoffTarget(square);
+            var canTargetWizard = IsLegalWizardTarget(square);
             var canMove = _selectedPlayerId is Guid movingPlayerId && IsLegalMovementTarget(movingPlayerId, square);
             var canPassSquare = _passMode && _selectedPlayerId is Guid passingPlayerId && IsLegalPassTargetSquare(passingPlayerId, square);
             var canPush = IsLegalPushSquare(square);
@@ -88,10 +89,10 @@ public partial class MatchScreen : VBoxContainer
                 IsLegalLaunchTargetSquare(launchActorId, launchedId, square);
             var isPreview = _previewPath.Contains(square);
             var isOnPassLine = _previewPassLinePath.Contains(square);
-            var pathMarker = canLaunchTarget ? "L" : canThrowBomb ? "B" : canPlaceBall ? "o" : canFollowUp ? "F" : canPush ? ">" : _previewPassTargetSquare == square ? "P" : isOnPassLine ? "." : MovementPathMarker(square);
+            var pathMarker = canTargetWizard ? "W" : canLaunchTarget ? "L" : canThrowBomb ? "B" : canPlaceBall ? "o" : canFollowUp ? "F" : canPush ? ">" : _previewPassTargetSquare == square ? "P" : isOnPassLine ? "." : MovementPathMarker(square);
             tile.Text = "";
             tile.Icon = null;
-            tile.SetTile(PitchTileTexture(square, canPlace || canTargetKickoff || canMove || canPassSquare || canPush || canFollowUp || canPlaceBall || canThrowBomb || canLaunchTarget, pathMarker));
+            tile.SetTile(PitchTileTexture(square, canPlace || canTargetKickoff || canTargetWizard || canMove || canPassSquare || canPush || canFollowUp || canPlaceBall || canThrowBomb || canLaunchTarget, pathMarker));
             var isGfi = pathMarker?.StartsWith('!') == true ||
                 (canMove && _selectedPlayerId is Guid gfiPlayerId && IsGoForItMovementTarget(gfiPlayerId, square));
             var passLineActive = isOnPassLine || _previewPassTargetSquare == square;
@@ -99,15 +100,17 @@ public partial class MatchScreen : VBoxContainer
                 ? (Color?)PassRangeHighlightColor(passPreviewRangeName)
                 : null;
             // Pass range squares stay clickable but are not highlighted until a target is right-clicked.
-            var highlightCanUse = canPlace || canTargetKickoff || canMove || canPush || canFollowUp || canPlaceBall || canThrowBomb || canLaunchTarget || passLineActive;
+            var highlightCanUse = canPlace || canTargetKickoff || canTargetWizard || canMove || canPush || canFollowUp || canPlaceBall || canThrowBomb || canLaunchTarget || passLineActive;
             tile.SetHighlight(PitchHighlightTexture(highlightCanUse, pathMarker), passRangeHighlightColor ?? (isGfi ? GoForItPathColor : null));
             tile.SetMarking(PitchMarkingTexture(square));
             tile.SetPiece(null);
             tile.SetOverlay(null);
             tile.SetStatus(null);
-            tile.Disabled = !canPlace && !canTargetKickoff && !canMove && !canPassSquare && !canPush && !canFollowUp && !canPlaceBall && !canThrowBomb && !canLaunchTarget;
+            tile.Disabled = !canPlace && !canTargetKickoff && !canTargetWizard && !canMove && !canPassSquare && !canPush && !canFollowUp && !canPlaceBall && !canThrowBomb && !canLaunchTarget;
             tile.TooltipText = canLaunchTarget
                 ? LaunchSquareTooltip(square)
+                : canTargetWizard
+                ? "Cast wizard spell here"
                 : canThrowBomb
                 ? "Throw bomb here"
                 : canPlaceBall
@@ -121,8 +124,8 @@ public partial class MatchScreen : VBoxContainer
                 : canPlace || canTargetKickoff || canMove
                 ? MovementTooltip(square, pathMarker)
                 : "";
-            ApplySquareStyle(tile, square, isSelected: false, canUse: canPlace || canTargetKickoff || canMove || canPassSquare || canPush || canFollowUp || canPlaceBall || canThrowBomb || canLaunchTarget, pathMarker);
-            if (isPreview || canPush || canFollowUp || canThrowBomb || canLaunchTarget || _previewPassTargetSquare == square)
+            ApplySquareStyle(tile, square, isSelected: false, canUse: canPlace || canTargetKickoff || canTargetWizard || canMove || canPassSquare || canPush || canFollowUp || canPlaceBall || canThrowBomb || canLaunchTarget, pathMarker);
+            if (isPreview || canTargetWizard || canPush || canFollowUp || canThrowBomb || canLaunchTarget || _previewPassTargetSquare == square)
             {
                 tile.Text = pathMarker ?? (_previewDestination == square ? "X" : ".");
             }
@@ -162,6 +165,7 @@ public partial class MatchScreen : VBoxContainer
             var canPushTarget = IsLegalPushSquare(placement.Square!);
             var canFollowUpTarget = IsLegalFollowUpSquare(placement.Square!);
             var canThrowBombTarget = IsLegalBombThrowSquare(placement.Square!);
+            var canWizardTarget = IsLegalWizardTarget(placement.Square!);
             var canLaunchPlayer = _selectedPlayerId is Guid launchActorIdForPlayer &&
                 _previewLaunchedPlayerId is null &&
                 (_throwTeamMateMode || _kickTeamMateMode) &&
@@ -169,13 +173,14 @@ public partial class MatchScreen : VBoxContainer
             var canLaunchTargetSquare = _selectedPlayerId is Guid launchActorIdForSquare &&
                 _previewLaunchedPlayerId is Guid launchedPlayerId &&
                 IsLegalLaunchTargetSquare(launchActorIdForSquare, launchedPlayerId, placement.Square!);
-            tile.Disabled = !CanSelectPlayer(placement.PlayerId) && !canBlockTarget && !canBlitzTarget && !canKickoffBlitzTarget && !canPassTarget && !canHandOffTarget && !canFoulTarget && !canPushTarget && !canFollowUpTarget && !canThrowBombTarget && !canLaunchPlayer && !canLaunchTargetSquare;
+            var canPlaceBallOnPlayer = IsLegalBallPlacementSquare(placement.Square!);
+            tile.Disabled = !CanSelectPlayer(placement.PlayerId) && !canPlaceBallOnPlayer && !canBlockTarget && !canBlitzTarget && !canKickoffBlitzTarget && !canPassTarget && !canHandOffTarget && !canFoulTarget && !canPushTarget && !canFollowUpTarget && !canThrowBombTarget && !canWizardTarget && !canLaunchPlayer && !canLaunchTargetSquare;
             ApplySquareStyle(
                 tile,
                 placement.Square!,
                 isSelected,
-                canUse: canBlockTarget || canBlitzTarget || canKickoffBlitzTarget || canPassTarget || canHandOffTarget || canFoulTarget || canPushTarget || canFollowUpTarget || canThrowBombTarget || canLaunchPlayer || canLaunchTargetSquare,
-                pathMarker: canLaunchPlayer ? "L" : canLaunchTargetSquare ? "L" : canHandOffTarget ? "H" : canFollowUpTarget ? "F" : canPushTarget ? ">" : null,
+                canUse: canBlockTarget || canBlitzTarget || canKickoffBlitzTarget || canPassTarget || canHandOffTarget || canFoulTarget || canPushTarget || canFollowUpTarget || canThrowBombTarget || canWizardTarget || canLaunchPlayer || canLaunchTargetSquare,
+                pathMarker: canWizardTarget ? "W" : canLaunchPlayer ? "L" : canLaunchTargetSquare ? "L" : canHandOffTarget ? "H" : canFollowUpTarget ? "F" : canPushTarget ? ">" : null,
                 blockRole: BlockPreviewRole(placement.PlayerId),
                 passRole: PassPreviewRole(placement.PlayerId));
         }
@@ -190,12 +195,14 @@ public partial class MatchScreen : VBoxContainer
         {
             // A loose ball can rest on a square occupied by a player. Use the small held-ball
             // frame there so the player underneath stays visible; the full-tile frame would hide them.
+            // When the ball is on an occupied square, tint it gold so it's visible against the player sprite.
             var occupant = _match.Placements.FirstOrDefault(placement => placement.Square == ballSquare);
-            ballTile.SetOverlay(BallSprite(occupant is null ? 0 : 4));
+            var onPlayer = occupant is not null;
+            ballTile.SetOverlay(BallSprite(onPlayer ? 4 : 0), onPlayer ? new Color(1f, 0.85f, 0f) : null);
             ballTile.Text = "";
-            ballTile.TooltipText = occupant is null
-                ? "Ball"
-                : $"Loose ball on {FindPlayer(occupant.PlayerId)?.Name ?? "player"}";
+            ballTile.TooltipText = onPlayer
+                ? $"Loose ball on {FindPlayer(occupant!.PlayerId)?.Name ?? "player"}"
+                : "Ball";
         }
 
         if (_animationBallSquare is null &&
@@ -203,7 +210,7 @@ public partial class MatchScreen : VBoxContainer
             _match.Placements.FirstOrDefault(placement => placement.PlayerId == carrierId)?.Square is PitchSquare carrierSquare &&
             _pitchTiles.TryGetValue(carrierSquare, out var carrierTile))
         {
-            carrierTile.SetOverlay(BallSprite(4));
+            carrierTile.SetOverlay(BallSprite(4), new Color(1f, 0.85f, 0f));
             carrierTile.Text = "";
             carrierTile.TooltipText = $"{FindPlayer(carrierId)?.Name ?? "Ball carrier"} with ball";
         }
@@ -221,6 +228,7 @@ public partial class MatchScreen : VBoxContainer
         RefreshHandOffModeButton();
         RefreshBlitzModeButton();
         RefreshLaunchModeButtons();
+        RefreshInducementButtons();
 
         _decisionTitleLabel.Text = DecisionTitle();
         _summaryLabel.Text = DecisionInstruction(activeTeam, selected);
@@ -471,34 +479,52 @@ public partial class MatchScreen : VBoxContainer
 
     private void RefreshPassModeButton()
     {
+        var declaredPass = _selectedPlayerId is Guid passId &&
+            CurrentTurnActivation(passId)?.Action == PlayerTurnAction.Pass;
         var canPass = _selectedPlayerId is Guid passerId && CanEnterPassMode(passerId);
-        if (!canPass)
+        if (!canPass && !declaredPass)
         {
             _passMode = false;
         }
 
-        _passModeButton.Disabled = !canPass;
+        if (declaredPass)
+        {
+            _passMode = true;
+        }
+
+        _passModeButton.Disabled = !canPass && !declaredPass;
         _passModeButton.Text = _passMode ? "Pass: On" : "Pass";
-        _passModeButton.TooltipText = canPass
-            ? "Declare a pass (commits the action), then move to collect the ball if needed and toggle targeting to throw."
-            : "Select an unactivated player to declare a pass.";
-        SetModeButtonStyle(_passModeButton, _passMode, canPass);
+        _passModeButton.TooltipText = declaredPass
+            ? "This player has declared a Pass."
+            : canPass
+                ? "Declare a pass (commits the action), then move to collect the ball if needed and toggle targeting to throw."
+                : "Select an unactivated player to declare a pass.";
+        SetModeButtonStyle(_passModeButton, _passMode, canPass || declaredPass);
     }
 
     private void RefreshHandOffModeButton()
     {
+        var declaredHandOff = _selectedPlayerId is Guid hoId &&
+            CurrentTurnActivation(hoId)?.Action == PlayerTurnAction.HandOff;
         var canHandOff = _selectedPlayerId is Guid carrierId && CanEnterHandOffMode(carrierId);
-        if (!canHandOff)
+        if (!canHandOff && !declaredHandOff)
         {
             _handOffMode = false;
         }
 
-        _handOffModeButton.Disabled = !canHandOff;
+        if (declaredHandOff)
+        {
+            _handOffMode = true;
+        }
+
+        _handOffModeButton.Disabled = !canHandOff && !declaredHandOff;
         _handOffModeButton.Text = _handOffMode ? "Hand-off: On" : "Hand-off";
-        _handOffModeButton.TooltipText = canHandOff
-            ? "Declare a hand-off (commits the action), then move to collect the ball if needed and hand off to an adjacent team-mate."
-            : "Select an unactivated player to declare a hand-off.";
-        SetModeButtonStyle(_handOffModeButton, _handOffMode, canHandOff);
+        _handOffModeButton.TooltipText = declaredHandOff
+            ? "This player has declared a Hand-off."
+            : canHandOff
+                ? "Declare a hand-off (commits the action), then move to collect the ball if needed and hand off to an adjacent team-mate."
+                : "Select an unactivated player to declare a hand-off.";
+        SetModeButtonStyle(_handOffModeButton, _handOffMode, canHandOff || declaredHandOff);
     }
 
     private void RefreshBlitzModeButton()
@@ -547,6 +573,65 @@ public partial class MatchScreen : VBoxContainer
         _kickTeamMateModeButton.Text = _kickTeamMateMode ? "KTM: On" : "KTM";
         _kickTeamMateModeButton.TooltipText = canKick ? "Kick an adjacent Right Stuff team-mate." : "Select an unactivated player with Kick Team-Mate.";
         SetModeButtonStyle(_kickTeamMateModeButton, _kickTeamMateMode, canKick);
+    }
+
+    private void RefreshInducementButtons()
+    {
+        var atTurnStart = _match.Phase is MatchPhase.OffensivePlayerTurn or MatchPhase.DefensiveTurn &&
+            _match.Activations.Count == 0 &&
+            _match.PendingBlock is null &&
+            _match.PendingBlockReroll is null &&
+            _match.PendingPush is null &&
+            _match.PendingInterception is null &&
+            _match.PendingReroll is null &&
+            _match.PendingApothecary is null &&
+            _match.PendingStandFirm is null &&
+            _match.PendingDivingTackle is null &&
+            _match.PendingFollowUp is null &&
+            _match.PendingBallPlacement is null &&
+            _match.PendingBombThrow is null &&
+            _match.PendingMultipleBlock is null &&
+            _match.PendingSendOff is null &&
+            _match.PendingKickoffEvent is null;
+        var weatherMages = _match.ActiveTeamId == _match.HomeTeamId
+            ? _match.HomeWeatherMagesRemaining
+            : _match.AwayWeatherMagesRemaining;
+        var specialPlays = _match.ActiveTeamId == _match.HomeTeamId
+            ? _match.HomeSpecialPlaysRemaining
+            : _match.AwaySpecialPlaysRemaining;
+
+        _weatherMageButton.Visible = _match.HomeWeatherMagesRemaining + _match.AwayWeatherMagesRemaining > 0;
+        _specialPlayButton.Visible = _match.HomeSpecialPlaysRemaining + _match.AwaySpecialPlaysRemaining > 0;
+
+        _weatherMageButton.Disabled = !atTurnStart || weatherMages == 0;
+        _weatherMageButton.Text = $"Weather ({weatherMages})";
+        _weatherMageButton.TooltipText = weatherMages == 0
+            ? "The active team has no Weather Mage remaining."
+            : "Use a Weather Mage before activating a player to roll new weather.";
+
+        _specialPlayButton.Disabled = !atTurnStart || specialPlays == 0;
+        _specialPlayButton.Text = $"Special ({specialPlays})";
+        _specialPlayButton.TooltipText = specialPlays == 0
+            ? "The active team has no Special Play remaining."
+            : "Reveal a Special Play before activating a player.";
+
+        var wizardEffect = _match.ActiveTeamId == _match.HomeTeamId ? _match.HomeWizardEffect : _match.AwayWizardEffect;
+        var wizards = _match.ActiveTeamId == _match.HomeTeamId ? _match.HomeWizardsRemaining : _match.AwayWizardsRemaining;
+        _wizardButton.Visible = _match.HomeWizardsRemaining + _match.AwayWizardsRemaining > 0;
+        if (!atTurnStart || wizards == 0 || _wizardModeTeamId != _match.ActiveTeamId)
+        {
+            DisableWizardMode();
+        }
+        _wizardButton.Disabled = !atTurnStart || wizards == 0;
+        _wizardButton.Text = wizardEffect switch
+        {
+            "wizard-fireball" => _wizardMode ? "Fireball: On" : $"Fireball ({wizards})",
+            "wizard-lightning" => _wizardMode ? "Lightning: On" : $"Lightning ({wizards})",
+            _ => $"Wizard ({wizards})"
+        };
+        _wizardButton.TooltipText = wizards == 0
+            ? "The active team has no wizard spell remaining."
+            : "Toggle wizard targeting, then choose a highlighted pitch square.";
     }
 
     private void SetModeButtonStyle(Button button, bool active, bool enabled)

@@ -35,10 +35,21 @@ public sealed class RulesetValidator
 
     private static readonly ISet<string> RequiredAdvancementThresholds = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
-        "first",
-        "second",
-        "third",
-        "fourth"
+        "randomPrimary",
+        "chosenPrimary",
+        "randomSecondary",
+        "chosenSecondary",
+        "characteristic"
+    };
+
+    private static readonly ISet<string> KnownInducementOptionEffects = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        "staff-reroll",
+        "staff-recovery",
+        "wizard-fireball",
+        "wizard-lightning",
+        "referee-friendly",
+        "referee-intimidating"
     };
 
     public void Validate(Ruleset ruleset)
@@ -150,6 +161,31 @@ public sealed class RulesetValidator
             if (!KnownInducementKinds.Contains(inducement.Kind))
             {
                 throw new InvalidDataException($"Inducement '{inducement.Id}' references unknown kind '{inducement.Kind}'.");
+            }
+
+            var duplicateOption = inducement.Options
+                .GroupBy(option => option.Id, StringComparer.OrdinalIgnoreCase)
+                .FirstOrDefault(group => group.Count() > 1);
+            if (duplicateOption is not null)
+            {
+                throw new InvalidDataException($"Inducement '{inducement.Id}' has duplicate option '{duplicateOption.Key}'.");
+            }
+
+            foreach (var option in inducement.Options)
+            {
+                RequireText(option.Id, $"Inducement '{inducement.Id}' option id is required.");
+                RequireText(option.Name, $"Inducement '{inducement.Id}' option '{option.Id}' name is required.");
+                RequireText(option.Effect, $"Inducement '{inducement.Id}' option '{option.Id}' effect is required.");
+                RequireText(option.Description, $"Inducement '{inducement.Id}' option '{option.Id}' description is required.");
+                if (option.Cost < 0)
+                {
+                    throw new InvalidDataException($"Inducement '{inducement.Id}' option '{option.Id}' has a negative cost.");
+                }
+
+                if (!KnownInducementOptionEffects.Contains(option.Effect))
+                {
+                    throw new InvalidDataException($"Inducement '{inducement.Id}' option '{option.Id}' has unknown effect '{option.Effect}'.");
+                }
             }
         }
 

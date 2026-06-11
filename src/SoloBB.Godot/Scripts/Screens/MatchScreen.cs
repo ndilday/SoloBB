@@ -39,6 +39,9 @@ public partial class MatchScreen : VBoxContainer
     private Button _blitzModeButton = null!;
     private Button _throwTeamMateModeButton = null!;
     private Button _kickTeamMateModeButton = null!;
+    private Button _weatherMageButton = null!;
+    private Button _specialPlayButton = null!;
+    private Button _wizardButton = null!;
     private Button _doneButton = null!;
     private Texture2D? _humanSpriteSheet;
     private Texture2D? _orcSpriteSheet;
@@ -78,6 +81,8 @@ public partial class MatchScreen : VBoxContainer
     private bool _blitzMode;
     private bool _throwTeamMateMode;
     private bool _kickTeamMateMode;
+    private bool _wizardMode;
+    private Guid? _wizardModeTeamId;
     private bool _isPitchDragging;
     private bool _pitchZoomInitialized;
     private bool _endTurnConfirmationArmed;
@@ -255,6 +260,7 @@ public partial class MatchScreen : VBoxContainer
             _throwTeamMateMode = enabled;
             if (enabled)
             {
+                DisableWizardMode();
                 _passMode = false;
                 _handOffMode = false;
                 _kickTeamMateMode = false;
@@ -273,6 +279,7 @@ public partial class MatchScreen : VBoxContainer
             _kickTeamMateMode = enabled;
             if (enabled)
             {
+                DisableWizardMode();
                 _passMode = false;
                 _handOffMode = false;
                 _throwTeamMateMode = false;
@@ -281,6 +288,37 @@ public partial class MatchScreen : VBoxContainer
             RefreshPitch();
         };
         footer.AddChild(_kickTeamMateModeButton);
+
+        _weatherMageButton = ActionButton("Weather");
+        _weatherMageButton.Pressed += async () => await UseWeatherMageAsync();
+        footer.AddChild(_weatherMageButton);
+
+        _specialPlayButton = ActionButton("Special Play");
+        _specialPlayButton.Pressed += async () => await UseSpecialPlayAsync();
+        footer.AddChild(_specialPlayButton);
+
+        _wizardButton = ActionButton("Wizard");
+        _wizardButton.Pressed += () =>
+        {
+            ResetEndTurnConfirmation();
+            _wizardMode = !_wizardMode;
+            if (_wizardMode)
+            {
+                _wizardModeTeamId = _match.ActiveTeamId;
+                _passMode = false;
+                _handOffMode = false;
+                _blitzMode = false;
+                _throwTeamMateMode = false;
+                _kickTeamMateMode = false;
+                _selectedPlayerId = null;
+            }
+            else
+            {
+                _wizardModeTeamId = null;
+            }
+            RefreshPitch();
+        };
+        footer.AddChild(_wizardButton);
 
         // Placed in the footer (to the left of the done/Finish Setup button) rather than in the
         // decision-action row so that showing/hiding the "Return to Reserve" button does not change
@@ -340,6 +378,13 @@ public partial class MatchScreen : VBoxContainer
             return;
         }
     }
+
+    private void DisableWizardMode()
+    {
+        _wizardMode = false;
+        _wizardModeTeamId = null;
+    }
+
     private sealed record BlockPreview(
         int AttackerStrength,
         int DefenderStrength,

@@ -698,12 +698,14 @@ public sealed partial class MatchService
             }
 
             var bribeRoll = _dice.RollD6();
+            var bribeModifier = team.Id == baseMatch.HomeTeamId ? baseMatch.HomeBribeRollModifier : baseMatch.AwayBribeRollModifier;
+            var modifiedBribeRoll = Math.Clamp(bribeRoll + bribeModifier, 1, 6);
             var bribedMatch = SpendBribe(baseMatch, team.Id);
-            if (bribeRoll >= 2)
+            if (modifiedBribeRoll >= 2)
             {
                 var keptMatch = bribedMatch with
                 {
-                    Log = [.. bribedMatch.Log, new MatchLogEntry { Message = $"{team.Name} uses a bribe for {player.Name}: rolled {bribeRoll}, send-off prevented." }]
+                    Log = [.. bribedMatch.Log, new MatchLogEntry { Message = $"{team.Name} uses a bribe for {player.Name}: rolled {bribeRoll}{FormatBribeModifier(bribeModifier)}, send-off prevented." }]
                 };
 
                 return pending.DriveEnd is null
@@ -713,7 +715,7 @@ public sealed partial class MatchService
 
             baseMatch = bribedMatch with
             {
-                Log = [.. bribedMatch.Log, new MatchLogEntry { Message = $"{team.Name} uses a bribe for {player.Name}: rolled {bribeRoll}, bribe failed." }]
+                Log = [.. bribedMatch.Log, new MatchLogEntry { Message = $"{team.Name} uses a bribe for {player.Name}: rolled {bribeRoll}{FormatBribeModifier(bribeModifier)}, bribe failed." }]
             };
         }
         else if (pending.BribeAvailable)
@@ -731,6 +733,11 @@ public sealed partial class MatchService
         }
 
         return ApplyTurnover(sentOffMatch, ruleset, team.Id);
+    }
+
+    private static string FormatBribeModifier(int modifier)
+    {
+        return modifier == 0 ? "" : modifier > 0 ? $" + {modifier}" : $" - {Math.Abs(modifier)}";
     }
 
     private MatchState BeginDriveEnd(MatchState match, Ruleset ruleset, PendingDriveEndContinuation continuation)

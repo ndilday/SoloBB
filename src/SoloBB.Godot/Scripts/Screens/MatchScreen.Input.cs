@@ -65,6 +65,12 @@ public partial class MatchScreen : VBoxContainer
                 return;
             }
 
+            if (_wizardMode)
+            {
+                await UseWizardAtAsync(square);
+                return;
+            }
+
             var occupied = _match.Placements.FirstOrDefault(placement => placement.Square == square);
             if ((_throwTeamMateMode || _kickTeamMateMode) && _selectedPlayerId is Guid launchActorId)
             {
@@ -1054,8 +1060,61 @@ public partial class MatchScreen : VBoxContainer
         }
     }
 
+    private async Task UseWeatherMageAsync()
+    {
+        await UseTurnStartInducementAsync((service, team) => service.UseWeatherMage(_match, team), "Weather Mage");
+    }
+
+    private async Task UseSpecialPlayAsync()
+    {
+        await UseTurnStartInducementAsync((service, team) => service.UseSpecialPlay(_match, team), "Special Play");
+    }
+
+    private async Task UseWizardAtAsync(PitchSquare square)
+    {
+        try
+        {
+            var service = CreateMatchService();
+            _match = service.UseWizard(_match, _ruleset, ActiveTeam(), square);
+            DisableWizardMode();
+            ResetEndTurnConfirmation();
+            await _saveMatch(_match);
+            RefreshRoster();
+            RefreshPitch();
+        }
+        catch (Exception ex)
+        {
+            _summaryLabel.Text = $"Wizard failed: {ex.Message}";
+        }
+    }
+
+    private async Task UseTurnStartInducementAsync(Func<MatchService, LeagueTeam, MatchState> use, string name)
+    {
+        try
+        {
+            var service = CreateMatchService();
+            _match = use(service, ActiveTeam());
+            ResetEndTurnConfirmation();
+            await _saveMatch(_match);
+            RefreshRoster();
+            RefreshPitch();
+        }
+        catch (Exception ex)
+        {
+            _summaryLabel.Text = $"{name} failed: {ex.Message}";
+        }
+    }
+
     private async Task SelectOrTargetPlayerAsync(Guid playerId)
     {
+        if (_match.PendingBallPlacement is not null &&
+            _match.Placements.FirstOrDefault(p => p.PlayerId == playerId)?.Square is PitchSquare ballPlacementSquare &&
+            IsLegalBallPlacementSquare(ballPlacementSquare))
+        {
+            await ChooseBallPlacementAsync(ballPlacementSquare);
+            return;
+        }
+
         if (_selectedPlayerId is Guid actorId && actorId != playerId)
         {
             if (IsHandingOff(actorId) && IsLegalHandOffTarget(actorId, playerId))
@@ -1212,6 +1271,7 @@ public partial class MatchScreen : VBoxContainer
             ClearPreview();
             _selectedPlayerId = playerId;
             _currentActivationPlayerId = playerId;
+            DisableWizardMode();
             _passMode = isPass;
             _handOffMode = !isPass;
             _throwTeamMateMode = false;
@@ -1278,6 +1338,7 @@ public partial class MatchScreen : VBoxContainer
             ClearPreview();
             _selectedPlayerId = playerId;
             _currentActivationPlayerId = playerId;
+            DisableWizardMode();
             _blitzMode = true;
             _passMode = false;
             _handOffMode = false;

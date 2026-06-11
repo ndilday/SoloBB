@@ -471,14 +471,19 @@ public sealed partial class MatchService
         }
 
         var bounceSquare = ScatterFrom(ruleset, square);
-        var bouncedMatch = match with
+        var bounceLog = new MatchLogEntry { Message = $"The kicked ball lands in an empty square and bounces to {bounceSquare.X},{bounceSquare.Y}." };
+
+        if (!IsOnPitch(ruleset, bounceSquare))
         {
-            Log =
+            return CreatePendingTouchback(match, receivingTeam,
             [
                 .. match.Log,
-                new MatchLogEntry { Message = $"The kicked ball lands in an empty square and bounces to {bounceSquare.X},{bounceSquare.Y}." }
-            ]
-        };
+                bounceLog,
+                new MatchLogEntry { Message = "Ball went out of bounds. Touchback. Choose a receiving player to carry the ball." }
+            ]);
+        }
+
+        var bouncedMatch = match with { Log = [.. match.Log, bounceLog] };
         return ResolveBallLanding(bouncedMatch, ruleset, receivingTeam, bounceSquare);
     }
 

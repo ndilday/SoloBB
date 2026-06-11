@@ -51,3 +51,12 @@ public sealed record PlayerStats
     public int Armor { get; init; }
     public bool IsLarge { get; init; }
 }
+
+public enum PlayerCharacteristic
+{
+    Movement,
+    Strength,
+    Agility,
+    Passing,
+    Armor
+}

@@ -33,6 +33,20 @@ public sealed record MatchState
     public int AwayTreasurySpent { get; init; }
     public int HomeApothecariesRemaining { get; init; }
     public int AwayApothecariesRemaining { get; init; }
+    public int HomeBloodweiserKegs { get; init; }
+    public int AwayBloodweiserKegs { get; init; }
+    public int HomeWeatherMagesRemaining { get; init; }
+    public int AwayWeatherMagesRemaining { get; init; }
+    public int HomeSpecialPlaysRemaining { get; init; }
+    public int AwaySpecialPlaysRemaining { get; init; }
+    public bool HomeHasMasterChef { get; init; }
+    public bool AwayHasMasterChef { get; init; }
+    public string HomeWizardEffect { get; init; } = "";
+    public string AwayWizardEffect { get; init; } = "";
+    public int HomeWizardsRemaining { get; init; }
+    public int AwayWizardsRemaining { get; init; }
+    public int HomeBribeRollModifier { get; init; }
+    public int AwayBribeRollModifier { get; init; }
     public WeatherCondition Weather { get; init; } = WeatherCondition.Nice;
     public BallState Ball { get; init; } = new();
     public IReadOnlyList<PlayerPlacement> Placements { get; init; } = [];
@@ -448,5 +462,6 @@ public enum MatchPlayerAwardKind
     Casualty,
     Completion,
     Interception,
+    Deflection,
     MostValuablePlayer
 }

@@ -47,6 +47,7 @@ public sealed record Player
     public PlayerStatus Status { get; init; } = PlayerStatus.Available;
     public IReadOnlyList<string> Skills { get; init; } = [];
     public IReadOnlyList<string> Injuries { get; init; } = [];
+    public IReadOnlyList<PlayerCharacteristic> CharacteristicImprovements { get; init; } = [];
 }
 
 public enum PlayerStatus

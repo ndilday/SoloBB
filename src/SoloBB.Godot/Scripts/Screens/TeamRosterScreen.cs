@@ -405,17 +405,8 @@ public partial class TeamRosterScreen : VBoxContainer
 
     private int AdvancementCost(Player player)
     {
-        var position = FindPosition(player.PositionId);
-        var startingSkills = position.StartingSkills.ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var advancementsTaken = player.Skills.Count(skill => !startingSkills.Contains(skill));
-        var thresholdKey = advancementsTaken switch
-        {
-            0 => "first",
-            1 => "second",
-            2 => "third",
-            _ => "fourth"
-        };
-        return _ruleset.AdvancementThresholds.TryGetValue(thresholdKey, out var cost) ? cost : int.MaxValue;
+        // BB2020: the cheapest advancement available is a Randomly Selected Primary skill.
+        return _ruleset.AdvancementThresholds.TryGetValue("randomPrimary", out var cost) ? cost : int.MaxValue;
     }
 
     private string ProgressText(Player player)

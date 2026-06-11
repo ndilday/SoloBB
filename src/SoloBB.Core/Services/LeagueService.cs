@@ -15,6 +15,18 @@ public sealed class LeagueService
     private const int TieBonusWinnings = 5_000;
     private const int FanFactorWinnings = 5_000;
 
+    // BB2020 hard cap: a player may gain at most six advancements in their career, and any single
+    // characteristic may be improved at most twice.
+    private const int MaxPlayerAdvancements = 6;
+    private const int MaxImprovementsPerCharacteristic = 2;
+
+    private readonly IDiceRoller _dice;
+
+    public LeagueService(IDiceRoller? dice = null)
+    {
+        _dice = dice ?? new RandomDiceRoller();
+    }
+
     public League CreateLeague(string name, Ruleset ruleset, IEnumerable<RosterSet> rosterSets, int targetTeamCount = 2)
     {
         var rosterSetIds = rosterSets.Select(set => set.Id).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
@@ -348,7 +360,7 @@ public sealed class LeagueService
     {
         var skill = ruleset.Skills.FirstOrDefault(current => string.Equals(current.Id, skillId, StringComparison.OrdinalIgnoreCase))
             ?? throw new InvalidOperationException($"Ruleset does not define skill '{skillId}'.");
-        return PurchaseSkillAdvancement(league, ruleset, roster, teamId, playerId, skill);
+        return PurchaseSkillAdvancement(league, ruleset, roster, teamId, playerId, skill, isRandom: false);
     }
 
     public League PurchaseRandomSkillAdvancement(League league, Ruleset ruleset, TeamRoster roster, Guid teamId, Guid playerId, bool secondary = false)
@@ -358,16 +370,128 @@ public sealed class LeagueService
         var player = team.Players.FirstOrDefault(current => current.Id == playerId)
             ?? throw new InvalidOperationException("Player is not part of this team.");
         var position = FindPosition(roster, player.PositionId);
-        var categories = secondary ? position.SecondarySkillCategories : position.PrimarySkillCategories;
-        var skill = ruleset.Skills
+
+        // BB2020: roll 2D6 on the relevant skill table. On a double, the player may instead take a
+        // skill from any category available to them (primary or secondary); otherwise the skill is
+        // drawn from the table being rolled on. The actual skill is then chosen at random.
+        var firstRoll = _dice.RollD6();
+        var secondRoll = _dice.RollD6();
+        var rolledDouble = firstRoll == secondRoll;
+        var categories = rolledDouble
+            ? [.. position.PrimarySkillCategories, .. position.SecondarySkillCategories]
+            : secondary ? position.SecondarySkillCategories : position.PrimarySkillCategories;
+
+        var eligible = ruleset.Skills
             .Where(current => categories.Contains(current.Category, StringComparer.OrdinalIgnoreCase))
+            .Where(current => !current.DataOnly && !current.Compulsory)
             .Where(current => !player.Skills.Contains(current.Id, StringComparer.OrdinalIgnoreCase))
             .OrderBy(current => current.Id, StringComparer.OrdinalIgnoreCase)
-            .FirstOrDefault()
-            ?? throw new InvalidOperationException("No eligible random skill is available.");
+            .ToArray();
+        if (eligible.Length == 0)
+        {
+            throw new InvalidOperationException("No eligible random skill is available.");
+        }
 
-        return PurchaseSkillAdvancement(league, ruleset, roster, teamId, playerId, skill);
+        var skill = eligible[(_dice.RollD16() - 1) % eligible.Length];
+
+        return PurchaseSkillAdvancement(league, ruleset, roster, teamId, playerId, skill, isRandom: true, costAsPrimary: !secondary);
     }
+
+    public League PurchaseCharacteristicAdvancement(League league, Ruleset ruleset, TeamRoster roster, Guid teamId, Guid playerId, PlayerCharacteristic characteristic)
+    {
+        var team = league.Teams.FirstOrDefault(current => current.Id == teamId)
+            ?? throw new InvalidOperationException("Team is not part of this league.");
+        if (!string.Equals(team.RosterId, roster.Id, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("Roster does not match the selected team.");
+        }
+
+        var player = team.Players.FirstOrDefault(current => current.Id == playerId)
+            ?? throw new InvalidOperationException("Player is not part of this team.");
+        var position = FindPosition(roster, player.PositionId);
+
+        if (AdvancementsTaken(position, player) >= MaxPlayerAdvancements)
+        {
+            throw new InvalidOperationException($"{player.Name} has reached the maximum of {MaxPlayerAdvancements} career advancements.");
+        }
+
+        if (player.CharacteristicImprovements.Count(improvement => improvement == characteristic) >= MaxImprovementsPerCharacteristic)
+        {
+            throw new InvalidOperationException($"{player.Name}'s {characteristic} has already been improved {MaxImprovementsPerCharacteristic} times.");
+        }
+
+        // BB2020: a characteristic improvement costs a flat 18 SPP. Roll a D16 to determine which
+        // characteristics this advancement may raise, then apply the chosen one up to its maximum.
+        var cost = ruleset.AdvancementThresholds.TryGetValue("characteristic", out var thresholdCost)
+            ? thresholdCost
+            : throw new InvalidOperationException("Ruleset does not define the 'characteristic' advancement threshold.");
+        if (player.StarPlayerPoints < cost)
+        {
+            throw new InvalidOperationException($"{player.Name} needs {cost} SPP for a characteristic improvement.");
+        }
+
+        var roll = _dice.RollD16();
+        var allowed = CharacteristicOptions(roll);
+        if (!allowed.Contains(characteristic))
+        {
+            throw new InvalidOperationException($"A characteristic roll of {roll} does not allow improving {characteristic}.");
+        }
+
+        var (updatedStats, valueIncrease) = ApplyCharacteristicImprovement(player.Stats, characteristic);
+
+        return league with
+        {
+            Teams = league.Teams
+                .Select(current => current.Id == team.Id
+                    ? current with
+                    {
+                        TeamValue = current.TeamValue + valueIncrease,
+                        Players = current.Players
+                            .Select(currentPlayer => currentPlayer.Id == player.Id
+                                ? currentPlayer with
+                                {
+                                    StarPlayerPoints = currentPlayer.StarPlayerPoints - cost,
+                                    Stats = updatedStats,
+                                    CharacteristicImprovements = [.. currentPlayer.CharacteristicImprovements, characteristic]
+                                }
+                                : currentPlayer)
+                            .ToArray()
+                    }
+                    : current)
+                .ToArray()
+        };
+    }
+
+    // BB2020 Characteristic Improvement table (D16): higher rolls unlock the rarer characteristics.
+    private static PlayerCharacteristic[] CharacteristicOptions(int roll) => roll switch
+    {
+        <= 7 => [PlayerCharacteristic.Movement, PlayerCharacteristic.Armor],
+        <= 9 => [PlayerCharacteristic.Movement, PlayerCharacteristic.Armor, PlayerCharacteristic.Passing],
+        <= 12 => [PlayerCharacteristic.Movement, PlayerCharacteristic.Armor, PlayerCharacteristic.Agility],
+        _ => [PlayerCharacteristic.Movement, PlayerCharacteristic.Armor, PlayerCharacteristic.Passing, PlayerCharacteristic.Agility, PlayerCharacteristic.Strength]
+    };
+
+    // Applies a +1 improvement (MA/AV/ST raise the value; AG/PA lower the target number) and returns
+    // the BB2020 team-value increase for that characteristic, rejecting improvements past the maximum.
+    private static (PlayerStats Stats, int ValueIncrease) ApplyCharacteristicImprovement(PlayerStats stats, PlayerCharacteristic characteristic) => characteristic switch
+    {
+        PlayerCharacteristic.Movement => stats.Movement >= 9
+            ? throw new InvalidOperationException("Movement Allowance is already at its maximum of 9.")
+            : (stats with { Movement = stats.Movement + 1 }, 20_000),
+        PlayerCharacteristic.Strength => stats.Strength >= 8
+            ? throw new InvalidOperationException("Strength is already at its maximum of 8.")
+            : (stats with { Strength = stats.Strength + 1 }, 80_000),
+        PlayerCharacteristic.Agility => stats.Agility <= 1
+            ? throw new InvalidOperationException("Agility is already at its maximum of 1+.")
+            : (stats with { Agility = stats.Agility - 1 }, 40_000),
+        PlayerCharacteristic.Passing => stats.Passing <= 1
+            ? throw new InvalidOperationException("Passing Ability is already at its maximum of 1+.")
+            : (stats with { Passing = stats.Passing - 1 }, 20_000),
+        PlayerCharacteristic.Armor => stats.Armor >= 11
+            ? throw new InvalidOperationException("Armour Value is already at its maximum of 11+.")
+            : (stats with { Armor = stats.Armor + 1 }, 10_000),
+        _ => throw new InvalidOperationException($"Unknown characteristic '{characteristic}'.")
+    };
 
     private static LeagueTeam BuildTeam(
         Guid teamId,
@@ -410,7 +534,7 @@ public sealed class LeagueService
         };
     }
 
-    private static League PurchaseSkillAdvancement(League league, Ruleset ruleset, TeamRoster roster, Guid teamId, Guid playerId, SkillDefinition skill)
+    private static League PurchaseSkillAdvancement(League league, Ruleset ruleset, TeamRoster roster, Guid teamId, Guid playerId, SkillDefinition skill, bool isRandom, bool? costAsPrimary = null)
     {
         var team = league.Teams.FirstOrDefault(current => current.Id == teamId)
             ?? throw new InvalidOperationException("Team is not part of this league.");
@@ -434,13 +558,19 @@ public sealed class LeagueService
             throw new InvalidOperationException($"{skill.Name} is not an eligible advancement for {player.Name}.");
         }
 
-        var cost = AdvancementCost(ruleset, position, player);
+        if (AdvancementsTaken(position, player) >= MaxPlayerAdvancements)
+        {
+            throw new InvalidOperationException($"{player.Name} has reached the maximum of {MaxPlayerAdvancements} career advancements.");
+        }
+
+        // A chosen skill is priced by the category it falls in for this player; a randomly selected
+        // skill is priced by the table that was rolled (so a doubles result that pulls a skill from
+        // a secondary category is still billed as the random primary/secondary it was bought as).
+        var (cost, teamValueIncrease) = AdvancementPricing(ruleset, costAsPrimary ?? isPrimary, isRandom);
         if (player.StarPlayerPoints < cost)
         {
             throw new InvalidOperationException($"{player.Name} needs {cost} SPP for the next advancement.");
         }
-
-        var teamValueIncrease = isPrimary ? 20_000 : 40_000;
         return league with
         {
             Teams = league.Teams
@@ -463,21 +593,39 @@ public sealed class LeagueService
         };
     }
 
-    private static int AdvancementCost(Ruleset ruleset, PositionTemplate position, Player player)
+    // Total career advancements: non-starting skills gained plus characteristic improvements taken.
+    private static int AdvancementsTaken(PositionTemplate position, Player player)
     {
         var startingSkillIds = position.StartingSkills.ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var advancementsTaken = player.Skills.Count(skill => !startingSkillIds.Contains(skill));
-        var thresholdKey = advancementsTaken switch
+        var skillAdvancements = player.Skills.Count(skill => !startingSkillIds.Contains(skill));
+        return skillAdvancements + player.CharacteristicImprovements.Count;
+    }
+
+    // BB2020 prices each advancement by its type (random vs chosen, primary vs secondary) rather
+    // than by how many advancements the player has already taken, as the BB2016 ladder did.
+    private static (int Cost, int ValueIncrease) AdvancementPricing(Ruleset ruleset, bool isPrimary, bool isRandom)
+    {
+        var thresholdKey = (isPrimary, isRandom) switch
         {
-            0 => "first",
-            1 => "second",
-            2 => "third",
-            _ => "fourth"
+            (true, true) => "randomPrimary",
+            (true, false) => "chosenPrimary",
+            (false, true) => "randomSecondary",
+            (false, false) => "chosenSecondary"
         };
 
-        return ruleset.AdvancementThresholds.TryGetValue(thresholdKey, out var cost)
-            ? cost
+        var cost = ruleset.AdvancementThresholds.TryGetValue(thresholdKey, out var thresholdCost)
+            ? thresholdCost
             : throw new InvalidOperationException($"Ruleset does not define the '{thresholdKey}' advancement threshold.");
+
+        var valueIncrease = (isPrimary, isRandom) switch
+        {
+            (true, true) => 10_000,
+            (true, false) => 20_000,
+            (false, true) => 20_000,
+            (false, false) => 40_000
+        };
+
+        return (cost, valueIncrease);
     }
 
     private static League ReleaseMissNextGamePlayers(League league, MatchState match)
@@ -549,7 +697,7 @@ public sealed class LeagueService
         return fanFactor;
     }
 
-    private static MatchPlayerAward[] AppendMostValuablePlayerAwards(
+    private MatchPlayerAward[] AppendMostValuablePlayerAwards(
         IReadOnlyList<MatchPlayerAward> awards,
         LeagueTeam homeTeam,
         LeagueTeam awayTeam)
@@ -562,11 +710,18 @@ public sealed class LeagueService
         ];
     }
 
-    private static MatchPlayerAward[] CreateMostValuablePlayerAward(LeagueTeam team)
+    private MatchPlayerAward[] CreateMostValuablePlayerAward(LeagueTeam team)
     {
-        var player = team.Players.FirstOrDefault(player =>
-            (player.Status is PlayerStatus.Available or PlayerStatus.KnockedOut or PlayerStatus.Casualty or PlayerStatus.MissNextGame) &&
-            !player.Injuries.Contains("journeyman", StringComparer.OrdinalIgnoreCase));
+        // BB2020: the MVP is randomly selected from the players who took part in the
+        // game for this team (Star Players and journeymen are not eligible).
+        var eligible = team.Players
+            .Where(player =>
+                (player.Status is PlayerStatus.Available or PlayerStatus.KnockedOut or PlayerStatus.Casualty or PlayerStatus.MissNextGame) &&
+                !player.Injuries.Contains("journeyman", StringComparer.OrdinalIgnoreCase))
+            .ToArray();
+        var player = eligible.Length == 0
+            ? null
+            : eligible[(_dice.RollD16() - 1) % eligible.Length];
         return player is null
             ? []
             :

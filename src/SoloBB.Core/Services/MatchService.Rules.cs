@@ -16,7 +16,7 @@ public sealed partial class MatchService
     {
         if (state == PlayerPitchState.Stunned)
         {
-            var recoveryTurn = GetTeamTurn(match, placement.TeamId) + (placement.TeamId == match.ActiveTeamId ? 1 : 0);
+            var recoveryTurn = GetTeamTurn(match, placement.TeamId) + (placement.TeamId == match.ActiveTeamId && match.Phase != MatchPhase.Kickoff ? 1 : 0);
             return placement with
             {
                 Square = square,

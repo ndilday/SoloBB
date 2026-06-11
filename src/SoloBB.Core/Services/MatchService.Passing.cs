@@ -79,7 +79,7 @@ public sealed partial class MatchService
         var target = CatchTarget(ruleset, receiver, activatedMatch.Weather, handOffTackleZones, disturbingPresence);
         var catchAttempt = RollCatch(ruleset, receiver, target, forcedCatchRoll);
 
-        if (forcedCatchRoll is null && !catchAttempt.Success && catchAttempt.Reroll is null &&
+        if (forcedCatchRoll is null && !catchAttempt.Success &&
             CatchRerollOffered(activatedMatch, ruleset, team, receiver))
         {
             return CreatePendingCatchReroll(
@@ -567,18 +567,61 @@ public sealed partial class MatchService
                 };
             }
 
-            var interceptedMatch = match with
+            // BB2020: a successful interference deflects the pass. The deflecting player earns a
+            // Deflection (1 SPP) and may then attempt to catch the loose ball; a successful catch is
+            // an Interception (a further 2 SPP) that gives them possession, while a miss leaves the
+            // ball bouncing from their square.
+            var deflectedMatch = match with
             {
-                Ball = new BallState { CarrierPlayerId = interceptor.Id },
-                PlayerAwards = AddPlayerAward(match, defendingTeam.Id, interceptor.Id, MatchPlayerAwardKind.Interception, 2, teamName: defendingTeam.Name, playerName: interceptor.Name),
+                PlayerAwards = AddPlayerAward(match, defendingTeam.Id, interceptor.Id, MatchPlayerAwardKind.Deflection, 1, teamName: defendingTeam.Name, playerName: interceptor.Name),
                 Log =
                 [
                     .. match.Log,
-                    new MatchLogEntry { Message = $"{interceptor.Name} intercepts the {passRangeName} pass on {interceptionRoll} vs {interceptionTarget}+ ({interceptionTackleZones} opposing tackle zones)." }
+                    new MatchLogEntry { Message = $"{interceptor.Name} deflects the {passRangeName} pass on {interceptionRoll} vs {interceptionTarget}+ ({interceptionTackleZones} opposing tackle zones)." }
                 ]
             };
 
-            return ApplyTurnover(interceptedMatch, ruleset, passingTeam.Id);
+            var deflectionCatchTackleZones = PlayerHasHookedEffect(ruleset, interceptor, GameEventKind.CatchRoll, GameEventStage.ModifyTarget, SkillEffect.NervesOfSteel)
+                ? 0
+                : CountOpposingTackleZones(deflectedMatch, defendingTeam.Id, interceptor.Id, interceptorSquare);
+            var deflectionCatchDisturbingPresence = DisturbingPresenceModifier(deflectedMatch, ruleset, passingTeam, interceptorSquare);
+            var deflectionCatchTarget = CatchTarget(ruleset, interceptor, deflectedMatch.Weather, deflectionCatchTackleZones, deflectionCatchDisturbingPresence);
+            var deflectionCatch = RollCatch(ruleset, interceptor, deflectionCatchTarget);
+
+            if (deflectionCatch.Success)
+            {
+                var interceptedMatch = deflectedMatch with
+                {
+                    Ball = new BallState { CarrierPlayerId = interceptor.Id },
+                    PlayerAwards = AddPlayerAward(deflectedMatch, defendingTeam.Id, interceptor.Id, MatchPlayerAwardKind.Interception, 2, teamName: defendingTeam.Name, playerName: interceptor.Name),
+                    Log =
+                    [
+                        .. deflectedMatch.Log,
+                        new MatchLogEntry { Message = $"{interceptor.Name} catches the deflected pass: {FormatCatchAttempt(deflectionCatch, deflectionCatchTarget)}, intercepted." }
+                    ]
+                };
+
+                return ApplyTurnover(interceptedMatch, ruleset, passingTeam.Id);
+            }
+
+            var bouncedMatch = ResolveBallLanding(
+                deflectedMatch with
+                {
+                    Log =
+                    [
+                        .. deflectedMatch.Log,
+                        new MatchLogEntry { Message = $"{interceptor.Name} cannot hold the deflected pass: {FormatCatchAttempt(deflectionCatch, deflectionCatchTarget)}; the ball comes loose." }
+                    ]
+                },
+                ruleset,
+                passingTeam,
+                interceptorSquare,
+                allowDivingCatch: false,
+                opposingTeam: defendingTeam);
+
+            return bouncedMatch.Ball.CarrierPlayerId is Guid deflectionCarrierId && FindPlacement(bouncedMatch, deflectionCarrierId)?.TeamId == passingTeam.Id
+                ? bouncedMatch
+                : ApplyTurnover(bouncedMatch, ruleset, passingTeam.Id);
         }
 
         var failedInterceptionMatch = match with
@@ -633,7 +676,7 @@ public sealed partial class MatchService
         var catchTarget = CatchTarget(ruleset, receiver, match.Weather, catchTackleZones, catchDisturbingPresence);
         var catchAttempt = RollCatch(ruleset, receiver, catchTarget, forcedCatchRoll);
 
-        if (forcedCatchRoll is null && !catchAttempt.Success && catchAttempt.Reroll is null &&
+        if (forcedCatchRoll is null && !catchAttempt.Success &&
             CatchRerollOffered(match, ruleset, team, receiver))
         {
             return CreatePendingCatchReroll(
@@ -734,10 +777,7 @@ public sealed partial class MatchService
                 };
             }
 
-            // The catcher may spend a team reroll (or Pro) on the bounce catch, but only during their own
-            // team's turn - a player cannot use a team reroll on the opponent's turn. Skill rerolls already
-            // baked into the attempt (Catch/Monstrous Mouth) are not re-offered.
-            if (forcedCatchRoll is null && catchResult.Attempt.Reroll is null &&
+            if (forcedCatchRoll is null &&
                 catcherTeam.Id == match.ActiveTeamId &&
                 match.Phase is MatchPhase.OffensivePlayerTurn or MatchPhase.DefensiveTurn &&
                 CatchRerollOffered(match, ruleset, catcherTeam, catcher))
@@ -1043,29 +1083,9 @@ public sealed partial class MatchService
         }
 
         var roll = forcedRoll ?? _dice.RollD6();
-        if (RollSucceeds(roll, target, ruleset.Dice))
-        {
-            return new CatchAttempt(roll, null, true);
-        }
-
-        // A forced roll is a replay of an already-resolved catch (e.g. the result of a team reroll), so the
-        // single per-roll skill reroll has already been spent; do not apply Catch/Monstrous Mouth again.
-        if (forcedRoll is not null ||
-            (!PlayerHasHookedEffect(ruleset, player, GameEventKind.CatchRoll, GameEventStage.AfterRoll, SkillEffect.CatchReroll) &&
-            !PlayerHasHookedEffect(ruleset, player, GameEventKind.CatchRoll, GameEventStage.AfterRoll, SkillEffect.MonstrousMouth)))
-        {
-            return new CatchAttempt(roll, null, false);
-        }
-
-        var reroll = _dice.RollD6();
-        return new CatchAttempt(roll, reroll, RollSucceeds(reroll, target, ruleset.Dice));
+        return new CatchAttempt(roll, null, RollSucceeds(roll, target, ruleset.Dice));
     }
 
-    /// <summary>
-    /// A team reroll (or Pro) may be spent on a failed catch only when the catcher's own catch skill
-    /// reroll was not already used on the same roll. The acting team must also have a team reroll
-    /// available this turn or the catcher must have Pro.
-    /// </summary>
     private bool CatchRerollOffered(MatchState match, Ruleset ruleset, LeagueTeam team, Player catcher)
     {
         return CanUseTeamReroll(match, ruleset, team) || AvailableCatchSkillRerolls(ruleset, catcher).Count > 0;
@@ -1073,9 +1093,16 @@ public sealed partial class MatchService
 
     private static IReadOnlyList<string> AvailableCatchSkillRerolls(Ruleset ruleset, Player catcher)
     {
-        return PlayerHasHookedEffect(ruleset, catcher, GameEventKind.CatchRoll, GameEventStage.AfterRoll, SkillEffect.Pro)
-            ? ["pro"]
-            : [];
+        var rerolls = SkillHookResolver
+            .SkillIdsForHookedEffect(ruleset, catcher, GameEventKind.CatchRoll, GameEventStage.AfterRoll, SkillEffect.CatchReroll)
+            .Concat(SkillHookResolver.SkillIdsForHookedEffect(ruleset, catcher, GameEventKind.CatchRoll, GameEventStage.AfterRoll, SkillEffect.MonstrousMouth))
+            .ToList();
+        if (SkillHookResolver.PlayerHasHookedEffect(ruleset, catcher, GameEventKind.CatchRoll, GameEventStage.AfterRoll, SkillEffect.Pro))
+        {
+            rerolls.Add("pro");
+        }
+
+        return rerolls;
     }
 
     private MatchState CreatePendingCatchReroll(
@@ -1134,9 +1161,7 @@ public sealed partial class MatchService
             return "No Hands prevents the catch";
         }
 
-        return attempt.Reroll is int reroll
-            ? $"catch roll {attempt.Roll} rerolled with Catch to {reroll} vs {target}+"
-            : $"catch roll {attempt.Roll} vs {target}+";
+        return $"catch roll {attempt.Roll} vs {target}+";
     }
 
     private PassAttempt RollPass(Ruleset ruleset, Player player, int target, bool usePassSkillReroll, int? forcedRoll = null)

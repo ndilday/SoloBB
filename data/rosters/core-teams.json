@@ -289,7 +289,7 @@
       "id": "snotling",
       "name": "Snotling",
       "rerollCost": 60000,
-      "specialRules": ["badlands-brawl"],
+      "specialRules": ["badlands-brawl", "low-cost-linemen"],
       "positions": [
         { "id": "lineman", "name": "Snotling Lineman", "min": 0, "max": 16, "cost": 15000, "stats": { "movement": 5, "strength": 1, "agility": 3, "passing": 5, "armor": 6 }, "startingSkills": ["dodge", "right-stuff", "sidestep", "stunty", "swarming", "titchy"], "primarySkillCategories": ["agility"], "secondarySkillCategories": ["general", "passing", "strength"] },
         { "id": "fungus-flinga", "name": "Fungus Flinga", "min": 0, "max": 2, "cost": 30000, "stats": { "movement": 5, "strength": 1, "agility": 3, "passing": 4, "armor": 6 }, "startingSkills": ["bombardier", "dodge", "secret-weapon", "stunty", "titchy"], "primarySkillCategories": ["agility", "passing"], "secondarySkillCategories": ["general", "strength"] },

@@ -52,6 +52,17 @@ public sealed record InducementDefinition
     public bool MatchEffectImplemented { get; init; }
     public string Kind { get; init; } = "";
     public string Description { get; init; } = "";
+    public IReadOnlyList<InducementOptionDefinition> Options { get; init; } = [];
+}
+
+public sealed record InducementOptionDefinition
+{
+    public required string Id { get; init; }
+    public required string Name { get; init; }
+    public int Cost { get; init; }
+    public required string Effect { get; init; }
+    public string RequiredSpecialRule { get; init; } = "";
+    public string Description { get; init; } = "";
 }
 
 public enum SkillTiming

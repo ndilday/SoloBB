@@ -60,7 +60,7 @@ AssertThrowsInvalidData(
     () => new RulesetValidator().Validate(ruleset with
     {
         AdvancementThresholds = ruleset.AdvancementThresholds
-            .Where(pair => pair.Key != "first")
+            .Where(pair => pair.Key != "randomPrimary")
             .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.OrdinalIgnoreCase)
     }),
     "ruleset validation should require all known advancement thresholds");
@@ -290,7 +290,8 @@ AssertThrowsInvalidData(
     "roster validation should reject star player eligibility rules that no roster defines");
 
 smoke.StartSection("League creation, roster validation, and persistence");
-var leagueService = new LeagueService();
+// Fixed d16 of 1 makes the random MVP selection deterministic (always the first eligible player).
+var leagueService = new LeagueService(new FixedDiceRoller(d16: [1]));
 var league = leagueService.CreateLeague("Smoke League", ruleset, [rosterSet], targetTeamCount: 4);
 var humanRoster = rosterSet.Rosters.Single(roster => roster.Id == "human");
 
@@ -553,7 +554,7 @@ Assert(updatedCampaignAway.Players.Single(player => player.Id == injuredAwayPlay
 var selectedAdvancementLeague = leagueService.PurchaseSelectedSkillAdvancement(afterFirstCampaignMatch, ruleset, humanRoster, campaignHomeTeam.Id, campaignScorer.Id, "block");
 var selectedAdvancedPlayer = selectedAdvancementLeague.Teams.Single(team => team.Id == campaignHomeTeam.Id).Players.Single(player => player.Id == campaignScorer.Id);
 Assert(selectedAdvancedPlayer.Skills.Contains("block"), "selected advancement should add the purchased skill");
-Assert(selectedAdvancedPlayer.StarPlayerPoints == 1, "selected advancement should spend the next advancement threshold");
+Assert(selectedAdvancedPlayer.StarPlayerPoints == 1, "chosen primary advancement should spend 6 SPP (BB2020)");
 Assert(selectedAdvancementLeague.Teams.Single(team => team.Id == campaignHomeTeam.Id).TeamValue == updatedCampaignHome.TeamValue + 20_000, "primary skill advancement should increase team value");
 
 var randomReadyLeague = afterFirstCampaignMatch with
@@ -569,9 +570,154 @@ var randomReadyLeague = afterFirstCampaignMatch with
             : team)
         .ToArray()
 };
-var randomAdvancementLeague = leagueService.PurchaseRandomSkillAdvancement(randomReadyLeague, ruleset, humanRoster, campaignHomeTeam.Id, returningPlayer.Id);
+// BB2020 random selection rolls 2D6 (a non-double draws from the primary table) and then picks a
+// skill at random via the dice rather than always taking the alphabetically-first option.
+var randomPrimaryService = new LeagueService(new FixedDiceRoller(d6: [1, 2], d16: [1]));
+var randomAdvancementLeague = randomPrimaryService.PurchaseRandomSkillAdvancement(randomReadyLeague, ruleset, humanRoster, campaignHomeTeam.Id, returningPlayer.Id);
 var randomAdvancedPlayer = randomAdvancementLeague.Teams.Single(team => team.Id == campaignHomeTeam.Id).Players.Single(player => player.Id == returningPlayer.Id);
-Assert(randomAdvancedPlayer.StarPlayerPoints == 0 && randomAdvancedPlayer.Skills.Count == returningPlayer.Skills.Count + 1, "random advancement should add an eligible skill and spend SPP");
+Assert(randomAdvancedPlayer.StarPlayerPoints == 3 && randomAdvancedPlayer.Skills.Count == returningPlayer.Skills.Count + 1, "random primary advancement should add an eligible skill and spend 3 SPP (BB2020)");
+Assert(randomAdvancedPlayer.Skills.Contains("block"), "non-double random primary should draw from the lineman's primary (general) table at the rolled index");
+
+// A different index roll selects a different skill, proving the pick is dice-driven, not alphabetical.
+var randomAltPlayer = new LeagueService(new FixedDiceRoller(d6: [1, 2], d16: [2]))
+    .PurchaseRandomSkillAdvancement(randomReadyLeague, ruleset, humanRoster, campaignHomeTeam.Id, returningPlayer.Id)
+    .Teams.Single(team => team.Id == campaignHomeTeam.Id).Players.Single(player => player.Id == returningPlayer.Id);
+Assert(!randomAltPlayer.Skills.Contains("block") && randomAltPlayer.Skills.Count == returningPlayer.Skills.Count + 1, "a different random index roll should select a different skill");
+
+// Rolling a double lets the player take a skill from any available category. A lineman (primary
+// General; secondary Agility/Passing/Strength) can then gain a Passing skill — but because it was
+// bought on the random *primary* table, it is still priced as a random primary (3 SPP, +10k value)
+// rather than by the chosen skill's secondary category.
+var randomDoubleLeague = new LeagueService(new FixedDiceRoller(d6: [3, 3], d16: [1]))
+    .PurchaseRandomSkillAdvancement(randomReadyLeague, ruleset, humanRoster, campaignHomeTeam.Id, returningPlayer.Id);
+var randomDoubleTeam = randomDoubleLeague.Teams.Single(team => team.Id == campaignHomeTeam.Id);
+var randomDoublePlayer = randomDoubleTeam.Players.Single(player => player.Id == returningPlayer.Id);
+Assert(randomDoublePlayer.Skills.Contains("accurate"), "a doubles roll should expand random selection to secondary categories");
+Assert(randomDoublePlayer.StarPlayerPoints == 3, "a doubles skill bought on the random primary table should still cost 3 SPP (BB2020)");
+Assert(randomDoubleTeam.TeamValue == updatedCampaignHome.TeamValue + 10_000, "a random primary advancement should add 10k value even when doubles selects a secondary-category skill");
+
+// A random *secondary* roll is billed as a random secondary (6 SPP, +20k) regardless of the skill.
+var randomSecondaryLeague = new LeagueService(new FixedDiceRoller(d6: [1, 2], d16: [1]))
+    .PurchaseRandomSkillAdvancement(randomReadyLeague, ruleset, humanRoster, campaignHomeTeam.Id, returningPlayer.Id, secondary: true);
+var randomSecondaryTeam = randomSecondaryLeague.Teams.Single(team => team.Id == campaignHomeTeam.Id);
+var randomSecondaryPlayer = randomSecondaryTeam.Players.Single(player => player.Id == returningPlayer.Id);
+Assert(randomSecondaryPlayer.StarPlayerPoints == 0, "a random secondary advancement should cost 6 SPP (BB2020)");
+Assert(randomSecondaryTeam.TeamValue == updatedCampaignHome.TeamValue + 20_000, "a random secondary advancement should add 20k value");
+
+// Characteristic improvements (BB2020): a flat 18 SPP with a D16 deciding which characteristics may
+// be raised. MA/AV/ST increase the stat; AG/PA lower the target number.
+var characteristicReadyLeague = afterFirstCampaignMatch with
+{
+    Teams = afterFirstCampaignMatch.Teams
+        .Select(team => team.Id == campaignHomeTeam.Id
+            ? team with
+            {
+                Players = team.Players
+                    .Select(player => player.Id == returningPlayer.Id ? player with { StarPlayerPoints = 18 } : player)
+                    .ToArray()
+            }
+            : team)
+        .ToArray()
+};
+
+// A roll of 1-7 permits Movement or Armour. Choosing Movement adds +1 MA, spends 18 SPP, +20k TV.
+var movementImprovedLeague = new LeagueService(new FixedDiceRoller(d16: [5]))
+    .PurchaseCharacteristicAdvancement(characteristicReadyLeague, ruleset, humanRoster, campaignHomeTeam.Id, returningPlayer.Id, PlayerCharacteristic.Movement);
+var movementImprovedTeam = movementImprovedLeague.Teams.Single(team => team.Id == campaignHomeTeam.Id);
+var movementImprovedPlayer = movementImprovedTeam.Players.Single(player => player.Id == returningPlayer.Id);
+Assert(movementImprovedPlayer.Stats.Movement == returningPlayer.Stats.Movement + 1 && movementImprovedPlayer.StarPlayerPoints == 0, "characteristic improvement should add +1 MA and spend 18 SPP (BB2020)");
+Assert(movementImprovedPlayer.CharacteristicImprovements.Count == returningPlayer.CharacteristicImprovements.Count + 1 && movementImprovedPlayer.CharacteristicImprovements.Contains(PlayerCharacteristic.Movement), "a characteristic improvement should be recorded against the player");
+Assert(movementImprovedTeam.TeamValue == updatedCampaignHome.TeamValue + 20_000, "a +1 MA improvement should add 20k to team value");
+
+// A roll of 10-12 permits Agility, which lowers the AG target by 1 and adds 40k to team value.
+var agilityImprovedLeague = new LeagueService(new FixedDiceRoller(d16: [11]))
+    .PurchaseCharacteristicAdvancement(characteristicReadyLeague, ruleset, humanRoster, campaignHomeTeam.Id, returningPlayer.Id, PlayerCharacteristic.Agility);
+var agilityImprovedTeam = agilityImprovedLeague.Teams.Single(team => team.Id == campaignHomeTeam.Id);
+var agilityImprovedPlayer = agilityImprovedTeam.Players.Single(player => player.Id == returningPlayer.Id);
+Assert(agilityImprovedPlayer.Stats.Agility == returningPlayer.Stats.Agility - 1, "characteristic AG improvement should lower the AG target by 1 (BB2020)");
+Assert(agilityImprovedTeam.TeamValue == updatedCampaignHome.TeamValue + 40_000, "a +1 AG improvement should add 40k to team value");
+
+// The D16 table is enforced: a roll of 1-7 does not allow improving Strength.
+AssertThrows(
+    () => new LeagueService(new FixedDiceRoller(d16: [3]))
+        .PurchaseCharacteristicAdvancement(characteristicReadyLeague, ruleset, humanRoster, campaignHomeTeam.Id, returningPlayer.Id, PlayerCharacteristic.Strength),
+    "a low characteristic roll should not permit a Strength increase");
+
+// The improvement requires the full 18 SPP (randomReadyLeague granted the player only 6).
+AssertThrows(
+    () => new LeagueService(new FixedDiceRoller(d16: [16]))
+        .PurchaseCharacteristicAdvancement(randomReadyLeague, ruleset, humanRoster, campaignHomeTeam.Id, returningPlayer.Id, PlayerCharacteristic.Strength),
+    "a characteristic improvement should require the full 18 SPP");
+
+// BB2020 hard cap: a player may never exceed six career advancements. A lineman holding six gained
+// skills (with SPP to spare) cannot take a seventh advancement.
+var sixSkillLeague = afterFirstCampaignMatch with
+{
+    Teams = afterFirstCampaignMatch.Teams
+        .Select(team => team.Id == campaignHomeTeam.Id
+            ? team with
+            {
+                Players = team.Players
+                    .Select(player => player.Id == returningPlayer.Id
+                        ? player with { Skills = ["block", "dauntless", "dirty-player", "fend", "frenzy", "kick"], StarPlayerPoints = 50 }
+                        : player)
+                    .ToArray()
+            }
+            : team)
+        .ToArray()
+};
+AssertThrows(
+    () => leagueService.PurchaseSelectedSkillAdvancement(sixSkillLeague, ruleset, humanRoster, campaignHomeTeam.Id, returningPlayer.Id, "pro"),
+    "a player at the six-advancement cap should not gain another skill");
+
+// Characteristic improvements count toward the six-advancement total: five skills plus one
+// characteristic improvement is already six, so a further skill is rejected.
+var fiveSkillsOneCharLeague = afterFirstCampaignMatch with
+{
+    Teams = afterFirstCampaignMatch.Teams
+        .Select(team => team.Id == campaignHomeTeam.Id
+            ? team with
+            {
+                Players = team.Players
+                    .Select(player => player.Id == returningPlayer.Id
+                        ? player with { Skills = ["block", "dauntless", "dirty-player", "fend", "frenzy"], CharacteristicImprovements = [PlayerCharacteristic.Movement], StarPlayerPoints = 50 }
+                        : player)
+                    .ToArray()
+            }
+            : team)
+        .ToArray()
+};
+AssertThrows(
+    () => leagueService.PurchaseSelectedSkillAdvancement(fiveSkillsOneCharLeague, ruleset, humanRoster, campaignHomeTeam.Id, returningPlayer.Id, "pro"),
+    "characteristic improvements should count toward the six-advancement cap");
+
+// Any single characteristic may only be improved twice. A player who has already raised Strength
+// twice cannot raise it a third time...
+var twiceStrengthLeague = afterFirstCampaignMatch with
+{
+    Teams = afterFirstCampaignMatch.Teams
+        .Select(team => team.Id == campaignHomeTeam.Id
+            ? team with
+            {
+                Players = team.Players
+                    .Select(player => player.Id == returningPlayer.Id
+                        ? player with { CharacteristicImprovements = [PlayerCharacteristic.Strength, PlayerCharacteristic.Strength], StarPlayerPoints = 18 }
+                        : player)
+                    .ToArray()
+            }
+            : team)
+        .ToArray()
+};
+AssertThrows(
+    () => new LeagueService(new FixedDiceRoller(d16: [16]))
+        .PurchaseCharacteristicAdvancement(twiceStrengthLeague, ruleset, humanRoster, campaignHomeTeam.Id, returningPlayer.Id, PlayerCharacteristic.Strength),
+    "a characteristic that has been improved twice should not be improved again");
+
+// ...but may still improve a different characteristic (the cap is per-characteristic, not total).
+var twiceStrengthThenMovement = new LeagueService(new FixedDiceRoller(d16: [5]))
+    .PurchaseCharacteristicAdvancement(twiceStrengthLeague, ruleset, humanRoster, campaignHomeTeam.Id, returningPlayer.Id, PlayerCharacteristic.Movement)
+    .Teams.Single(team => team.Id == campaignHomeTeam.Id).Players.Single(player => player.Id == returningPlayer.Id);
+Assert(twiceStrengthThenMovement.Stats.Movement == returningPlayer.Stats.Movement + 1 && twiceStrengthThenMovement.CharacteristicImprovements.Count == 3, "the twice-per-characteristic cap should not block a different characteristic");
 
 var secondCampaignHome = scheduledLeague.Teams.First(team => team.Id == secondCampaignMatch.HomeTeamId);
 var secondCampaignAway = scheduledLeague.Teams.First(team => team.Id == secondCampaignMatch.AwayTeamId);
@@ -598,8 +744,8 @@ var depletedMatch = matchService.CreateHotseatMatch(ruleset, depletedTeam, awayL
 var richerAwayTeam = awayLeague.Teams[0] with { TeamValue = loadedLeague.Teams[0].TeamValue + 200_000 };
 var richerAwayTeamWithTreasury = richerAwayTeam with { Treasury = 50_000 };
 var preGameSummary = preGameService.BuildSummary(ruleset, rosterSet, loadedLeague.Teams[0], richerAwayTeam);
-var bribePlan = preGameService.CreatePlan(ruleset, loadedLeague.Teams[0], richerAwayTeam, homeBribes: 2, awayBribes: 0);
-var higherTvTreasuryPlan = preGameService.CreatePlan(ruleset, loadedLeague.Teams[0], richerAwayTeamWithTreasury, homeBribes: 0, awayBribes: 0, awayTreasurySpent: 50_000);
+var bribePlan = preGameService.CreatePlan(ruleset, rosterSet, loadedLeague.Teams[0], richerAwayTeam, homeBribes: 2, awayBribes: 0);
+var higherTvTreasuryPlan = preGameService.CreatePlan(ruleset, rosterSet, loadedLeague.Teams[0], richerAwayTeamWithTreasury, homeBribes: 0, awayBribes: 0, awayTreasurySpent: 50_000);
 var preparedBribeMatch = preGameService.PrepareMatch(ruleset, rosterSet, loadedLeague.Teams[0], richerAwayTeam, bribePlan);
 var inducedMatch = matchService.CreateHotseatMatch(ruleset, preparedBribeMatch.HomeTeam, preparedBribeMatch.AwayTeam, preparedBribeMatch.Inducements.Home, preparedBribeMatch.Inducements.Away);
 var preparedDepletedMatch = preGameService.PrepareMatch(ruleset, rosterSet, depletedTeam, awayLeague.Teams[0]);
@@ -611,6 +757,21 @@ Assert(benchMatch.Placements.Count == 23, "matches should accept teams with benc
 Assert(depletedMatch.Placements.Count == 14, "matches should accept teams with the three-player minimum");
 Assert(preGameSummary.Home.PettyCash == 200_000 && preGameSummary.Away.PettyCash == 0, "pre-game should award petty cash to the lower-value team");
 Assert(higherTvTreasuryPlan.Home.PettyCash == 250_000 && higherTvTreasuryPlan.Away.PettyCash == 0, "higher-TV treasury spend should increase lower-TV petty cash");
+var missingBlitzer = loadedLeague.Teams[0].Players.First(player => player.PositionId == "blitzer");
+var teamWithMissingAdvancedBlitzer = loadedLeague.Teams[0] with
+{
+    TeamValue = loadedLeague.Teams[0].TeamValue + 20_000,
+    Players = loadedLeague.Teams[0].Players
+        .Select(player => player.Id == missingBlitzer.Id
+            ? player with { Status = PlayerStatus.MissNextGame, Skills = [.. player.Skills, "guard"] }
+            : player)
+        .ToArray()
+};
+var missingBlitzerSummary = preGameService.BuildSummary(ruleset, rosterSet, teamWithMissingAdvancedBlitzer, richerAwayTeam);
+Assert(missingBlitzerSummary.Home.TeamValue == loadedLeague.Teams[0].TeamValue - 35_000, "current team value should remove an unavailable advanced Blitzer and add a base-cost journeyman");
+Assert(missingBlitzerSummary.Home.PettyCash == 235_000, "petty cash should use current team value after unavailable players and journeymen");
+var missingBlitzerPlan = preGameService.CreateDefaultPlan(ruleset, rosterSet, teamWithMissingAdvancedBlitzer, richerAwayTeam);
+Assert(missingBlitzerPlan.Home.PettyCash == 235_000, "roster-aware plan creation should use current team value");
 Assert(preGameSummary.Home.JourneymenNeeded == 0, "full teams should not need journeymen");
 Assert(preparedDepletedMatch.Summary.Home.JourneymenNeeded == 8, "pre-game should identify journeymen needed to reach eleven available players");
 Assert(preparedDepletedMatch.HomeTeam.Players.Count == 11, "pre-game should add temporary journeymen to the match team");
@@ -620,6 +781,7 @@ Assert(inducedMatch.HomeBribesRemaining == 2 && inducedMatch.AwayBribesRemaining
 Assert(preGameSummary.Home.AvailableInducements.Any(inducement => inducement.Id == "bloodweiser-keg" && inducement.MaxCount == 2), "pre-game summary should expose the broader inducement catalog");
 var staffInducementPlan = preGameService.CreatePlan(
     ruleset,
+    rosterSet,
     loadedLeague.Teams[0],
     richerAwayTeam,
     homeBribes: 0,
@@ -635,6 +797,247 @@ var staffInducedMatch = matchService.CreateHotseatMatch(ruleset, preparedStaffIn
 Assert(staffInducedMatch.HomeTeamRerolls == loadedLeague.Teams[0].Rerolls + 1, "extra team training should add a temporary team reroll");
 Assert(staffInducedMatch.HomeCheerleaders == loadedLeague.Teams[0].Cheerleaders + 1, "temp agency cheerleaders should add temporary cheerleaders");
 Assert(staffInducedMatch.HomeAssistantCoaches == loadedLeague.Teams[0].AssistantCoaches + 1, "part-time assistant coaches should add temporary assistant coaches");
+var fixedInducementOpponent = richerAwayTeam with { TeamValue = loadedLeague.Teams[0].TeamValue + 500_000 };
+var fixedInducementService = new PreGameService();
+var fixedInducementPlan = fixedInducementService.CreatePlan(
+    ruleset,
+    rosterSet,
+    loadedLeague.Teams[0],
+    fixedInducementOpponent,
+    homeBribes: 0,
+    awayBribes: 0,
+    homeInducements:
+    [
+        new SelectedInducement { InducementId = "weather-mage", Count = 1 },
+        new SelectedInducement { InducementId = "bloodweiser-keg", Count = 1 },
+        new SelectedInducement { InducementId = "special-play", Count = 1 },
+        new SelectedInducement { InducementId = "halfling-master-chef", Count = 1 }
+    ]);
+var preparedFixedInducements = fixedInducementService.PrepareMatch(ruleset, rosterSet, loadedLeague.Teams[0], fixedInducementOpponent, fixedInducementPlan);
+var fixedInducementMatch = new MatchService(new FixedDiceRoller(d6: [4, 5, 1])).CreateHotseatMatch(
+    ruleset,
+    preparedFixedInducements.HomeTeam,
+    preparedFixedInducements.AwayTeam,
+    preparedFixedInducements.Inducements.Home,
+    preparedFixedInducements.Inducements.Away);
+Assert(fixedInducementMatch.HomeBloodweiserKegs == 1, "Bloodweiser Kegs should be carried into match state");
+Assert(fixedInducementMatch.HomeWeatherMagesRemaining == 1, "Weather Mages should be carried into match state");
+Assert(fixedInducementMatch.HomeSpecialPlaysRemaining == 1, "Special Plays should be carried into match state");
+Assert(fixedInducementMatch.HomeHasMasterChef, "Master Chef purchases should be carried into match state");
+Assert(fixedInducementMatch.HomeRerollsRemaining == loadedLeague.Teams[0].Rerolls + 2, "Master Chef should gain one reroll per 4+ before the half");
+Assert(fixedInducementMatch.AwayRerollsRemaining == Math.Max(0, fixedInducementOpponent.Rerolls - 2), "Master Chef should remove the same rerolls from the opponent");
+var knockedOutHomePlayer = fixedInducementMatch.Placements.First(placement => placement.TeamId == fixedInducementMatch.HomeTeamId);
+var kegRecoveryMatch = fixedInducementMatch with
+{
+    Half = 1,
+    Phase = MatchPhase.DefensiveTurn,
+    ActiveTeamId = fixedInducementMatch.AwayTeamId,
+    HomeTurn = ruleset.TurnsPerHalf + 1,
+    AwayTurn = ruleset.TurnsPerHalf,
+    Placements = fixedInducementMatch.Placements
+        .Select(placement => placement.PlayerId == knockedOutHomePlayer.PlayerId
+            ? placement with { State = PlayerPitchState.KnockedOut, Square = null }
+            : placement)
+        .ToArray()
+};
+var kegRecoveryResult = new MatchService(new FixedDiceRoller(d6: [3, 1, 1, 1])).AdvanceTurn(kegRecoveryMatch, ruleset);
+Assert(kegRecoveryResult.Placements.Single(placement => placement.PlayerId == knockedOutHomePlayer.PlayerId).State == PlayerPitchState.Reserve, "one Bloodweiser Keg should improve knockout recovery from 4+ to 3+");
+
+var inducementTurn = fixedInducementMatch with
+{
+    Phase = MatchPhase.OffensivePlayerTurn,
+    ActiveTeamId = fixedInducementMatch.HomeTeamId,
+    Activations = []
+};
+var weatherMageResult = new MatchService(new FixedDiceRoller(d6: [6, 6])).UseWeatherMage(inducementTurn, preparedFixedInducements.HomeTeam);
+Assert(weatherMageResult.Weather == WeatherCondition.Blizzard && weatherMageResult.HomeWeatherMagesRemaining == 0, "Weather Mage should roll new weather and be consumed");
+var specialPlayResult = new MatchService(new FixedDiceRoller(d6: [3])).UseSpecialPlay(inducementTurn, preparedFixedInducements.HomeTeam);
+Assert(specialPlayResult.HomeBribesRemaining == inducementTurn.HomeBribesRemaining + 1 && specialPlayResult.HomeSpecialPlaysRemaining == 0, "Special Play table result 3 should grant a bribe and consume the play");
+
+var snotlingTeam = loadedLeague.Teams[0] with { RosterId = "snotling" };
+var riotousPlan = new PreGameService().CreatePlan(
+    ruleset,
+    rosterSet,
+    snotlingTeam,
+    richerAwayTeam,
+    homeBribes: 0,
+    awayBribes: 0,
+    homeInducements: [new SelectedInducement { InducementId = "riotous-rookies", Count = 1 }]);
+var riotousPrepared = new PreGameService(new FixedDiceRoller(d6: [1, 1])).PrepareMatch(ruleset, rosterSet, snotlingTeam, richerAwayTeam, riotousPlan);
+Assert(riotousPrepared.HomeTeam.Players.Count == snotlingTeam.Players.Count + 3, "Riotous Rookies should add 2D3+1 temporary linemen");
+Assert(riotousPrepared.HomeTeam.Players.Count(player => player.Name.StartsWith("Riotous Rookie", StringComparison.Ordinal)) == 3, "Riotous Rookies should be identifiable match-only players");
+AssertThrows(
+    () => preGameService.PrepareMatch(
+        ruleset,
+        rosterSet,
+        loadedLeague.Teams[0],
+        richerAwayTeam,
+        preGameService.CreatePlan(
+            ruleset,
+            rosterSet,
+            loadedLeague.Teams[0],
+            richerAwayTeam,
+            homeBribes: 0,
+            awayBribes: 0,
+            homeInducements: [new SelectedInducement { InducementId = "wizard", Count = 1 }])),
+    "picker-backed inducements should require an option selection");
+Assert(preGameSummary.Home.AvailableInducements.Single(inducement => inducement.Id == "mercenary-player").PickerOptions.Any(option => option.Id == "lineman" && option.Cost == 80_000), "mercenary picker options should be generated from roster positions with the mercenary premium");
+Assert(preGameSummary.Home.AvailableInducements.Single(inducement => inducement.Id == "wizard").PickerOptions.Count == 2, "wizard picker should expose both configured spell options");
+
+var mixedPickerPlan = preGameService.CreatePlan(
+    ruleset,
+    rosterSet,
+    loadedLeague.Teams[0],
+    fixedInducementOpponent,
+    homeBribes: 0,
+    awayBribes: 0,
+    homeInducements:
+    [
+        new SelectedInducement { InducementId = "mercenary-player", OptionId = "lineman", Count = 1 },
+        new SelectedInducement { InducementId = "mercenary-player", OptionId = "thrower", Count = 1 },
+        new SelectedInducement { InducementId = "infamous-coaching-staff", OptionId = "legendary-tactics-coach", Count = 1 },
+        new SelectedInducement { InducementId = "infamous-coaching-staff", OptionId = "legendary-physio", Count = 1 }
+    ]);
+var preparedMixedPickers = preGameService.PrepareMatch(ruleset, rosterSet, loadedLeague.Teams[0], fixedInducementOpponent, mixedPickerPlan);
+var mixedMercenaries = preparedMixedPickers.HomeTeam.Players.Where(player => player.Injuries.Contains("mercenary")).ToArray();
+Assert(mixedMercenaries.Length == 2 && mixedMercenaries.Any(player => player.PositionId == "lineman") && mixedMercenaries.Any(player => player.PositionId == "thrower"), "picker families should support mixed option selections in one plan");
+Assert(preparedMixedPickers.HomeTeam.Rerolls == loadedLeague.Teams[0].Rerolls + 1 && preparedMixedPickers.HomeTeam.AssistantCoaches == loadedLeague.Teams[0].AssistantCoaches + 1, "Legendary Tactics Coach should add a reroll and assistant coach");
+Assert(preparedMixedPickers.HomeTeam.Apothecaries == loadedLeague.Teams[0].Apothecaries + 1, "mixed staff options should also apply the Legendary Physio effect");
+AssertThrows(
+    () => preGameService.PrepareMatch(
+        ruleset,
+        rosterSet,
+        loadedLeague.Teams[0],
+        fixedInducementOpponent,
+        mixedPickerPlan with
+        {
+            Home = mixedPickerPlan.Home with
+            {
+                Inducements =
+                [
+                    new SelectedInducement { InducementId = "infamous-coaching-staff", OptionId = "legendary-tactics-coach", Count = 2 },
+                    new SelectedInducement { InducementId = "infamous-coaching-staff", OptionId = "legendary-physio", Count = 1 }
+                ]
+            }
+        }),
+    "picker family maximums should apply across different options");
+
+var pickerPlan = preGameService.CreatePlan(
+    ruleset,
+    rosterSet,
+    loadedLeague.Teams[0],
+    fixedInducementOpponent,
+    homeBribes: 0,
+    awayBribes: 0,
+    homeInducements:
+    [
+        new SelectedInducement { InducementId = "mercenary-player", OptionId = "lineman", Count = 1 },
+        new SelectedInducement { InducementId = "infamous-coaching-staff", OptionId = "legendary-physio", Count = 1 },
+        new SelectedInducement { InducementId = "wizard", OptionId = "lightning-wizard", Count = 1 },
+        new SelectedInducement { InducementId = "biased-referee", OptionId = "friendly-referee", Count = 1 }
+    ]);
+var preparedPickerMatch = preGameService.PrepareMatch(ruleset, rosterSet, loadedLeague.Teams[0], fixedInducementOpponent, pickerPlan);
+var mercenary = preparedPickerMatch.HomeTeam.Players.Single(player => player.Injuries.Contains("mercenary"));
+Assert(mercenary.PositionId == "lineman" && mercenary.Skills.Contains("loner"), "selected mercenary position should create a temporary Loner player");
+Assert(preparedPickerMatch.HomeTeam.Apothecaries == loadedLeague.Teams[0].Apothecaries + 1, "Legendary Physio should add a temporary apothecary");
+
+var pickerMatchService = new MatchService(new FixedDiceRoller(d6: [2, 6, 6, 6, 6], d16: [1]));
+pickerMatchService.RegisterTeams(preparedPickerMatch.HomeTeam, preparedPickerMatch.AwayTeam);
+var pickerMatch = pickerMatchService.CreateHotseatMatch(ruleset, preparedPickerMatch.HomeTeam, preparedPickerMatch.AwayTeam, pickerPlan.Home, pickerPlan.Away);
+Assert(pickerMatch.HomeWizardEffect == "wizard-lightning" && pickerMatch.HomeWizardsRemaining == 1, "selected wizard option should be carried into match state");
+Assert(pickerMatch.HomeBloodweiserKegs == 1, "Legendary Physio should add a knockout recovery bonus");
+Assert(pickerMatch.HomeBribesRemaining == 1 && pickerMatch.HomeBribeRollModifier == 1, "Friendly Referee should add a bribe and improve bribe rolls");
+
+var lightningVictim = preparedPickerMatch.AwayTeam.Players[0];
+var lightningSquare = new PitchSquare(15, 5);
+var wizardReadyMatch = pickerMatch with
+{
+    Phase = MatchPhase.OffensivePlayerTurn,
+    ActiveTeamId = pickerMatch.HomeTeamId,
+    Placements = pickerMatch.Placements
+        .Select(placement => placement.PlayerId == lightningVictim.Id
+            ? placement with { State = PlayerPitchState.Standing, Square = lightningSquare }
+            : placement)
+        .ToArray()
+};
+var lightningResult = pickerMatchService.UseWizard(wizardReadyMatch, ruleset, preparedPickerMatch.HomeTeam, lightningSquare);
+Assert(lightningResult.HomeWizardsRemaining == 0, "using a selected wizard should consume its spell");
+Assert(lightningResult.Placements.Single(placement => placement.PlayerId == lightningVictim.Id).State != PlayerPitchState.Standing, "Lightning should knock down its target on 2+");
+
+var refereePlayer = preparedPickerMatch.HomeTeam.Players[0];
+var refereeReadyMatch = pickerMatch with
+{
+    Phase = MatchPhase.OffensivePlayerTurn,
+    ActiveTeamId = pickerMatch.HomeTeamId,
+    PendingSendOff = new PendingSendOffChoice
+    {
+        TeamId = pickerMatch.HomeTeamId,
+        PlayerId = refereePlayer.Id,
+        Reason = "test foul",
+        BribeAvailable = true
+    }
+};
+var refereeResultService = new MatchService(new FixedDiceRoller(d6: [1]));
+var refereeResult = refereeResultService.ResolvePendingSendOff(refereeReadyMatch, ruleset, preparedPickerMatch.HomeTeam, useBribe: true);
+Assert(refereeResult.Placements.Single(placement => placement.PlayerId == refereePlayer.Id).State != PlayerPitchState.SentOff, "Friendly Referee +1 should turn a bribe roll of 1 into a success");
+
+var fireballPlan = preGameService.CreatePlan(
+    ruleset,
+    rosterSet,
+    loadedLeague.Teams[0],
+    fixedInducementOpponent,
+    homeBribes: 0,
+    awayBribes: 0,
+    homeInducements: [new SelectedInducement { InducementId = "wizard", OptionId = "fireball-wizard", Count = 1 }]);
+var preparedFireball = preGameService.PrepareMatch(ruleset, rosterSet, loadedLeague.Teams[0], fixedInducementOpponent, fireballPlan);
+var fireballService = new MatchService(new FixedDiceRoller(d6: [6, 6, 6, 6, 6, 6, 6, 6, 6, 6], d16: [1, 1]));
+fireballService.RegisterTeams(preparedFireball.HomeTeam, preparedFireball.AwayTeam);
+var fireballMatch = fireballService.CreateHotseatMatch(ruleset, preparedFireball.HomeTeam, preparedFireball.AwayTeam, fireballPlan.Home, fireballPlan.Away);
+var fireballHomeVictim = preparedFireball.HomeTeam.Players[0];
+var fireballAwayVictim = preparedFireball.AwayTeam.Players[0];
+var fireballCenter = new PitchSquare(13, 7);
+var fireballReadyMatch = fireballMatch with
+{
+    Phase = MatchPhase.OffensivePlayerTurn,
+    ActiveTeamId = fireballMatch.HomeTeamId,
+    Placements = fireballMatch.Placements.Select(placement =>
+        placement.PlayerId == fireballHomeVictim.Id
+            ? placement with { State = PlayerPitchState.Standing, Square = fireballCenter }
+            : placement.PlayerId == fireballAwayVictim.Id
+                ? placement with { State = PlayerPitchState.Standing, Square = new PitchSquare(14, 7) }
+                : placement with { Square = null }).ToArray()
+};
+var fireballResult = fireballService.UseWizard(fireballReadyMatch, ruleset, preparedFireball.HomeTeam, fireballCenter);
+Assert(fireballMatch.HomeWizardEffect == "wizard-fireball" && fireballResult.HomeWizardsRemaining == 0, "Fireball selection should be carried into match state and consumed on use");
+Assert(fireballResult.Placements.Where(placement => placement.PlayerId == fireballHomeVictim.Id || placement.PlayerId == fireballAwayVictim.Id).All(placement => placement.State != PlayerPitchState.Standing), "Fireball should affect standing players from both teams in its 3x3 area on 4+");
+
+var intimidatingPlan = preGameService.CreatePlan(
+    ruleset,
+    rosterSet,
+    loadedLeague.Teams[0],
+    fixedInducementOpponent,
+    homeBribes: 0,
+    awayBribes: 0,
+    homeInducements: [new SelectedInducement { InducementId = "biased-referee", OptionId = "intimidating-referee", Count = 1 }]);
+var preparedIntimidating = preGameService.PrepareMatch(ruleset, rosterSet, loadedLeague.Teams[0], fixedInducementOpponent, intimidatingPlan);
+var intimidatingMatch = new MatchService(new FixedDiceRoller(d6: [3, 3])).CreateHotseatMatch(ruleset, preparedIntimidating.HomeTeam, preparedIntimidating.AwayTeam, intimidatingPlan.Home, intimidatingPlan.Away);
+Assert(intimidatingMatch.AwayBribeRollModifier == -1, "Intimidating Referee should penalize the opposing team's bribe rolls");
+var intimidatedPlayer = preparedIntimidating.AwayTeam.Players[0];
+var intimidatedSendOff = intimidatingMatch with
+{
+    Phase = MatchPhase.OffensivePlayerTurn,
+    ActiveTeamId = intimidatingMatch.AwayTeamId,
+    AwayBribesRemaining = 1,
+    PendingSendOff = new PendingSendOffChoice
+    {
+        TeamId = intimidatingMatch.AwayTeamId,
+        PlayerId = intimidatedPlayer.Id,
+        Reason = "test foul",
+        BribeAvailable = true
+    }
+};
+var intimidatedResult = new MatchService(new FixedDiceRoller(d6: [2])).ResolvePendingSendOff(intimidatedSendOff, ruleset, preparedIntimidating.AwayTeam, useBribe: true);
+Assert(intimidatedResult.Placements.Single(placement => placement.PlayerId == intimidatedPlayer.Id).State == PlayerPitchState.SentOff, "Intimidating Referee -1 should turn a bribe roll of 2 into a failure");
 Assert(preGameSummary.StarPlayersSupported, "pre-game should report star player support when roster data defines stars");
 Assert(preGameSummary.Home.EligibleStarPlayers.Any(star => star.Id == "griff-oberwald"), "pre-game summary should list star players eligible for the team's roster special rules");
 Assert(preGameSummary.Home.EligibleStarPlayers.All(star => star.MatchedSpecialRules.Count > 0), "eligible star player summaries should name the matched roster special rules");
@@ -643,6 +1046,7 @@ var restrictedRosterSummary = preGameService.BuildSummary(ruleset, rosterSet, re
 Assert(restrictedRosterSummary.Home.RosterRestrictions.Contains("mixed-position-animosity"), "pre-game summary should surface roster restriction metadata");
 var createdStarPlan = preGameService.CreatePlan(
     ruleset,
+    rosterSet,
     loadedLeague.Teams[0],
     richerAwayTeam,
     homeBribes: 0,
@@ -650,9 +1054,9 @@ var createdStarPlan = preGameService.CreatePlan(
     homeTreasurySpent: 80_000,
     homeStarPlayerIds: ["griff-oberwald"]);
 Assert(createdStarPlan.Home.StarPlayerIds.SequenceEqual(["griff-oberwald"]), "pre-game CreatePlan should carry selected star players for the UI");
-var starPlan = preGameService.CreateDefaultPlan(ruleset, loadedLeague.Teams[0], richerAwayTeam) with
+var starPlan = preGameService.CreateDefaultPlan(ruleset, rosterSet, loadedLeague.Teams[0], richerAwayTeam) with
 {
-    Home = preGameService.CreateDefaultPlan(ruleset, loadedLeague.Teams[0], richerAwayTeam).Home with
+    Home = preGameService.CreateDefaultPlan(ruleset, rosterSet, loadedLeague.Teams[0], richerAwayTeam).Home with
     {
         TreasurySpent = 80_000,
         StarPlayerIds = ["griff-oberwald"]
@@ -661,11 +1065,22 @@ var starPlan = preGameService.CreateDefaultPlan(ruleset, loadedLeague.Teams[0], 
 var preparedStarMatch = preGameService.PrepareMatch(ruleset, rosterSet, loadedLeague.Teams[0], richerAwayTeam, starPlan);
 Assert(preparedStarMatch.HomeTeam.Players.Any(player => player.Injuries.Contains("star-player") && player.Name == "Griff Oberwald"), "pre-game should add eligible star players to the match team");
 AssertThrows(
-    () => preGameService.CreatePlan(ruleset, loadedLeague.Teams[0], richerAwayTeam, homeBribes: 3, awayBribes: 0),
+    () => preGameService.CreatePlan(ruleset, rosterSet, loadedLeague.Teams[0], richerAwayTeam, homeBribes: 3, awayBribes: 0),
     "pre-game should reject bribes that exceed petty cash and selected treasury spend");
 AssertThrows(
     () => preGameService.PrepareMatch(ruleset, rosterSet, loadedLeague.Teams[0], richerAwayTeam, starPlan with { Home = starPlan.Home with { StarPlayerIds = ["varag-ghoul-chewer"] } }),
     "pre-game should reject star players that are not eligible for a team's special rules");
+var tooManyStarsPlan = preGameService.CreatePlan(
+    ruleset,
+    rosterSet,
+    loadedLeague.Teams[0],
+    fixedInducementOpponent,
+    homeBribes: 0,
+    awayBribes: 0,
+    homeStarPlayerIds: ["griff-oberwald", "morg-n-thorg", "deeproot-strongbranch"]);
+AssertThrows(
+    () => preGameService.PrepareMatch(ruleset, rosterSet, loadedLeague.Teams[0], fixedInducementOpponent, tooManyStarsPlan),
+    "pre-game should enforce the ruleset maximum of two Star Players per team");
 AssertThrows(
     () => preGameService.PrepareMatch(
         ruleset,
@@ -1317,8 +1732,12 @@ var safePassMatch = safePassService.PassBall(passReadyMatch, ruleset, safePassTe
 Assert(safePassMatch.Phase == MatchPhase.OffensivePlayerTurn, "Safe Pass should prevent a fumble turnover automatically");
 Assert(safePassMatch.Ball.CarrierPlayerId == passerPlayer.Id, "Safe Pass should leave the ball carried by the passer");
 
-var droppedPassService = new MatchService(new FixedDiceRoller(d6: [2, 1, 1], d8: [5]));
+var droppedPassService = new MatchService(new FixedDiceRoller(d6: [2, 1], d8: [5]));
 var droppedPassMatch = droppedPassService.PassBall(passReadyMatch, ruleset, loadedLeague.Teams[0], passerPlayer.Id, passReceiver.Id);
+if (droppedPassMatch.PendingReroll is not null)
+{
+    droppedPassMatch = droppedPassService.ResolvePendingReroll(droppedPassMatch, ruleset, loadedLeague.Teams[0], useTeamReroll: false);
+}
 
 Assert(droppedPassMatch.Phase == MatchPhase.DefensiveTurn, "dropped completed pass should cause a turnover if not recovered");
 Assert(droppedPassMatch.Ball.Square == new PitchSquare(5, 1), "dropped pass should bounce from the receiver");
@@ -1331,8 +1750,12 @@ var markedReceiverMatch = passReadyMatch with
             : placement)
         .ToArray()
 };
-var markedReceiverService = new MatchService(new FixedDiceRoller(d6: [2, 3, 3], d8: [5]));
+var markedReceiverService = new MatchService(new FixedDiceRoller(d6: [2, 3], d8: [5]));
 var markedReceiverResult = markedReceiverService.PassBall(markedReceiverMatch, ruleset, loadedLeague.Teams[0], passerPlayer.Id, passReceiver.Id);
+if (markedReceiverResult.PendingReroll is not null)
+{
+    markedReceiverResult = markedReceiverService.ResolvePendingReroll(markedReceiverResult, ruleset, loadedLeague.Teams[0], useTeamReroll: false);
+}
 
 Assert(markedReceiverResult.Phase == MatchPhase.DefensiveTurn, "opposing tackle zones on the receiver should make catching harder");
 Assert(markedReceiverResult.Ball.Square == new PitchSquare(5, 1), "marked receiver dropped pass should bounce from the receiver");
@@ -1374,9 +1797,13 @@ var opponentBounceMatch = passReadyMatch with
             : placement)
         .ToArray()
 };
-var opponentBounceService = new MatchService(new FixedDiceRoller(d6: [2, 1, 1, 6], d8: [7]));
+var opponentBounceService = new MatchService(new FixedDiceRoller(d6: [2, 1, 6], d8: [7]));
 opponentBounceService.RegisterTeams(loadedLeague.Teams[0], opponentBounceAwayTeam);
 var opponentBounceResult = opponentBounceService.PassBall(opponentBounceMatch, ruleset, loadedLeague.Teams[0], passerPlayer.Id, passReceiver.Id);
+if (opponentBounceResult.PendingReroll is not null)
+{
+    opponentBounceResult = opponentBounceService.ResolvePendingReroll(opponentBounceResult, ruleset, loadedLeague.Teams[0], useTeamReroll: false, opposingTeam: opponentBounceAwayTeam);
+}
 
 Assert(opponentBounceResult.Ball.CarrierPlayerId == opponentBounceCatcher.Id, "a dropped pass that bounces onto a standing opponent should let them catch it");
 Assert(opponentBounceResult.Phase == MatchPhase.DefensiveTurn, "an opponent catching a dropped pass should be a turnover");
@@ -1395,6 +1822,16 @@ var interceptedPassMatch = interceptionService.PassBall(interceptionMatch, rules
 Assert(interceptedPassMatch.Phase == MatchPhase.DefensiveTurn, "successful interception should cause a turnover");
 Assert(interceptedPassMatch.ActiveTeamId == awayLeague.Teams[0].Id, "intercepting team should become active after turnover");
 Assert(interceptedPassMatch.Ball.CarrierPlayerId == awayPlayerToPlace.Id, "interceptor should carry the ball");
+Assert(interceptedPassMatch.PlayerAwards.Any(award => award.Kind == MatchPlayerAwardKind.Deflection && award.PlayerId == awayPlayerToPlace.Id), "a caught interference should award the deflector a Deflection (BB2020)");
+Assert(interceptedPassMatch.PlayerAwards.Any(award => award.Kind == MatchPlayerAwardKind.Interception && award.PlayerId == awayPlayerToPlace.Id), "catching a deflected pass should also award an Interception");
+
+// Interference succeeds (6) but the deflecting player fails the follow-up catch (1): a Deflection
+// is still earned, no Interception, and the ball comes loose rather than being held.
+var deflectedOnlyService = new MatchService(new FixedDiceRoller(d6: [3, 6, 1]));
+var deflectedOnlyMatch = deflectedOnlyService.PassBall(interceptionMatch, ruleset, loadedLeague.Teams[0], passerPlayer.Id, passReceiver.Id, awayLeague.Teams[0]);
+
+Assert(deflectedOnlyMatch.PlayerAwards.Any(award => award.Kind == MatchPlayerAwardKind.Deflection && award.PlayerId == awayPlayerToPlace.Id), "a successful interference should award a Deflection even when the catch fails");
+Assert(!deflectedOnlyMatch.PlayerAwards.Any(award => award.Kind == MatchPlayerAwardKind.Interception), "a deflected pass that is not caught should not award an Interception (the ball comes loose to bounce)");
 
 var markedInterceptionService = new MatchService(new FixedDiceRoller(d6: [3, 5, 4]));
 var markedInterceptionResult = markedInterceptionService.PassBall(interceptionMatch, ruleset, loadedLeague.Teams[0], passerPlayer.Id, passReceiver.Id, awayLeague.Teams[0]);
@@ -1566,6 +2003,10 @@ var monstrousMouthMatch = handOffReadyMatch with
 };
 var monstrousMouthService = new MatchService(new FixedDiceRoller(d6: [1, 3]));
 var monstrousMouthResult = monstrousMouthService.HandOffBall(monstrousMouthMatch, ruleset, monstrousMouthTeam, playerToPlace.Id, monstrousMouthReceiver.Id);
+if (monstrousMouthResult.PendingReroll is not null)
+{
+    monstrousMouthResult = monstrousMouthService.ResolvePendingReroll(monstrousMouthResult, ruleset, monstrousMouthTeam, useTeamReroll: false, skillId: "monstrous-mouth");
+}
 
 Assert(monstrousMouthResult.Ball.CarrierPlayerId == monstrousMouthReceiver.Id, "Monstrous Mouth should reroll failed catch attempts");
 

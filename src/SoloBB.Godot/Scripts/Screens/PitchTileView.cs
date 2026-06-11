@@ -78,7 +78,11 @@ public partial class PitchTileView : Button
         _pieceLayer.Modulate = modulate ?? Colors.White;
     }
 
-    public void SetOverlay(Texture2D? texture) => _overlayLayer.Texture = texture;
+    public void SetOverlay(Texture2D? texture, Color? modulate = null)
+    {
+        _overlayLayer.Texture = texture;
+        _overlayLayer.Modulate = modulate ?? Colors.White;
+    }
 
     /// <summary>
     /// Sets the status overlay (e.g. the stunned stars), anchored to the top half of
@@ -88,18 +92,7 @@ public partial class PitchTileView : Button
 
     private static TextureRect BuildStatusLayer()
     {
-        var layer = new TextureRect
-        {
-            MouseFilter = MouseFilterEnum.Ignore,
-            StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
-            TextureFilter = TextureFilterEnum.Nearest
-        };
-        layer.SetAnchorsPreset(LayoutPreset.TopWide);
-        layer.OffsetLeft = 0;
-        layer.OffsetTop = 0;
-        layer.OffsetRight = 0;
-        layer.OffsetBottom = 16;
-        return layer;
+        return BuildLayer(TextureRect.StretchModeEnum.KeepAspectCentered);
     }
 
     private static TextureRect BuildLayer(TextureRect.StretchModeEnum stretchMode)

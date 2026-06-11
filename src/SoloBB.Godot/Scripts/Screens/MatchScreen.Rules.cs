@@ -59,6 +59,27 @@ public partial class MatchScreen : VBoxContainer
         return IsActiveTeamSide(square);
     }
 
+    private bool IsLegalWizardTarget(PitchSquare square)
+    {
+        if (!_wizardMode || _wizardModeTeamId != _match.ActiveTeamId || _match.Phase is not (MatchPhase.OffensivePlayerTurn or MatchPhase.DefensiveTurn) || _match.Activations.Count > 0)
+        {
+            return false;
+        }
+
+        var effect = _match.ActiveTeamId == _match.HomeTeamId ? _match.HomeWizardEffect : _match.AwayWizardEffect;
+        var remaining = _match.ActiveTeamId == _match.HomeTeamId ? _match.HomeWizardsRemaining : _match.AwayWizardsRemaining;
+        if (remaining <= 0)
+        {
+            return false;
+        }
+
+        return effect == "wizard-fireball" ||
+            effect == "wizard-lightning" && _match.Placements.Any(placement =>
+                placement.TeamId != _match.ActiveTeamId &&
+                placement.Square == square &&
+                placement.State == PlayerPitchState.Standing);
+    }
+
     private bool CanSelectPlayer(Guid playerId)
     {
         var placement = _match.Placements.FirstOrDefault(current => current.PlayerId == playerId);
@@ -121,9 +142,9 @@ public partial class MatchScreen : VBoxContainer
             return false;
         }
 
-        if (_match.PendingBallPlacement is not null)
+        if (_match.PendingBallPlacement is PendingBallPlacementChoice ballPlacement)
         {
-            return false;
+            return placement.Square is not null && ballPlacement.LegalSquares.Contains(placement.Square);
         }
 
         if (_match.PendingBombThrow is not null)

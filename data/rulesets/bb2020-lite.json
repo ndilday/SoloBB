@@ -120,26 +120,36 @@
   "inducements": [
     { "id": "temp-agency-cheerleader", "name": "Temp Agency Cheerleader", "cost": 20000, "maxCount": 4, "kind": "cheerleader", "matchEffectImplemented": true, "description": "Adds a temporary cheerleader for kickoff table contests." },
     { "id": "part-time-assistant-coach", "name": "Part-time Assistant Coach", "cost": 20000, "maxCount": 3, "kind": "coach", "matchEffectImplemented": true, "description": "Adds a temporary assistant coach for kickoff table contests." },
-    { "id": "weather-mage", "name": "Weather Mage", "cost": 30000, "maxCount": 1, "kind": "mage", "description": "A match-only weather control inducement." },
-    { "id": "bloodweiser-keg", "name": "Bloodweiser Keg", "cost": 50000, "maxCount": 2, "kind": "recovery", "description": "Improves knockout recovery." },
-    { "id": "special-play", "name": "Special Play", "cost": 100000, "maxCount": 5, "kind": "specialPlay", "description": "Adds a special play card or equivalent match-only benefit." },
+    { "id": "weather-mage", "name": "Weather Mage", "cost": 30000, "maxCount": 1, "kind": "mage", "matchEffectImplemented": true, "description": "May be used once at the start of a team turn to roll new weather." },
+    { "id": "bloodweiser-keg", "name": "Bloodweiser Keg", "cost": 50000, "maxCount": 2, "kind": "recovery", "matchEffectImplemented": true, "description": "Adds +1 per keg to knockout recovery rolls." },
+    { "id": "special-play", "name": "Special Play", "cost": 100000, "maxCount": 5, "kind": "specialPlay", "matchEffectImplemented": true, "description": "May be revealed at the start of a team turn for a random match-only staff or reroll benefit." },
     { "id": "extra-team-training", "name": "Extra Team Training", "cost": 100000, "maxCount": 8, "kind": "reroll", "matchEffectImplemented": true, "description": "Adds a temporary team reroll." },
     { "id": "bribe", "name": "Bribe", "cost": 100000, "discountedCost": 50000, "discountSpecialRule": "bribery-and-corruption", "maxCount": 3, "kind": "bribe", "matchEffectImplemented": true, "description": "May be used for send-off rolls." },
     { "id": "wandering-apothecary", "name": "Wandering Apothecary", "cost": 100000, "maxCount": 2, "kind": "apothecary", "requiresApothecaryAccess": true, "matchEffectImplemented": true, "description": "Adds temporary apothecary support." },
     { "id": "mortuary-assistant", "name": "Mortuary Assistant", "cost": 100000, "maxCount": 1, "kind": "apothecary", "requiredSpecialRule": "sylvanian-spotlight", "matchEffectImplemented": true, "description": "Adds temporary casualty support for Sylvanian Spotlight teams." },
     { "id": "plague-doctor", "name": "Plague Doctor", "cost": 100000, "maxCount": 1, "kind": "apothecary", "requiredSpecialRule": "favoured-of-nurgle", "matchEffectImplemented": true, "description": "Adds temporary casualty support for Favoured of Nurgle teams." },
-    { "id": "riotous-rookies", "name": "Riotous Rookies", "cost": 100000, "maxCount": 1, "kind": "players", "requiredSpecialRule": "low-cost-linemen", "description": "Adds temporary rookie players where roster rules allow." },
-    { "id": "halfling-master-chef", "name": "Halfling Master Chef", "cost": 300000, "discountedCost": 100000, "discountSpecialRule": "halfling-thimble-cup", "maxCount": 1, "kind": "chef", "description": "Can steal or grant team rerolls before a half." },
-    { "id": "mercenary-player", "name": "Mercenary Player", "cost": 0, "maxCount": 99, "kind": "mercenary", "description": "Adds a temporary mercenary player. Cost depends on the selected position and options." },
+    { "id": "riotous-rookies", "name": "Riotous Rookies", "cost": 100000, "maxCount": 1, "kind": "players", "requiredSpecialRule": "low-cost-linemen", "matchEffectImplemented": true, "description": "Adds 2D3+1 temporary Loner linemen for this match." },
+    { "id": "halfling-master-chef", "name": "Halfling Master Chef", "cost": 300000, "discountedCost": 100000, "discountSpecialRule": "halfling-thimble-cup", "maxCount": 1, "kind": "chef", "matchEffectImplemented": true, "description": "Rolls three dice before each half and steals one opposing reroll for every 4+." },
+    { "id": "mercenary-player", "name": "Mercenary Player", "cost": 0, "maxCount": 16, "kind": "mercenary", "matchEffectImplemented": true, "description": "Adds a temporary Loner player selected from the team's position list. Each mercenary costs the position price plus 30,000 gp." },
     { "id": "star-player", "name": "Star Player", "cost": 0, "maxCount": 2, "kind": "starPlayer", "matchEffectImplemented": true, "description": "Cost is defined by the selected star player." },
-    { "id": "infamous-coaching-staff", "name": "(In)Famous Coaching Staff", "cost": 0, "maxCount": 2, "kind": "coachingStaff", "description": "Adds named coaching staff. Cost and effect vary by staff member." },
-    { "id": "wizard", "name": "Wizard", "cost": 0, "maxCount": 1, "kind": "special", "description": "Adds a selected wizard inducement. Cost and effect vary by wizard." },
-    { "id": "biased-referee", "name": "Biased Referee", "cost": 0, "maxCount": 1, "kind": "referee", "description": "Adds a selected biased referee. Cost and effect vary by referee." }
+    { "id": "infamous-coaching-staff", "name": "(In)Famous Coaching Staff", "cost": 0, "maxCount": 2, "kind": "coachingStaff", "matchEffectImplemented": true, "description": "Adds selected named match-day staff.", "options": [
+      { "id": "legendary-tactics-coach", "name": "Legendary Tactics Coach", "cost": 100000, "effect": "staff-reroll", "description": "Adds one temporary reroll and one assistant coach." },
+      { "id": "legendary-physio", "name": "Legendary Physio", "cost": 100000, "effect": "staff-recovery", "description": "Adds one temporary apothecary and one Bloodweiser-style recovery bonus." }
+    ] },
+    { "id": "wizard", "name": "Wizard", "cost": 0, "maxCount": 1, "kind": "special", "matchEffectImplemented": true, "description": "Adds one selected wizard spell for use at the start of a team turn.", "options": [
+      { "id": "fireball-wizard", "name": "Fireball Wizard", "cost": 150000, "effect": "wizard-fireball", "description": "Targets a 3x3 area; each player is knocked down on 4+." },
+      { "id": "lightning-wizard", "name": "Lightning Wizard", "cost": 150000, "effect": "wizard-lightning", "description": "Targets one opposing standing player and knocks them down on 2+." }
+    ] },
+    { "id": "biased-referee", "name": "Biased Referee", "cost": 0, "maxCount": 1, "kind": "referee", "matchEffectImplemented": true, "description": "Adds a selected referee modifier for send-off bribery.", "options": [
+      { "id": "friendly-referee", "name": "Friendly Referee", "cost": 120000, "effect": "referee-friendly", "description": "Adds one bribe and +1 to this team's bribe rolls." },
+      { "id": "intimidating-referee", "name": "Intimidating Referee", "cost": 100000, "effect": "referee-intimidating", "description": "Applies -1 to the opposing team's bribe rolls." }
+    ] }
   ],
   "advancementThresholds": {
-    "first": 6,
-    "second": 12,
-    "third": 18,
-    "fourth": 24
+    "randomPrimary": 3,
+    "chosenPrimary": 6,
+    "randomSecondary": 6,
+    "chosenSecondary": 12,
+    "characteristic": 18
   }
 }
