@@ -323,6 +323,19 @@ var loadedLeague = await store.LoadLeagueAsync(leaguePath);
 Assert(loadedLeague.Teams.Count == 1, "saved league should round-trip with one team");
 Assert(loadedLeague.TargetTeamCount == 4, "saved league should round-trip target team count");
 Assert(loadedLeague.Teams[0].Players.Count == 11, "team should round-trip with eleven players");
+
+// Jersey numbers are auto-assigned 1..N in draft order and round-trip through persistence.
+var numberedTeam = loadedLeague.Teams[0];
+Assert(numberedTeam.Players.Select(player => player.Number).OrderBy(number => number).SequenceEqual(Enumerable.Range(1, 11)), "team creation should assign jersey numbers 1..N");
+Assert(numberedTeam.Players.Single(player => player.Name == "One").Number == 1 && numberedTeam.Players.Single(player => player.Name == "Eleven").Number == 11, "jersey numbers should follow draft order");
+
+// Moving a player down swaps numbers with the next player; moving the first player up is a no-op.
+var jerseyPlayerOne = numberedTeam.Players.Single(player => player.Name == "One");
+var jerseyPlayerTwo = numberedTeam.Players.Single(player => player.Name == "Two");
+var movedDownTeam = leagueService.MovePlayer(loadedLeague, numberedTeam.Id, jerseyPlayerOne.Id, up: false).Teams[0];
+Assert(movedDownTeam.Players.Single(player => player.Id == jerseyPlayerOne.Id).Number == 2 && movedDownTeam.Players.Single(player => player.Id == jerseyPlayerTwo.Id).Number == 1, "moving a player down should swap jersey numbers with the next player");
+var boundaryTeam = leagueService.MovePlayer(loadedLeague, numberedTeam.Id, jerseyPlayerOne.Id, up: true).Teams[0];
+Assert(boundaryTeam.Players.Single(player => player.Id == jerseyPlayerOne.Id).Number == 1, "moving the first player up should be a no-op");
 Assert(loadedLeague.Teams[0].TeamValue == 855_000, "team value should round-trip");
 
 var awayLeague = leagueService.CreateLeague("Away Smoke League", ruleset, [rosterSet]);
@@ -404,24 +417,6 @@ staffLeague = leagueService.AddTeam(
 
 Assert(staffLeague.Teams[0].TeamValue == 630_000, "team value should include cheerleaders, assistant coaches, and apothecaries");
 Assert(staffLeague.Teams[0].Treasury == 370_000, "staff purchases should reduce treasury");
-
-var originalTeamId = fanFactorLeague.Teams[0].Id;
-fanFactorLeague = leagueService.UpdateTeam(
-    fanFactorLeague,
-    ruleset,
-    originalTeamId,
-    "Smoke Fans Edited",
-    "Editor",
-    humanRoster,
-    Enumerable.Range(1, 12).Select(index => new PlayerDraftPick($"Edited Lineman {index}", "lineman")),
-    rerolls: 0,
-    fanFactor: 1);
-
-Assert(fanFactorLeague.Teams.Count == 1, "editing a team should replace it rather than add a duplicate");
-Assert(fanFactorLeague.Teams[0].Id == originalTeamId, "editing a team should preserve the team id");
-Assert(fanFactorLeague.Teams[0].Name == "Smoke Fans Edited", "editing a team should update team details");
-Assert(fanFactorLeague.Teams[0].Players.Count == 12, "editing a team should update the roster draft");
-Assert(fanFactorLeague.Teams[0].TeamValue == 600_000, "editing a team should update team value");
 
 var scheduledLeague = leagueService.CreateLeague("Scheduled League", ruleset, [rosterSet], targetTeamCount: 4);
 for (var teamIndex = 1; teamIndex <= 4; teamIndex++)
@@ -719,6 +714,12 @@ var twiceStrengthThenMovement = new LeagueService(new FixedDiceRoller(d16: [5]))
     .Teams.Single(team => team.Id == campaignHomeTeam.Id).Players.Single(player => player.Id == returningPlayer.Id);
 Assert(twiceStrengthThenMovement.Stats.Movement == returningPlayer.Stats.Movement + 1 && twiceStrengthThenMovement.CharacteristicImprovements.Count == 3, "the twice-per-characteristic cap should not block a different characteristic");
 
+// BB2020 player titles are derived from the number of advancements taken (one band each).
+Assert(LeagueService.PlayerTitle(humanRoster, returningPlayer) == "Rookie", "a player with no advancements is a Rookie");
+Assert(LeagueService.PlayerTitle(humanRoster, returningPlayer with { Skills = ["block"] }) == "Experienced", "one advancement makes a player Experienced");
+Assert(LeagueService.PlayerTitle(humanRoster, returningPlayer with { Skills = ["block", "dauntless"], CharacteristicImprovements = [PlayerCharacteristic.Movement] }) == "Emerging Star", "three advancements (skills plus a characteristic) makes an Emerging Star");
+Assert(LeagueService.PlayerTitle(humanRoster, returningPlayer with { Skills = ["block", "dauntless", "dirty-player", "fend", "frenzy", "kick"] }) == "Legend", "six advancements makes a player a Legend");
+
 var secondCampaignHome = scheduledLeague.Teams.First(team => team.Id == secondCampaignMatch.HomeTeamId);
 var secondCampaignAway = scheduledLeague.Teams.First(team => team.Id == secondCampaignMatch.AwayTeamId);
 var completedSecondCampaignMatch = new MatchState
@@ -777,6 +778,7 @@ Assert(preparedDepletedMatch.Summary.Home.JourneymenNeeded == 8, "pre-game shoul
 Assert(preparedDepletedMatch.HomeTeam.Players.Count == 11, "pre-game should add temporary journeymen to the match team");
 Assert(preparedDepletedMatch.HomeTeam.Players.Count(player => player.Injuries.Contains("journeyman")) == 8, "temporary journeymen should be marked on the match roster");
 Assert(preparedDepletedMatch.HomeTeam.Players.Where(player => player.Injuries.Contains("journeyman")).All(player => player.Skills.Contains("loner")), "journeymen should have Loner");
+Assert(preparedDepletedMatch.HomeTeam.Players.Select(player => player.Number).Distinct().Count() == 11 && preparedDepletedMatch.HomeTeam.Players.Where(player => player.Injuries.Contains("journeyman")).All(player => player.Number > 3), "match-only journeymen should get distinct jersey numbers continuing after the roster");
 Assert(inducedMatch.HomeBribesRemaining == 2 && inducedMatch.AwayBribesRemaining == 0, "purchased inducement bribes should be available in match state");
 Assert(preGameSummary.Home.AvailableInducements.Any(inducement => inducement.Id == "bloodweiser-keg" && inducement.MaxCount == 2), "pre-game summary should expose the broader inducement catalog");
 var staffInducementPlan = preGameService.CreatePlan(

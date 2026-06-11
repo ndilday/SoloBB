@@ -3,6 +3,7 @@ using System;
 using System.Linq;
 using System.Threading.Tasks;
 using SoloBB.Core.Domain;
+using SoloBB.Core.Services;
 
 namespace SoloBB.Godot.Scripts.Screens;
 
@@ -15,6 +16,7 @@ public partial class TeamRosterScreen : VBoxContainer
     private Func<Guid, string, Task> _renamePlayer = (_, _) => Task.CompletedTask;
     private Func<Guid, string, Task> _purchaseSelectedSkill = (_, _) => Task.CompletedTask;
     private Func<Guid, Task> _purchaseRandomSkill = _ => Task.CompletedTask;
+    private Func<Guid, bool, Task> _movePlayer = (_, _) => Task.CompletedTask;
 
     private Tree _playerTree = null!;
     private Label _inspectorTitle = null!;
@@ -28,6 +30,8 @@ public partial class TeamRosterScreen : VBoxContainer
     private Button _renameButton = null!;
     private Button _selectedSkillButton = null!;
     private Button _randomSkillButton = null!;
+    private Button _moveUpButton = null!;
+    private Button _moveDownButton = null!;
 
     public void Setup(
         Ruleset ruleset,
@@ -36,6 +40,7 @@ public partial class TeamRosterScreen : VBoxContainer
         Func<Guid, string, Task> renamePlayer,
         Func<Guid, string, Task> purchaseSelectedSkill,
         Func<Guid, Task> purchaseRandomSkill,
+        Func<Guid, bool, Task> movePlayer,
         Action back)
     {
         Clear();
@@ -49,6 +54,7 @@ public partial class TeamRosterScreen : VBoxContainer
         _renamePlayer = renamePlayer;
         _purchaseSelectedSkill = purchaseSelectedSkill;
         _purchaseRandomSkill = purchaseRandomSkill;
+        _movePlayer = movePlayer;
 
         AddHeader(back);
         BuildBody();
@@ -128,7 +134,7 @@ public partial class TeamRosterScreen : VBoxContainer
     {
         _playerTree = new Tree
         {
-            Columns = 6,
+            Columns = 7,
             HideRoot = true,
             ColumnTitlesVisible = true,
             CustomMinimumSize = new Vector2(620, 280),
@@ -136,18 +142,20 @@ public partial class TeamRosterScreen : VBoxContainer
         };
         _playerTree.SetColumnTitle(0, "Player");
         _playerTree.SetColumnTitle(1, "Position");
-        _playerTree.SetColumnTitle(2, "Status");
-        _playerTree.SetColumnTitle(3, "SPP");
-        _playerTree.SetColumnTitle(4, "Progress");
-        _playerTree.SetColumnTitle(5, "Next Action");
+        _playerTree.SetColumnTitle(2, "Title");
+        _playerTree.SetColumnTitle(3, "Status");
+        _playerTree.SetColumnTitle(4, "SPP");
+        _playerTree.SetColumnTitle(5, "Progress");
+        _playerTree.SetColumnTitle(6, "Next Action");
         _playerTree.SetColumnExpand(0, true);
         _playerTree.SetColumnCustomMinimumWidth(0, 190);
         _playerTree.SetColumnCustomMinimumWidth(1, 120);
-        _playerTree.SetColumnCustomMinimumWidth(2, 90);
-        _playerTree.SetColumnCustomMinimumWidth(3, 52);
-        _playerTree.SetColumnCustomMinimumWidth(4, 95);
-        _playerTree.SetColumnCustomMinimumWidth(5, 110);
-        _playerTree.SetColumnTitleAlignment(3, HorizontalAlignment.Right);
+        _playerTree.SetColumnCustomMinimumWidth(2, 110);
+        _playerTree.SetColumnCustomMinimumWidth(3, 90);
+        _playerTree.SetColumnCustomMinimumWidth(4, 52);
+        _playerTree.SetColumnCustomMinimumWidth(5, 95);
+        _playerTree.SetColumnCustomMinimumWidth(6, 110);
+        _playerTree.SetColumnTitleAlignment(4, HorizontalAlignment.Right);
         _playerTree.ItemSelected += UpdateInspector;
         return _playerTree;
     }
@@ -206,6 +214,18 @@ public partial class TeamRosterScreen : VBoxContainer
         _renameButton.Pressed += async () => await RenameSelectedAsync();
         stack.AddChild(_renameButton);
 
+        var moveRow = new HBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        moveRow.AddThemeConstantOverride("separation", 8);
+        _moveUpButton = ScreenStyles.StyledButton("Move Up");
+        _moveUpButton.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+        _moveUpButton.Pressed += async () => await MoveSelectedAsync(up: true);
+        moveRow.AddChild(_moveUpButton);
+        _moveDownButton = ScreenStyles.StyledButton("Move Down");
+        _moveDownButton.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+        _moveDownButton.Pressed += async () => await MoveSelectedAsync(up: false);
+        moveRow.AddChild(_moveDownButton);
+        stack.AddChild(moveRow);
+
         _statsLabel = new Label { Text = "MA -   ST -   AG -   PA -   AV -" };
         _statsLabel.AddThemeColorOverride("font_color", ScreenStyles.Text);
         stack.AddChild(_statsLabel);
@@ -257,19 +277,18 @@ public partial class TeamRosterScreen : VBoxContainer
     {
         _playerTree.Clear();
         var root = _playerTree.CreateItem();
-        var index = 1;
-        foreach (var player in _team.Players)
+        foreach (var player in _team.Players.OrderBy(player => player.Number))
         {
             var item = _playerTree.CreateItem(root);
-            item.SetText(0, $"#{index} {player.Name}");
+            item.SetText(0, $"#{player.Number} {player.Name}");
             item.SetText(1, FindPosition(player.PositionId).Name);
-            item.SetText(2, FormatStatus(player.Status));
-            item.SetText(3, player.StarPlayerPoints.ToString());
-            item.SetText(4, ProgressText(player));
-            item.SetText(5, CanLevelUp(player) ? "Spend SPP" : "Rename");
+            item.SetText(2, LeagueService.PlayerTitle(_roster, player));
+            item.SetText(3, FormatStatus(player.Status));
+            item.SetText(4, player.StarPlayerPoints.ToString());
+            item.SetText(5, ProgressText(player));
+            item.SetText(6, CanLevelUp(player) ? "Spend SPP" : "Rename");
             item.SetMetadata(0, Variant.From(player.Id.ToString()));
-            item.SetTextAlignment(3, HorizontalAlignment.Right);
-            index++;
+            item.SetTextAlignment(4, HorizontalAlignment.Right);
         }
 
         _healthLabel.Text = $"Ready: {_team.Players.Count(player => player.Status == PlayerStatus.Available)}\nMissing next game: {_team.Players.Count(player => player.Status == PlayerStatus.MissNextGame)}\nCan level up: {_team.Players.Count(CanLevelUp)}\nTotal SPP: {_team.Players.Sum(player => player.StarPlayerPoints)}";
@@ -285,6 +304,8 @@ public partial class TeamRosterScreen : VBoxContainer
             UpdateInspector();
         }
     }
+
+    public void SelectPlayerById(Guid playerId) => SelectPlayer(playerId);
 
     private void SelectPlayer(Guid playerId)
     {
@@ -311,12 +332,17 @@ public partial class TeamRosterScreen : VBoxContainer
             _renameButton.Disabled = true;
             _selectedSkillButton.Disabled = true;
             _randomSkillButton.Disabled = true;
+            _moveUpButton.Disabled = true;
+            _moveDownButton.Disabled = true;
             return;
         }
 
+        _moveUpButton.Disabled = player.Number <= _team.Players.Min(current => current.Number);
+        _moveDownButton.Disabled = player.Number >= _team.Players.Max(current => current.Number);
+
         var position = FindPosition(player.PositionId);
         _inspectorTitle.Text = player.Name;
-        _inspectorMeta.Text = $"{position.Name} - {FormatStatus(player.Status)}";
+        _inspectorMeta.Text = $"{position.Name} - {LeagueService.PlayerTitle(_roster, player)} - {FormatStatus(player.Status)}";
         _nameEdit.Text = player.Name;
         _statsLabel.Text = $"MA {player.Stats.Movement}   ST {player.Stats.Strength}   AG {player.Stats.Agility}+   PA {player.Stats.Passing}+   AV {player.Stats.Armor}+";
         _developmentLabel.Text = $"{player.StarPlayerPoints} SPP. Next advancement threshold: {AdvancementCost(player)} SPP.\nSkills: {FormatSkills(player)}";
@@ -346,6 +372,17 @@ public partial class TeamRosterScreen : VBoxContainer
             _skillOption.AddItem(eligible[index].Name);
             _skillOption.SetItemMetadata(index, Variant.From(eligible[index].Id));
         }
+    }
+
+    private async Task MoveSelectedAsync(bool up)
+    {
+        var player = SelectedPlayer();
+        if (player is null)
+        {
+            return;
+        }
+
+        await _movePlayer(player.Id, up);
     }
 
     private async Task RenameSelectedAsync()

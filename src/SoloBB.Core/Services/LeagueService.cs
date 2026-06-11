@@ -74,7 +74,7 @@ public sealed class LeagueService
             throw new InvalidOperationException("League has no roster sets configured.");
         }
 
-        var players = draft.Select(pick => CreatePlayer(roster, pick)).ToArray();
+        var players = draft.Select((pick, index) => CreatePlayer(roster, pick) with { Number = index + 1 }).ToArray();
         ValidateDraft(roster, players);
 
         if (players.Length < ruleset.PlayersPerSide)
@@ -130,60 +130,6 @@ public sealed class LeagueService
         };
 
         return league with { Seasons = [season] };
-    }
-
-    public League UpdateTeam(
-        League league,
-        Ruleset ruleset,
-        Guid teamId,
-        string teamName,
-        string coachName,
-        TeamRoster roster,
-        IEnumerable<PlayerDraftPick> draft,
-        int rerolls = 0,
-        int fanFactor = 1,
-        int cheerleaders = 0,
-        int assistantCoaches = 0,
-        int apothecaries = 0)
-    {
-        if (!league.Teams.Any(team => team.Id == teamId))
-        {
-            throw new InvalidOperationException("Team is not part of this league.");
-        }
-
-        var players = draft.Select(pick => CreatePlayer(roster, pick)).ToArray();
-        ValidateDraft(roster, players);
-
-        if (players.Length < ruleset.PlayersPerSide)
-        {
-            throw new InvalidOperationException($"Draft has {players.Length} players; ruleset requires at least {ruleset.PlayersPerSide}.");
-        }
-
-        if (players.Length > MaximumRosterPlayers)
-        {
-            throw new InvalidOperationException($"Draft has {players.Length} players; rosters can include no more than {MaximumRosterPlayers}.");
-        }
-
-        if (rerolls < 0 || rerolls > ruleset.RerollCap)
-        {
-            throw new InvalidOperationException($"Rerolls must be between 0 and {ruleset.RerollCap}.");
-        }
-
-        if (fanFactor < 1)
-        {
-            throw new InvalidOperationException("Fan factor must be at least 1.");
-        }
-
-        ValidateStaff(cheerleaders, assistantCoaches, apothecaries);
-
-        var updatedTeam = BuildTeam(teamId, ruleset, teamName, coachName, roster, players, rerolls, fanFactor, cheerleaders, assistantCoaches, apothecaries);
-
-        return league with
-        {
-            Teams = league.Teams
-                .Select(team => team.Id == teamId ? updatedTeam : team)
-                .ToArray()
-        };
     }
 
     public League UpdateTeamManagement(
@@ -462,6 +408,41 @@ public sealed class LeagueService
         };
     }
 
+    // Moves a player one slot up (towards number 1) or down the roster order by swapping jersey
+    // numbers with the adjacent player. A no-op when the player is already at the boundary.
+    public League MovePlayer(League league, Guid teamId, Guid playerId, bool up)
+    {
+        var team = league.Teams.FirstOrDefault(current => current.Id == teamId)
+            ?? throw new InvalidOperationException("Team is not part of this league.");
+        var player = team.Players.FirstOrDefault(current => current.Id == playerId)
+            ?? throw new InvalidOperationException("Player is not part of this team.");
+
+        var targetNumber = up ? player.Number - 1 : player.Number + 1;
+        var neighbor = team.Players.FirstOrDefault(current => current.Number == targetNumber);
+        if (neighbor is null)
+        {
+            return league;
+        }
+
+        return league with
+        {
+            Teams = league.Teams
+                .Select(current => current.Id == team.Id
+                    ? current with
+                    {
+                        Players = current.Players
+                            .Select(currentPlayer => currentPlayer.Id == player.Id
+                                ? currentPlayer with { Number = targetNumber }
+                                : currentPlayer.Id == neighbor.Id
+                                    ? currentPlayer with { Number = player.Number }
+                                    : currentPlayer)
+                            .ToArray()
+                    }
+                    : current)
+                .ToArray()
+        };
+    }
+
     // BB2020 Characteristic Improvement table (D16): higher rolls unlock the rarer characteristics.
     private static PlayerCharacteristic[] CharacteristicOptions(int roll) => roll switch
     {
@@ -599,6 +580,22 @@ public sealed class LeagueService
         var startingSkillIds = position.StartingSkills.ToHashSet(StringComparer.OrdinalIgnoreCase);
         var skillAdvancements = player.Skills.Count(skill => !startingSkillIds.Contains(skill));
         return skillAdvancements + player.CharacteristicImprovements.Count;
+    }
+
+    // BB2020 player title, derived from the number of advancements taken (not SPP).
+    public static string PlayerTitle(TeamRoster roster, Player player)
+    {
+        var position = FindPosition(roster, player.PositionId);
+        return AdvancementsTaken(position, player) switch
+        {
+            0 => "Rookie",
+            1 => "Experienced",
+            2 => "Veteran",
+            3 => "Emerging Star",
+            4 => "Star",
+            5 => "Super Star",
+            _ => "Legend"
+        };
     }
 
     // BB2020 prices each advancement by its type (random vs chosen, primary vs secondary) rather

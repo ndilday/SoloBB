@@ -43,6 +43,7 @@ public sealed record Player
     public required string Name { get; init; }
     public required string PositionId { get; init; }
     public required PlayerStats Stats { get; init; }
+    public int Number { get; init; }
     public int StarPlayerPoints { get; init; }
     public PlayerStatus Status { get; init; } = PlayerStatus.Available;
     public IReadOnlyList<string> Skills { get; init; } = [];

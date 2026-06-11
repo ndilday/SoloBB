@@ -383,6 +383,7 @@ public partial class Main : Control
             renamePlayer: async (playerId, playerName) => await RenamePlayerAsync(team.Id, playerId, playerName, screen),
             purchaseSelectedSkill: async (playerId, skillId) => await PurchaseSelectedSkillAsync(team.Id, playerId, skillId, screen),
             purchaseRandomSkill: async playerId => await PurchaseRandomSkillAsync(team.Id, playerId, screen),
+            movePlayer: async (playerId, up) => await MovePlayerAsync(team.Id, playerId, up, screen),
             back: () => ShowTeamEditingScreen(team.Id));
     }
 
@@ -395,45 +396,29 @@ public partial class Main : Control
                 throw new InvalidOperationException("League data is not ready.");
             }
 
-            if (request.ExistingTeamId is null && _activeLeague.Teams.Count >= _targetTeamCount)
+            if (_activeLeague.Teams.Count >= _targetTeamCount)
             {
                 throw new InvalidOperationException("This league is already full.");
             }
 
-            _activeLeague = request.ExistingTeamId is Guid existingTeamId
-                ? _leagueService.UpdateTeam(
-                    _activeLeague,
-                    _ruleset,
-                    existingTeamId,
-                    request.TeamName,
-                    request.CoachName,
-                    request.Roster,
-                    request.Draft,
-                    rerolls: request.Rerolls,
-                    fanFactor: request.FanFactor,
-                    cheerleaders: request.Cheerleaders,
-                    assistantCoaches: request.AssistantCoaches,
-                    apothecaries: request.Apothecaries)
-                : _leagueService.AddTeam(
-                    _activeLeague,
-                    _ruleset,
-                    request.TeamName,
-                    request.CoachName,
-                    request.Roster,
-                    request.Draft,
-                    rerolls: request.Rerolls,
-                    fanFactor: request.FanFactor,
-                    cheerleaders: request.Cheerleaders,
-                    assistantCoaches: request.AssistantCoaches,
-                    apothecaries: request.Apothecaries);
+            _activeLeague = _leagueService.AddTeam(
+                _activeLeague,
+                _ruleset,
+                request.TeamName,
+                request.CoachName,
+                request.Roster,
+                request.Draft,
+                rerolls: request.Rerolls,
+                fanFactor: request.FanFactor,
+                cheerleaders: request.Cheerleaders,
+                assistantCoaches: request.AssistantCoaches,
+                apothecaries: request.Apothecaries);
 
             await SaveActiveLeagueAsync();
             ShowLeagueTeamsScreen();
             if (CurrentScreen is LeagueTeamsScreen leagueTeamsScreen)
             {
-                var savedTeam = request.ExistingTeamId is Guid savedTeamId
-                    ? _activeLeague.Teams.First(team => team.Id == savedTeamId)
-                    : _activeLeague.Teams.Last();
+                var savedTeam = _activeLeague.Teams.Last();
                 leagueTeamsScreen.SetStatus($"Saved '{savedTeam.Name}' with {savedTeam.Players.Count} players.");
             }
         }
@@ -524,6 +509,30 @@ public partial class Main : Control
         catch (Exception ex)
         {
             screen.SetStatus($"Skill purchase failed: {ex.Message}");
+        }
+    }
+
+    private async Task MovePlayerAsync(Guid teamId, Guid playerId, bool up, TeamRosterScreen screen)
+    {
+        try
+        {
+            if (_activeLeague is null)
+            {
+                throw new InvalidOperationException("League data is not ready.");
+            }
+
+            _activeLeague = _leagueService.MovePlayer(_activeLeague, teamId, playerId, up);
+            await SaveActiveLeagueAsync();
+            ShowTeamRosterScreen(teamId);
+            if (CurrentScreen is TeamRosterScreen rosterScreen)
+            {
+                rosterScreen.SelectPlayerById(playerId);
+                rosterScreen.SetStatus(up ? "Moved player up." : "Moved player down.");
+            }
+        }
+        catch (Exception ex)
+        {
+            screen.SetStatus($"Reordering players failed: {ex.Message}");
         }
     }
 

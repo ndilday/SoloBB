@@ -9,7 +9,6 @@ using SoloBB.Core.Services;
 namespace SoloBB.Godot.Scripts.Screens;
 
 public sealed record TeamDraftRequest(
-    Guid? ExistingTeamId,
     string TeamName,
     string CoachName,
     TeamRoster Roster,
@@ -539,7 +538,6 @@ public partial class TeamCreationScreen : VBoxContainer
         }
 
         var request = new TeamDraftRequest(
-            null,
             _teamNameEdit.Text,
             _coachNameEdit.Text,
             _selectedRoster,

@@ -27,7 +27,7 @@ public partial class MatchScreen : VBoxContainer
             activeTeam = TeamById(pendingKickoff.TeamId);
         }
 
-        foreach (var player in activeTeam.Players.OrderBy(player => player.Name, StringComparer.OrdinalIgnoreCase))
+        foreach (var player in activeTeam.Players.OrderBy(player => player.Number))
         {
             var placement = _match.Placements.FirstOrDefault(current => current.PlayerId == player.Id);
             var state = RosterStatusLabel(placement);
@@ -35,7 +35,7 @@ public partial class MatchScreen : VBoxContainer
             var activationState = ActivationDisplayState(player.Id, placement);
             var button = new Button
             {
-                Text = $"{marker}  {player.Name}  {state}  {activationState}",
+                Text = $"{marker}  {player.Number}. {player.Name}  {state}  {activationState}",
                 Alignment = HorizontalAlignment.Left,
                 SizeFlagsHorizontal = SizeFlags.ExpandFill,
                 Disabled = !CanSelectPlayer(player.Id),

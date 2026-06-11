@@ -300,6 +300,12 @@ public sealed class PreGameService
         var tacticsStaff = SelectedOptionEffectCount(ruleset, roster, plan, "infamous-coaching-staff", "staff-reroll");
         var recoveryStaff = SelectedOptionEffectCount(ruleset, roster, plan, "infamous-coaching-staff", "staff-recovery");
 
+        // Match-only additions get jersey numbers continuing after the roster so they sort last.
+        var nextNumber = team.Players.Count == 0 ? 1 : team.Players.Max(player => player.Number) + 1;
+        var additions = ((Player[])[.. journeymen, .. riotousRookies, .. mercenaries, .. starPlayers])
+            .Select((player, index) => player with { Number = nextNumber + index })
+            .ToArray();
+
         return team with
         {
             Treasury = Math.Max(0, team.Treasury - plan.TreasurySpent),
@@ -311,7 +317,7 @@ public sealed class PreGameService
                 + SelectedInducementCount(plan, "mortuary-assistant")
                 + SelectedInducementCount(plan, "plague-doctor")
                 + recoveryStaff,
-            Players = [.. team.Players, .. journeymen, .. riotousRookies, .. mercenaries, .. starPlayers]
+            Players = [.. team.Players, .. additions]
         };
     }
 
