@@ -1211,23 +1211,6 @@ public partial class MatchScreen : VBoxContainer
         return targets.Count == 0 ? null : targets.Max();
     }
 
-    private bool MovementPathNeedsDodge(PitchSquare square)
-    {
-        if (_selectedPlayerId is not Guid playerId)
-        {
-            return false;
-        }
-
-        var stepIndex = MovementStepIndex(square);
-        return stepIndex >= 0 && MovementStepNeedsDodge(playerId, stepIndex);
-    }
-
-    private bool MovementPathNeedsPickup(PitchSquare square)
-    {
-        var stepIndex = MovementStepIndex(square);
-        return stepIndex >= 0 && MovementStepNeedsPickup(stepIndex);
-    }
-
     private bool MovementStepNeedsGoForIt(Guid playerId, int stepIndex)
     {
         var player = FindPlayer(playerId);

@@ -837,22 +837,6 @@ public sealed partial class MatchService
         };
     }
 
-    private static MatchState UpdateActivationGoForIts(MatchState match, Guid playerId, Guid teamId, int goForItsUsed)
-    {
-        return match with
-        {
-            Activations = match.Activations
-                .Select(activation =>
-                    activation.PlayerId == playerId &&
-                    activation.TeamId == teamId &&
-                    activation.Half == match.Half &&
-                    activation.Turn == match.Turn
-                        ? activation with { GoForItsUsed = goForItsUsed }
-                        : activation)
-                .ToArray()
-        };
-    }
-
     private static int GetBlocksMade(MatchState match, Guid playerId, Guid teamId)
     {
         return GetActivation(match, playerId, teamId)?.BlocksMade ?? 0;

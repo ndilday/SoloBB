@@ -31,6 +31,7 @@ public partial class MatchScreen : VBoxContainer
     private HBoxContainer _rerollChoiceBox = null!;
     private HBoxContainer _apothecaryChoiceBox = null!;
     private HBoxContainer _standFirmChoiceBox = null!;
+    private HBoxContainer _pushChoiceBox = null!;
     private HBoxContainer _divingTackleChoiceBox = null!;
     private HBoxContainer _sendOffChoiceBox = null!;
     private HBoxContainer _setupChoiceBox = null!;
@@ -230,6 +231,10 @@ public partial class MatchScreen : VBoxContainer
         _standFirmChoiceBox = new HBoxContainer();
         _standFirmChoiceBox.AddThemeConstantOverride("separation", 4);
         decisionActions.AddChild(_standFirmChoiceBox);
+
+        _pushChoiceBox = new HBoxContainer();
+        _pushChoiceBox.AddThemeConstantOverride("separation", 4);
+        decisionActions.AddChild(_pushChoiceBox);
 
         _divingTackleChoiceBox = new HBoxContainer();
         _divingTackleChoiceBox.AddThemeConstantOverride("separation", 4);

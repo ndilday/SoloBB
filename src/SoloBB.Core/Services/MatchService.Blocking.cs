@@ -435,12 +435,15 @@ public sealed partial class MatchService
         }
         var stripBall = ShouldStripBall(ruleset, attacker, defender, match.Ball.CarrierPlayerId == defender.Id, pending.KnockDefenderDown);
         var pushedMatch = PushPlayer(match with { PendingPush = null }, ruleset, defender, pending.DefenderSquare, square, pending.KnockDefenderDown, () => ResolveBlockInjury(ruleset, attacker, defender), stripBall);
+        var pushMessage = IsOnPitch(ruleset, square)
+            ? $"{pending.ResultMessage} {defender.Name} is pushed to {square.X},{square.Y}."
+            : $"{pending.ResultMessage} {defender.Name} is pushed off the pitch into the crowd.";
         var loggedMatch = pushedMatch with
         {
             Log =
             [
                 .. pushedMatch.Log,
-                new MatchLogEntry { Message = $"{pending.ResultMessage} {defender.Name} is pushed to {square.X},{square.Y}." }
+                new MatchLogEntry { Message = pushMessage }
             ]
         };
 
@@ -589,12 +592,15 @@ public sealed partial class MatchService
         {
             var stripBall = ShouldStripBall(ruleset, attacker, defender, baseMatch.Ball.CarrierPlayerId == defender.Id, pending.KnockDefenderDown);
             var pushedMatch = PushPlayer(baseMatch, ruleset, defender, pending.DefenderSquare, pending.LegalSquares[0], pending.KnockDefenderDown, () => ResolveBlockInjury(ruleset, attacker, defender), stripBall);
+            var pushMessage = IsOnPitch(ruleset, pending.LegalSquares[0])
+                ? $"{pending.ResultMessage} {defender.Name} declines Stand Firm and is pushed to {pending.LegalSquares[0].X},{pending.LegalSquares[0].Y}."
+                : $"{pending.ResultMessage} {defender.Name} declines Stand Firm and is pushed off the pitch into the crowd.";
             var loggedMatch = pushedMatch with
             {
                 Log =
                 [
                     .. pushedMatch.Log,
-                    new MatchLogEntry { Message = $"{pending.ResultMessage} {defender.Name} declines Stand Firm and is pushed to {pending.LegalSquares[0].X},{pending.LegalSquares[0].Y}." }
+                    new MatchLogEntry { Message = pushMessage }
                 ]
             };
 
@@ -1155,12 +1161,15 @@ public sealed partial class MatchService
         {
             var stripBall = ShouldStripBall(ruleset, attacker, defender, match.Ball.CarrierPlayerId == defender.Id, knockDefenderDown);
             var pushedMatch = PushPlayer(match, ruleset, defender, defenderPlacement.Square!, legalSquares[0], knockDefenderDown, () => ResolveBlockInjury(ruleset, attacker, defender), stripBall);
+            var pushMessage = IsOnPitch(ruleset, legalSquares[0])
+                ? $"{resultMessage} {defender.Name} is pushed to {legalSquares[0].X},{legalSquares[0].Y}."
+                : $"{resultMessage} {defender.Name} is pushed off the pitch into the crowd.";
             var loggedMatch = pushedMatch with
             {
                 Log =
                 [
                     .. pushedMatch.Log,
-                    new MatchLogEntry { Message = $"{resultMessage} {defender.Name} is pushed to {legalSquares[0].X},{legalSquares[0].Y}." }
+                    new MatchLogEntry { Message = pushMessage }
                 ]
             };
 
@@ -1548,6 +1557,12 @@ public sealed partial class MatchService
         var placement = FindPlacement(match, playerId)
             ?? throw new InvalidOperationException("Pushed player is not part of this match.");
 
+        // A push-fan square that lies off the pitch sends the player into the crowd.
+        if (!IsOnPitch(ruleset, destination))
+        {
+            return PushPlayerIntoCrowd(match, ruleset, placement);
+        }
+
         var occupant = FindPushOccupant(match, destination, ignoredPlayerId: playerId);
         if (occupant is not null)
         {
@@ -1657,9 +1672,19 @@ public sealed partial class MatchService
             return emptyCandidates;
         }
 
-        return onPitchCandidates
-            .Where(square => CanResolvePushDestination(match, ruleset, defenderSquare, square, defenderPlayerId))
-            .ToArray();
+        // No unoccupied on-pitch square is available. The player may still be pushed into an
+        // occupied on-pitch square whose own chain-push can be resolved, or off the pitch into
+        // the crowd. Every off-pitch fan square represents the same crowd push, so they collapse
+        // to a single option.
+        var crowdSquare = candidates
+            .Where(square => !IsOnPitch(ruleset, square))
+            .Take(1);
+
+        return
+        [
+            .. onPitchCandidates.Where(square => CanResolvePushDestination(match, ruleset, defenderSquare, square, defenderPlayerId)),
+            .. crowdSquare
+        ];
     }
 
     private static bool CanResolvePushDestination(MatchState match, Ruleset ruleset, PitchSquare source, PitchSquare destination, Guid pushedPlayerId)

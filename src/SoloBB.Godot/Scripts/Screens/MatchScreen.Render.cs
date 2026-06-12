@@ -62,6 +62,7 @@ public partial class MatchScreen : VBoxContainer
         RefreshApothecaryChoice();
         RefreshSendOffChoice();
         RefreshStandFirmChoice();
+        RefreshPushChoice();
         RefreshDivingTackleChoice();
         RefreshSetupChoice();
         // Resolve the current pass preview range name once so each tile can look it up cheaply.
@@ -724,11 +725,9 @@ public partial class MatchScreen : VBoxContainer
 
         return _match.Phase switch
         {
-            MatchPhase.DefenseSetup => "Finish Defense Setup",
-            MatchPhase.OffenseSetup => "Finish Offense Setup",
+            MatchPhase.DefenseSetup or MatchPhase.OffenseSetup => $"Finish {ActiveTeam().Name} Setup",
             MatchPhase.Kickoff => "Kickoff",
-            MatchPhase.OffensivePlayerTurn => "End Offense Turn",
-            MatchPhase.DefensiveTurn => "End Defense Turn",
+            MatchPhase.OffensivePlayerTurn or MatchPhase.DefensiveTurn => $"End {ActiveTeam().Name} Turn",
             MatchPhase.Complete => "Match Complete",
             _ => "Advance"
         };
@@ -809,14 +808,12 @@ public partial class MatchScreen : VBoxContainer
         };
     }
 
-    private static string PhaseLabel(MatchPhase phase)
+    private string PhaseLabel(MatchPhase phase)
     {
         return phase switch
         {
-            MatchPhase.DefenseSetup => "Defense Setup",
-            MatchPhase.OffenseSetup => "Offense Setup",
-            MatchPhase.OffensivePlayerTurn => "Offense",
-            MatchPhase.DefensiveTurn => "Defense",
+            MatchPhase.DefenseSetup or MatchPhase.OffenseSetup => $"{ActiveTeam().Name} Setup",
+            MatchPhase.OffensivePlayerTurn or MatchPhase.DefensiveTurn => ActiveTeam().Name,
             MatchPhase.EndOfHalf => "Half Time",
             _ => phase.ToString()
         };
@@ -834,26 +831,6 @@ public partial class MatchScreen : VBoxContainer
         button.AddThemeColorOverride("font_hover_color", textColor.Lightened(0.12f));
         button.AddThemeColorOverride("font_pressed_color", textColor.Darkened(0.1f));
         button.AddThemeColorOverride("font_disabled_color", textColor.Darkened(0.16f));
-    }
-
-    private Color SquareColor(PitchSquare square)
-    {
-        if (square.X == 0)
-        {
-            return EndZoneHome;
-        }
-
-        if (square.X == _ruleset.PitchWidth - 1)
-        {
-            return EndZoneAway;
-        }
-
-        return PitchGrass;
-    }
-
-    private static Color SquareBorderColor(PitchSquare square)
-    {
-        return new Color("285c31");
     }
 
     private static Color PassRangeHighlightColor(string rangeName) => rangeName switch
@@ -899,9 +876,10 @@ public partial class MatchScreen : VBoxContainer
             _blockDiceBox.AddChild(button);
         }
 
-        // A single-die block keeps the existing reroll-on-bad-result prompt, so only offer the
-        // up-front "reroll all" button when there is more than one die to reroll.
-        if (pending.Rolls.Count > 1 && TeamRerollsRemaining(pending.AttackerTeamId) > 0)
+        // Always offer the up-front reroll button, regardless of how many dice were rolled. A player
+        // may want to reroll even a "good" single-die result (e.g. a 5 against a Dodge defender when
+        // they need the knock-down), so single- and multi-die blocks behave identically here.
+        if (TeamRerollsRemaining(pending.AttackerTeamId) > 0)
         {
             var rerollButton = new Button { Text = $"Reroll ({TeamRerollsRemaining(pending.AttackerTeamId)})" };
             rerollButton.TooltipText = "Use a team reroll to reroll all block dice.";
@@ -1142,6 +1120,32 @@ public partial class MatchScreen : VBoxContainer
         declineButton.TooltipText = "Allow the push to continue.";
         declineButton.Pressed += async () => await ResolveStandFirmAsync(useStandFirm: false);
         _standFirmChoiceBox.AddChild(declineButton);
+    }
+
+    private void RefreshPushChoice()
+    {
+        foreach (var child in _pushChoiceBox.GetChildren())
+        {
+            child.QueueFree();
+        }
+
+        // An off-pitch push-fan square has no tile to click, so offer it as an explicit button.
+        var crowdSquare = _match.PendingPush is PendingPushChoice pendingPush
+            ? pendingPush.LegalSquares.FirstOrDefault(square => !IsOnPitch(square))
+            : null;
+        if (crowdSquare is null)
+        {
+            _pushChoiceBox.Visible = false;
+            return;
+        }
+
+        _pushChoiceBox.Visible = true;
+        _pushChoiceBox.AddChild(new Label { Text = "Push:" });
+
+        var crowdButton = new Button { Text = "Into Crowd" };
+        crowdButton.TooltipText = "Push the player off the pitch into the crowd.";
+        crowdButton.Pressed += async () => await ChoosePushSquareAsync(crowdSquare);
+        _pushChoiceBox.AddChild(crowdButton);
     }
 
     private void RefreshDivingTackleChoice()
