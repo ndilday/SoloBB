@@ -2,6 +2,14 @@
 
 These are first-pass pitch sprites for UX validation. The `_32.png` files are packed into exact 32 px cells for Godot import. The larger `.png` files are transparent source sheets, and the `_raw_chroma.png` files are the original chroma-key generations kept for reprocessing.
 
+Large players use separate `_64.png` sheets. Each sheet is `64x128`, with a `64x64` standing frame above a `64x64` prone frame. On the pitch these frames render at twice the width and height of a standard player while remaining anchored to the player's logical square.
+
+| Sheet | Standing Row | Prone Row |
+| --- | --- | --- |
+| `human_ogre_64.png` | Human Ogre | Human Ogre prone |
+| `orc_untrained_troll_64.png` | Orc Untrained Troll | Orc Untrained Troll prone |
+| `dwarf_deathroller_64.png` | Dwarf Deathroller | Dwarf Deathroller disabled/prone |
+
 ## `human_team_32.png`
 
 Size: `128x64`

@@ -49,6 +49,9 @@ public partial class MatchScreen : VBoxContainer
     private Texture2D? _humanSpriteSheet;
     private Texture2D? _orcSpriteSheet;
     private Texture2D? _dwarfSpriteSheet;
+    private Texture2D? _humanOgreSpriteSheet;
+    private Texture2D? _orcUntrainedTrollSpriteSheet;
+    private Texture2D? _dwarfDeathrollerSpriteSheet;
     private Texture2D? _shamblingUndeadSpriteSheet;
     private Texture2D? _highElfSpriteSheet;
     private Texture2D? _amazonSpriteSheet;

@@ -25,7 +25,8 @@
         { "id": "lineman", "name": "Lineman", "min": 0, "max": 16, "cost": 50000, "stats": { "movement": 5, "strength": 3, "agility": 3, "passing": 4, "armor": 10 }, "startingSkills": [], "primarySkillCategories": ["general"], "secondarySkillCategories": ["agility", "passing", "strength"] },
         { "id": "thrower", "name": "Thrower", "min": 0, "max": 2, "cost": 65000, "stats": { "movement": 5, "strength": 3, "agility": 3, "passing": 3, "armor": 10 }, "startingSkills": ["pass", "sure-hands"], "primarySkillCategories": ["general", "passing"], "secondarySkillCategories": ["agility", "strength"] },
         { "id": "blitzer", "name": "Blitzer", "min": 0, "max": 4, "cost": 80000, "stats": { "movement": 6, "strength": 3, "agility": 3, "passing": 5, "armor": 10 }, "startingSkills": ["block"], "primarySkillCategories": ["general", "strength"], "secondarySkillCategories": ["agility", "passing"] },
-        { "id": "big-un", "name": "Big Un", "min": 0, "max": 4, "cost": 90000, "stats": { "movement": 5, "strength": 4, "agility": 4, "passing": 5, "armor": 10 }, "startingSkills": [], "primarySkillCategories": ["general", "strength"], "secondarySkillCategories": ["agility", "passing"] }
+        { "id": "big-un", "name": "Big Un", "min": 0, "max": 4, "cost": 90000, "stats": { "movement": 5, "strength": 4, "agility": 4, "passing": 5, "armor": 10 }, "startingSkills": [], "primarySkillCategories": ["general", "strength"], "secondarySkillCategories": ["agility", "passing"] },
+        { "id": "troll", "name": "Untrained Troll", "min": 0, "max": 1, "cost": 115000, "stats": { "movement": 4, "strength": 5, "agility": 5, "passing": 5, "armor": 10 }, "startingSkills": ["always-hungry", "loner", "mighty-blow", "projectile-vomit", "really-stupid", "regeneration", "throw-team-mate"], "primarySkillCategories": ["strength"], "secondarySkillCategories": ["agility", "general", "passing"] }
       ]
     },
     {

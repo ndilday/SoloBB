@@ -30,7 +30,7 @@ public partial class PitchTileView : Button
         Text = "";
         CustomMinimumSize = new Vector2(32, 32);
         FocusMode = FocusModeEnum.None;
-        ClipContents = true;
+        ClipContents = false;
         TextureFilter = TextureFilterEnum.Nearest;
 
         _tileLayer = BuildLayer(TextureRect.StretchModeEnum.Scale);
@@ -39,6 +39,9 @@ public partial class PitchTileView : Button
         _pieceLayer = BuildLayer(TextureRect.StretchModeEnum.KeepAspectCentered);
         _overlayLayer = BuildLayer(TextureRect.StretchModeEnum.KeepAspectCentered);
         _statusLayer = BuildStatusLayer();
+        _pieceLayer.ZIndex = 10;
+        _overlayLayer.ZIndex = 20;
+        _statusLayer.ZIndex = 30;
         AddChild(_tileLayer);
         AddChild(_highlightLayer);
         AddChild(_markingLayer);
@@ -72,10 +75,14 @@ public partial class PitchTileView : Button
 
     public void SetMarking(Texture2D? texture) => _markingLayer.Texture = texture;
 
-    public void SetPiece(Texture2D? texture, Color? modulate = null)
+    public void SetPiece(Texture2D? texture, Color? modulate = null, bool large = false)
     {
         _pieceLayer.Texture = texture;
         _pieceLayer.Modulate = modulate ?? Colors.White;
+        _pieceLayer.OffsetLeft = large ? -16 : 0;
+        _pieceLayer.OffsetTop = large ? -32 : 0;
+        _pieceLayer.OffsetRight = large ? 16 : 0;
+        _pieceLayer.OffsetBottom = 0;
     }
 
     public void SetOverlay(Texture2D? texture, Color? modulate = null)

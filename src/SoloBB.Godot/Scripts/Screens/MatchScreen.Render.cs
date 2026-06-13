@@ -153,7 +153,10 @@ public partial class MatchScreen : VBoxContainer
             var pieceModulate = ActivationDisplayState(placement.PlayerId, placement) == "Activated"
                 ? ActivatedPieceModulate
                 : Colors.White;
-            tile.SetPiece(player is null ? null : PlayerSprite(team, player, placement), pieceModulate);
+            tile.SetPiece(
+                player is null ? null : PlayerSprite(team, player, placement),
+                pieceModulate,
+                player is not null && IsLargePlayer(team, player));
             tile.SetStatus(placement.State == PlayerPitchState.Stunned ? StunnedSprite(0) : null);
             if (isSelected)
             {

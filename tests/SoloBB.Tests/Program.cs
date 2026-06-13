@@ -15,6 +15,11 @@ Assert(rosterSet.StarPlayers.Count >= 6, "sample roster set should contain the e
 Assert(ruleset.Inducements.Count >= 8, "ruleset should contain the expanded inducement sample catalog");
 Assert(ruleset.Inducements.Any(inducement => inducement.Id == "bribe"), "ruleset should contain inducement data");
 Assert(rosterSet.Rosters.Any(roster => roster.RosterRestrictions.Contains("mixed-position-animosity")), "sample roster data should include roster restriction metadata");
+Assert(rosterSet.Rosters.Single(roster => roster.Id == "human").Positions.Any(position => position.Id == "ogre" && position.Max == 1), "Human roster should include one Ogre");
+Assert(rosterSet.Rosters.Single(roster => roster.Id == "dwarf").Positions.Any(position => position.Id == "deathroller" && position.Max == 1), "Dwarf roster should include one Deathroller");
+var untrainedTroll = rosterSet.Rosters.Single(roster => roster.Id == "orc").Positions.Single(position => position.Id == "troll");
+Assert(untrainedTroll.Name == "Untrained Troll" && untrainedTroll.Max == 1 && untrainedTroll.Stats.Strength == 5, "Orc roster should include one strength 5 Untrained Troll");
+Assert(untrainedTroll.StartingSkills.Contains("projectile-vomit") && untrainedTroll.StartingSkills.Contains("really-stupid"), "Untrained Troll should load its defining traits");
 Assert(ruleset.Skills.Single(skill => skill.Id == "animosity").DataOnly, "unimplemented roster traits should be explicitly marked data-only");
 AssertThrowsInvalidData(
     () => new RulesetValidator().Validate(ruleset with

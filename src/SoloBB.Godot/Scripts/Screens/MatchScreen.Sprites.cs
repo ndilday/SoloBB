@@ -17,6 +17,9 @@ public partial class MatchScreen : VBoxContainer
         _humanSpriteSheet = GD.Load<Texture2D>("res://assets/sprites/human_team_32.png");
         _orcSpriteSheet = GD.Load<Texture2D>("res://assets/sprites/orc_team_32.png");
         _dwarfSpriteSheet = GD.Load<Texture2D>("res://assets/sprites/dwarf_team_32.png");
+        _humanOgreSpriteSheet = GD.Load<Texture2D>("res://assets/sprites/human_ogre_64.png");
+        _orcUntrainedTrollSpriteSheet = GD.Load<Texture2D>("res://assets/sprites/orc_untrained_troll_64.png");
+        _dwarfDeathrollerSpriteSheet = GD.Load<Texture2D>("res://assets/sprites/dwarf_deathroller_64.png");
         _shamblingUndeadSpriteSheet = GD.Load<Texture2D>("res://assets/sprites/shambling_undead_team_32.png");
         _highElfSpriteSheet = GD.Load<Texture2D>("res://assets/sprites/high_elf_team_32.png");
         _amazonSpriteSheet = GD.Load<Texture2D>("res://assets/sprites/amazon_team_32.png");
@@ -29,6 +32,11 @@ public partial class MatchScreen : VBoxContainer
     }
 
     private Texture2D? AtlasCell(Texture2D? sheet, string key, int column, int row)
+    {
+        return AtlasRegion(sheet, key, column * 32, row * 32, 32, 32);
+    }
+
+    private Texture2D? AtlasRegion(Texture2D? sheet, string key, int x, int y, int width, int height)
     {
         if (sheet is null)
         {
@@ -43,7 +51,7 @@ public partial class MatchScreen : VBoxContainer
         var atlas = new AtlasTexture
         {
             Atlas = sheet,
-            Region = new Rect2(column * 32, row * 32, 32, 32)
+            Region = new Rect2(x, y, width, height)
         };
         _atlasCache[key] = atlas;
         return atlas;
@@ -53,6 +61,18 @@ public partial class MatchScreen : VBoxContainer
     {
         var prone = placement?.State is PlayerPitchState.Prone or PlayerPitchState.Stunned;
         var row = prone ? 1 : 0;
+        if (IsLargePlayer(team, player))
+        {
+            var sheet = team.RosterId.ToLowerInvariant() switch
+            {
+                "human" => _humanOgreSpriteSheet,
+                "orc" => _orcUntrainedTrollSpriteSheet,
+                "dwarf" => _dwarfDeathrollerSpriteSheet,
+                _ => null
+            };
+            return AtlasRegion(sheet, $"large:{team.RosterId}:{player.PositionId}:{row}", 0, row * 64, 64, 64);
+        }
+
         if (string.Equals(team.RosterId, "orc", StringComparison.OrdinalIgnoreCase))
         {
             var column = player.PositionId switch
@@ -134,6 +154,16 @@ public partial class MatchScreen : VBoxContainer
             _ => 3
         };
         return AtlasCell(_humanSpriteSheet, $"human:{humanColumn}:{row}", humanColumn, row);
+    }
+
+    private static bool IsLargePlayer(LeagueTeam team, Player player)
+    {
+        return (string.Equals(team.RosterId, "human", StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(player.PositionId, "ogre", StringComparison.OrdinalIgnoreCase)) ||
+            (string.Equals(team.RosterId, "orc", StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(player.PositionId, "troll", StringComparison.OrdinalIgnoreCase)) ||
+            (string.Equals(team.RosterId, "dwarf", StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(player.PositionId, "deathroller", StringComparison.OrdinalIgnoreCase));
     }
 
     private Texture2D? BallSprite(int frame)
