@@ -430,9 +430,12 @@ public sealed partial class MatchService
 
         var existingActivation = GetActivation(match, player.Id, team.Id);
         var continuesMovementActivation =
-            existingActivation is { DeclaredOnly: false } &&
-            existingActivation.Action == action &&
-            action is PlayerTurnAction.Move or PlayerTurnAction.Blitz or PlayerTurnAction.Pass or PlayerTurnAction.HandOff;
+            existingActivation is { DeclaredOnly: false, Completed: false } &&
+            action is PlayerTurnAction.Move or PlayerTurnAction.Blitz or PlayerTurnAction.Pass or PlayerTurnAction.HandOff &&
+            (existingActivation.Action == action ||
+                // A provisional Move being upgraded carries its prior squares into the new action.
+                (existingActivation.Action == PlayerTurnAction.Move &&
+                    action is PlayerTurnAction.Blitz or PlayerTurnAction.Pass or PlayerTurnAction.HandOff));
         var standUpMovementCost = isStandingUp &&
             !continuesMovementActivation &&
             !PlayerHasHookedEffect(ruleset, player, GameEventKind.MoveStep, GameEventStage.BeforeEvent, SkillEffect.JumpUp)

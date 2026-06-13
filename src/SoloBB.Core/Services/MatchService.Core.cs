@@ -541,6 +541,25 @@ public sealed partial class MatchService
             }, Prevented: false);
         }
 
+        // Upgrade an in-progress plain Move into the action implied by the resolving gesture, preserving the
+        // squares already spent so movement is not double-counted or lost.
+        if (existingActivation is { Action: PlayerTurnAction.Move, Completed: false, DeclaredOnly: false } &&
+            action is PlayerTurnAction.Blitz or PlayerTurnAction.Pass or PlayerTurnAction.HandOff or PlayerTurnAction.Foul)
+        {
+            return new ActionStart(match with
+            {
+                Activations = match.Activations
+                    .Select(activation =>
+                        activation.PlayerId == player.Id &&
+                        activation.TeamId == team.Id &&
+                        activation.Half == match.Half &&
+                        activation.Turn == match.Turn
+                            ? activation with { Action = action, GoForItsUsed = goForItsUsed, MovementSquaresUsed = movementSquaresUsed }
+                            : activation)
+                    .ToArray()
+            }, Prevented: false);
+        }
+
         if (existingActivation is { DeclaredOnly: false } &&
             existingActivation.Action == action &&
             action is PlayerTurnAction.Move or PlayerTurnAction.Blitz or PlayerTurnAction.Pass or PlayerTurnAction.HandOff)
@@ -583,9 +602,15 @@ public sealed partial class MatchService
             existingActivation is { DeclaredOnly: false } &&
             existingActivation.Action == action &&
             action is PlayerTurnAction.Move or PlayerTurnAction.Blitz or PlayerTurnAction.Pass or PlayerTurnAction.HandOff;
+        // Lazy declaration: a player who has only taken plain Move steps has not committed to a once-per-turn
+        // action yet, so the resolving gesture (a block, throw, or foul) may upgrade that in-progress Move into
+        // the corresponding action. The team's budget check below still applies to the upgraded action.
+        var canUpgradeProvisionalMove = allowMatchingDeclaration &&
+            existingActivation is { Action: PlayerTurnAction.Move, Completed: false, DeclaredOnly: false } &&
+            action is PlayerTurnAction.Blitz or PlayerTurnAction.Pass or PlayerTurnAction.HandOff or PlayerTurnAction.Foul;
         var matchesExistingDeclaration = existingActivation is { DeclaredOnly: true } &&
             existingActivation.Action == action;
-        if (existingActivation is not null && !canUseSneakyGitMove && !canContinueMovementActivation && (!allowMatchingDeclaration || !matchesExistingDeclaration))
+        if (existingActivation is not null && !canUseSneakyGitMove && !canContinueMovementActivation && !canUpgradeProvisionalMove && (!allowMatchingDeclaration || !matchesExistingDeclaration))
         {
             throw new InvalidOperationException($"{player.Name} has already been activated this turn.");
         }

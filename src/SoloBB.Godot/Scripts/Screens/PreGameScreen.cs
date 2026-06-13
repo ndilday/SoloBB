@@ -77,13 +77,21 @@ public partial class PreGameScreen : VBoxContainer
 
         AddChild(BuildHeader(week));
 
+        var scroll = new ScrollContainer
+        {
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            SizeFlagsVertical = SizeFlags.ExpandFill,
+            HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled
+        };
+        AddChild(scroll);
+
         var body = new HBoxContainer
         {
             SizeFlagsHorizontal = SizeFlags.ExpandFill,
-            SizeFlagsVertical = SizeFlags.ExpandFill
+            SizeFlagsVertical = SizeFlags.Fill
         };
         body.AddThemeConstantOverride("separation", 14);
-        AddChild(body);
+        scroll.AddChild(body);
 
         var mainColumn = new VBoxContainer
         {

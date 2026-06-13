@@ -193,10 +193,11 @@ public partial class MatchScreen : VBoxContainer
     }
 
     /// <summary>
-    /// Handles a right-click on a pitch square. Right-click is reserved for declaring the target of
-    /// a Pass or Hand-off: the first click aims (sets a preview) and a second right-click on the same
-    /// target confirms it. Anything that is not a legal target is ignored except for a gentle nudge
-    /// when the selected player is actually in a Pass / Hand-off mode.
+    /// Handles a right-click on a pitch square. Right-click is reserved for aiming a Pass or Hand-off:
+    /// the first click aims (sets a preview) and a second right-click on the same target confirms it.
+    /// With lazy declaration the gesture itself commits the ball action — an adjacent standing team-mate
+    /// resolves as a Hand-off, anything farther as a Pass — so no up-front mode is required. Anything that
+    /// is not a legal target is ignored except for a gentle nudge when the selected carrier could throw.
     /// </summary>
     private async Task HandleTargetingClickAsync(PitchSquare square)
     {
@@ -221,13 +222,13 @@ public partial class MatchScreen : VBoxContainer
             }
         }
 
-        if (_passMode && IsLegalPassTargetSquare(actorId, square))
+        if (IsLegalPassTargetSquare(actorId, square))
         {
             await HandlePassTargetAsync(actorId, square, occupied?.TeamId == _match.ActiveTeamId ? occupied.PlayerId : null);
             return;
         }
 
-        if (_passMode)
+        if (_match.Ball.CarrierPlayerId == actorId && CanEnterPassMode(actorId))
         {
             _summaryLabel.Text = "Right-click a legal pass target (team-mate or square) to aim, then right-click again to confirm.";
         }
@@ -637,7 +638,6 @@ public partial class MatchScreen : VBoxContainer
         _selectedPlayerId = null;
         _currentActivationPlayerId = null;
 
-        _passMode = false;
         await AnimateBallAsync(beforeMatch, _match, logStart);
         await _saveMatch(_match);
         RefreshRoster();
@@ -691,7 +691,6 @@ public partial class MatchScreen : VBoxContainer
             _currentActivationPlayerId = null;
         }
 
-        _handOffMode = false;
         await AnimateBallAsync(beforeMatch, _match, logStart);
         await _saveMatch(_match);
         RefreshRoster();
@@ -1204,23 +1203,8 @@ public partial class MatchScreen : VBoxContainer
             return;
         }
 
-        if (_selectedPlayerId is Guid actorId && actorId != playerId)
-        {
-            if (IsHandingOff(actorId) && IsLegalHandOffTarget(actorId, playerId))
-            {
-                await HandleHandOffTargetAsync(actorId, playerId);
-                return;
-            }
-
-            if (_passMode &&
-                _match.Placements.FirstOrDefault(placement => placement.PlayerId == playerId)?.Square is PitchSquare receiverSquare &&
-                IsLegalPassTarget(actorId, playerId))
-            {
-                await HandlePassTargetAsync(actorId, receiverSquare, playerId);
-                return;
-            }
-        }
-
+        // Roster clicks only select. Pass / Hand-off targeting is driven by right-clicking the target on
+        // the pitch, so a roster click never inadvertently throws the ball.
         SelectPlayer(playerId);
     }
 
@@ -1258,10 +1242,6 @@ public partial class MatchScreen : VBoxContainer
             }
         }
 
-        var activation = CurrentTurnActivation(playerId);
-        _passMode = activation?.Action == PlayerTurnAction.Pass;
-        _handOffMode = activation?.Action == PlayerTurnAction.HandOff;
-        _blitzMode = activation?.Action == PlayerTurnAction.Blitz;
         _throwTeamMateMode = false;
         _kickTeamMateMode = false;
 
@@ -1287,158 +1267,6 @@ public partial class MatchScreen : VBoxContainer
             button.AddThemeStyleboxOverride("normal", FlatStyle(baseColor, borderColor));
             button.AddThemeStyleboxOverride("disabled", FlatStyle(baseColor.Darkened(0.08f), new Color("303832")));
             button.AddThemeStyleboxOverride("hover", FlatStyle(baseColor.Lightened(0.12f), isSelected ? SelectedColor : new Color("536856")));
-        }
-    }
-
-    private async Task DeclarePassModeAsync()
-    {
-        await DeclareBallActionModeAsync(PlayerTurnAction.Pass);
-    }
-
-    private async Task DeclareHandOffModeAsync()
-    {
-        await DeclareBallActionModeAsync(PlayerTurnAction.HandOff);
-    }
-
-    private async Task DeclareBallActionModeAsync(PlayerTurnAction action)
-    {
-        ResetEndTurnConfirmation();
-        if (_selectedPlayerId is not Guid playerId)
-        {
-            return;
-        }
-
-        var isPass = action == PlayerTurnAction.Pass;
-        var activation = CurrentTurnActivation(playerId);
-        var isDeclaredAction = activation?.Action == action;
-
-        if (!(isPass ? CanEnterPassMode(playerId) : CanEnterHandOffMode(playerId)) && !isDeclaredAction)
-        {
-            return;
-        }
-
-        var alreadyTargeting = isPass ? _passMode : _handOffMode;
-
-        try
-        {
-            if (alreadyTargeting)
-            {
-                if (activation is { DeclaredOnly: true })
-                {
-                    _match = _match with
-                    {
-                        Activations = _match.Activations.Where(a => a != activation).ToArray(),
-                        Log = [.. _match.Log, new MatchLogEntry { Message = $"{FindPlayer(playerId)?.Name ?? "Player"} cancels {(isPass ? "Pass" : "Hand-off")} declaration." }]
-                    };
-                    if (isPass) _passMode = false;
-                    else _handOffMode = false;
-                    await _saveMatch(_match);
-                }
-                else
-                {
-                    // The player has already started the activation (moved before aiming), so the
-                    // declared action is committed for good and cannot be taken back. Toggling the
-                    // mode off here only hides the targeting affordance; the player must still see the
-                    // Pass / Hand-off through (or end their activation by activating a team-mate).
-                    if (isPass) _passMode = false;
-                    else _handOffMode = false;
-                }
-
-                ClearPreview();
-                RefreshRoster();
-                RefreshPitch();
-                return;
-            }
-
-            if (activation is null)
-            {
-                var service = CreateMatchService();
-                _match = service.DeclarePlayerAction(_match, ActiveTeam(), playerId, action);
-                await _saveMatch(_match);
-            }
-
-            ClearPreview();
-            _selectedPlayerId = playerId;
-            _currentActivationPlayerId = playerId;
-            DisableWizardMode();
-            _passMode = isPass;
-            _handOffMode = !isPass;
-            _throwTeamMateMode = false;
-            _kickTeamMateMode = false;
-            RefreshRoster();
-            RefreshPitch();
-        }
-        catch (Exception ex)
-        {
-            _summaryLabel.Text = $"{(isPass ? "Pass" : "Hand-off")} declaration failed: {ex.Message}";
-        }
-    }
-
-    private async Task DeclareBlitzModeAsync()
-    {
-        ResetEndTurnConfirmation();
-        if (_selectedPlayerId is not Guid playerId)
-        {
-            return;
-        }
-
-        var activation = CurrentTurnActivation(playerId);
-        var isDeclaredBlitz = activation?.Action == PlayerTurnAction.Blitz;
-
-        if (!CanEnterBlitzMode(playerId) && !isDeclaredBlitz)
-        {
-            return;
-        }
-
-        try
-        {
-            if (_blitzMode)
-            {
-                if (activation is { DeclaredOnly: true })
-                {
-                    _match = _match with
-                    {
-                        Activations = _match.Activations.Where(a => a != activation).ToArray(),
-                        Log = [.. _match.Log, new MatchLogEntry { Message = $"{FindPlayer(playerId)?.Name ?? "Player"} cancels Blitz declaration." }]
-                    };
-                    _blitzMode = false;
-                    await _saveMatch(_match);
-                }
-                else
-                {
-                    // Already started: the Blitz is committed for good and cannot be taken back.
-                    // Toggling the mode off here only hides the targeting affordance.
-                    _blitzMode = false;
-                }
-
-                ClearPreview();
-                RefreshRoster();
-                RefreshPitch();
-                return;
-            }
-
-            if (activation is null)
-            {
-                var service = CreateMatchService();
-                _match = service.DeclarePlayerAction(_match, ActiveTeam(), playerId, PlayerTurnAction.Blitz);
-                await _saveMatch(_match);
-            }
-
-            ClearPreview();
-            _selectedPlayerId = playerId;
-            _currentActivationPlayerId = playerId;
-            DisableWizardMode();
-            _blitzMode = true;
-            _passMode = false;
-            _handOffMode = false;
-            _throwTeamMateMode = false;
-            _kickTeamMateMode = false;
-            RefreshRoster();
-            RefreshPitch();
-        }
-        catch (Exception ex)
-        {
-            _summaryLabel.Text = $"Blitz declaration failed: {ex.Message}";
         }
     }
 

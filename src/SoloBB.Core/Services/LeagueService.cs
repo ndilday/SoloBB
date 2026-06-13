@@ -458,6 +458,51 @@ public sealed partial class LeagueService
         };
     }
 
+    // BB2020 fallback: if the rolled characteristics cannot be improved (or the coach does not wish
+    // to), the player may instead take a Chosen Secondary skill. The 18 SPP characteristic cost is
+    // still spent, but the player's value rises by the Chosen Secondary amount.
+    public League ApplyCharacteristicSecondarySkill(League league, Ruleset ruleset, TeamRoster roster, Guid teamId, Guid playerId, string skillId)
+    {
+        var (player, position) = ResolveCharacteristicCandidate(league, ruleset, roster, teamId, playerId, out var cost);
+
+        var skill = ruleset.Skills.FirstOrDefault(current => string.Equals(current.Id, skillId, StringComparison.OrdinalIgnoreCase))
+            ?? throw new InvalidOperationException($"Ruleset does not define skill '{skillId}'.");
+        if (skill.DataOnly || skill.Compulsory)
+        {
+            throw new InvalidOperationException($"{skill.Name} cannot be taken as an advancement.");
+        }
+        if (!position.SecondarySkillCategories.Contains(skill.Category, StringComparer.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException($"{skill.Name} is not a Secondary skill for {player.Name}.");
+        }
+        if (player.Skills.Contains(skill.Id, StringComparer.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException($"{player.Name} already has {skill.Name}.");
+        }
+
+        var (_, valueIncrease) = AdvancementPricing(ruleset, isPrimary: false, isRandom: false);
+        return league with
+        {
+            Teams = league.Teams
+                .Select(current => current.Id == teamId
+                    ? current with
+                    {
+                        TeamValue = current.TeamValue + valueIncrease,
+                        Players = current.Players
+                            .Select(currentPlayer => currentPlayer.Id == player.Id
+                                ? currentPlayer with
+                                {
+                                    StarPlayerPoints = currentPlayer.StarPlayerPoints - cost,
+                                    Skills = [.. currentPlayer.Skills, skill.Id]
+                                }
+                                : currentPlayer)
+                            .ToArray()
+                    }
+                    : current)
+                .ToArray()
+        };
+    }
+
     // Validates that the player may take a characteristic improvement (team/roster match, advancement
     // cap, and SPP), returning the player, position, and the SPP cost for the improvement.
     private (Player Player, PositionTemplate Position) ResolveCharacteristicCandidate(League league, Ruleset ruleset, TeamRoster roster, Guid teamId, Guid playerId, out int cost)

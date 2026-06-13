@@ -180,6 +180,12 @@ public sealed record PendingBlockChoice
     public required int AttackerStrength { get; init; }
     public required int DefenderStrength { get; init; }
     public bool PreventFollowUp { get; init; }
+
+    /// <summary>
+    /// True when these dice are the result of a team reroll. A given block roll may only be rerolled
+    /// once, so no further team reroll is offered for the choice presented from these dice.
+    /// </summary>
+    public bool AlreadyRerolled { get; init; }
 }
 
 public sealed record PendingBlockRerollChoice

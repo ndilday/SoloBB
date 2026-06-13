@@ -400,6 +400,11 @@ public partial class MatchScreen : VBoxContainer
     private bool IsLegalBlitzTarget(Guid attackerId, Guid defenderId)
     {
         var activation = CurrentTurnActivation(attackerId);
+        // A blitz is offered to an unactivated player, a player still on a provisional Move (lazy upgrade),
+        // or one who has already committed to a Blitz this activation.
+        var canBlitz = activation is null ||
+            activation is { Action: PlayerTurnAction.Move, Completed: false } ||
+            activation.Action == PlayerTurnAction.Blitz;
         if (!IsPlayerTurnPhase() ||
             _match.PendingBlock is not null ||
             _match.PendingPush is not null ||
@@ -412,17 +417,8 @@ public partial class MatchScreen : VBoxContainer
             _match.PendingBombThrow is not null ||
             _match.PendingInterception is not null ||
             _match.PendingReroll is not null ||
+            !canBlitz ||
             (HasUsedBlitz(_match.ActiveTeamId) && activation?.Action != PlayerTurnAction.Blitz))
-        {
-            return false;
-        }
-
-        if (activation is not null && activation.Action != PlayerTurnAction.Blitz)
-        {
-            return false;
-        }
-
-        if (activation is null && !_blitzMode)
         {
             return false;
         }
@@ -442,7 +438,7 @@ public partial class MatchScreen : VBoxContainer
 
         if (attackerPlacement.State == PlayerPitchState.Standing && IsAdjacent(attackerSquare, defenderSquare))
         {
-            return activation?.Action == PlayerTurnAction.Blitz || _blitzMode;
+            return true;
         }
 
         return FindBlitzDestination(attackerId, defenderId) is not null;
@@ -474,6 +470,10 @@ public partial class MatchScreen : VBoxContainer
 
     private bool IsLegalFoulTarget(Guid foulerId, Guid victimId)
     {
+        // A foul may be the gesture that resolves a provisional Move (move adjacent, then foul); it is only
+        // blocked once the player has committed to some other action this turn.
+        var foulerActivation = CurrentTurnActivation(foulerId);
+        var foulerUncommitted = foulerActivation is null || foulerActivation is { Action: PlayerTurnAction.Move, Completed: false };
         if (!IsPlayerTurnPhase() ||
             _match.PendingBlock is not null ||
             _match.PendingPush is not null ||
@@ -484,7 +484,7 @@ public partial class MatchScreen : VBoxContainer
             _match.PendingDumpOff is not null ||
             _match.PendingOnTheBall is not null ||
             _match.PendingBombThrow is not null ||
-            HasCurrentTurnActivation(foulerId) ||
+            !foulerUncommitted ||
             HasUsedFoul(_match.ActiveTeamId))
         {
             return false;
@@ -707,13 +707,13 @@ public partial class MatchScreen : VBoxContainer
         return CanDeclareBallAction(carrierId, PlayerTurnAction.HandOff, HasUsedHandOff(_match.ActiveTeamId));
     }
 
-    // True while the selected carrier is in the middle of a hand-off: either the mode toggle is on,
-    // or they have already committed a hand-off activation. The activation check matters because a
-    // transient prompt during the move (e.g. a pickup reroll) clears the toggle even though the
-    // declared hand-off is still live, so we must not lose the targeting affordance.
+    // True while the selected carrier may hand off: they have either already committed a hand-off this
+    // activation, or are still eligible to (provisional Move, hand-off budget free). With lazy declaration
+    // there is no mode toggle — the targeting affordance is offered whenever the hand-off is legal.
     private bool IsHandingOff(Guid carrierId)
     {
-        return _handOffMode || CurrentTurnActivation(carrierId)?.Action == PlayerTurnAction.HandOff;
+        return CurrentTurnActivation(carrierId)?.Action == PlayerTurnAction.HandOff ||
+            CanEnterHandOffMode(carrierId);
     }
 
     // A pass or hand-off can be declared before the player holds the ball, so they may move to
@@ -747,7 +747,9 @@ public partial class MatchScreen : VBoxContainer
         var activation = CurrentTurnActivation(playerId);
         if (activation is not null)
         {
-            return activation.Action == action;
+            // Already committed to this ball action, or still on a provisional Move that the throw can upgrade.
+            return activation.Action == action ||
+                (activation is { Action: PlayerTurnAction.Move, Completed: false } && !teamAlreadyUsedAction);
         }
 
         return !teamAlreadyUsedAction;
@@ -771,32 +773,6 @@ public partial class MatchScreen : VBoxContainer
         }
 
         return IsAdjacent(carrierSquare, receiverSquare);
-    }
-
-    private bool CanEnterBlitzMode(Guid playerId)
-    {
-        if (!IsPlayerTurnPhase() ||
-            _match.PendingBlock is not null ||
-            _match.PendingPush is not null ||
-            _match.PendingFollowUp is not null ||
-            _match.PendingSendOff is not null ||
-            _match.PendingStandFirm is not null ||
-            _match.PendingDivingTackle is not null ||
-            _match.PendingDumpOff is not null ||
-            _match.PendingOnTheBall is not null ||
-            _match.PendingBombThrow is not null ||
-            _match.PendingInterception is not null ||
-            _match.PendingReroll is not null ||
-            HasCurrentTurnActivation(playerId) ||
-            HasUsedBlitz(_match.ActiveTeamId))
-        {
-            return false;
-        }
-
-        var placement = _match.Placements.FirstOrDefault(current => current.PlayerId == playerId);
-        return placement?.TeamId == _match.ActiveTeamId &&
-            placement.Square is not null &&
-            placement.State is PlayerPitchState.Standing or PlayerPitchState.Prone;
     }
 
     private bool CanEnterLaunchMode(Guid actorId, string skillId)

@@ -37,9 +37,6 @@ public partial class MatchScreen : VBoxContainer
     private HBoxContainer _onTheBallChoiceBox = null!;
     private HBoxContainer _sendOffChoiceBox = null!;
     private HBoxContainer _setupChoiceBox = null!;
-    private Button _passModeButton = null!;
-    private Button _handOffModeButton = null!;
-    private Button _blitzModeButton = null!;
     private Button _throwTeamMateModeButton = null!;
     private Button _kickTeamMateModeButton = null!;
     private Button _weatherMageButton = null!;
@@ -83,9 +80,6 @@ public partial class MatchScreen : VBoxContainer
     private PitchSquare? _previewLaunchTargetSquare;
     private PitchSquare? _animationBallSquare;
     private bool _isAnimating;
-    private bool _passMode;
-    private bool _handOffMode;
-    private bool _blitzMode;
     private bool _throwTeamMateMode;
     private bool _kickTeamMateMode;
     private bool _wizardMode;
@@ -156,9 +150,6 @@ public partial class MatchScreen : VBoxContainer
         _previewLaunchedPlayerId = null;
         _previewLaunchTargetSquare = null;
         _animationBallSquare = null;
-        _passMode = false;
-        _handOffMode = false;
-        _blitzMode = false;
         _throwTeamMateMode = false;
         _kickTeamMateMode = false;
         _isPitchDragging = false;
@@ -258,18 +249,6 @@ public partial class MatchScreen : VBoxContainer
         _sendOffChoiceBox.AddThemeConstantOverride("separation", 4);
         decisionActions.AddChild(_sendOffChoiceBox);
 
-        _passModeButton = ActionButton("Pass");
-        _passModeButton.Pressed += async () => await DeclarePassModeAsync();
-        footer.AddChild(_passModeButton);
-
-        _handOffModeButton = ActionButton("Hand-off");
-        _handOffModeButton.Pressed += async () => await DeclareHandOffModeAsync();
-        footer.AddChild(_handOffModeButton);
-
-        _blitzModeButton = ActionButton("Blitz");
-        _blitzModeButton.Pressed += async () => await DeclareBlitzModeAsync();
-        footer.AddChild(_blitzModeButton);
-
         _throwTeamMateModeButton = ActionButton("TTM");
         _throwTeamMateModeButton.Pressed += () =>
         {
@@ -280,8 +259,6 @@ public partial class MatchScreen : VBoxContainer
             if (enabled)
             {
                 DisableWizardMode();
-                _passMode = false;
-                _handOffMode = false;
                 _kickTeamMateMode = false;
             }
 
@@ -299,8 +276,6 @@ public partial class MatchScreen : VBoxContainer
             if (enabled)
             {
                 DisableWizardMode();
-                _passMode = false;
-                _handOffMode = false;
                 _throwTeamMateMode = false;
             }
 
@@ -324,9 +299,6 @@ public partial class MatchScreen : VBoxContainer
             if (_wizardMode)
             {
                 _wizardModeTeamId = _match.ActiveTeamId;
-                _passMode = false;
-                _handOffMode = false;
-                _blitzMode = false;
                 _throwTeamMateMode = false;
                 _kickTeamMateMode = false;
                 _selectedPlayerId = null;

@@ -767,6 +767,18 @@ AssertThrows(
     () => twoStepService.ApplyCharacteristicAdvancement(characteristicReadyLeague, ruleset, humanRoster, campaignHomeTeam.Id, returningPlayer.Id, 5, PlayerCharacteristic.Strength),
     "applying a characteristic the rolled table does not permit should be rejected");
 
+// BB2020 fallback: instead of a rolled characteristic the player may take a Chosen Secondary skill,
+// still spending the full 18 SPP but gaining the Chosen Secondary (+40k) value.
+var returningPosition = humanRoster.Positions.First(position => string.Equals(position.Id, returningPlayer.PositionId, StringComparison.OrdinalIgnoreCase));
+var fallbackSecondary = ruleset.Skills.First(skill => !skill.DataOnly && !skill.Compulsory
+    && returningPosition.SecondarySkillCategories.Contains(skill.Category, StringComparer.OrdinalIgnoreCase)
+    && !returningPlayer.Skills.Contains(skill.Id, StringComparer.OrdinalIgnoreCase));
+var fallbackLeague = twoStepService.ApplyCharacteristicSecondarySkill(characteristicReadyLeague, ruleset, humanRoster, campaignHomeTeam.Id, returningPlayer.Id, fallbackSecondary.Id);
+var fallbackTeam = fallbackLeague.Teams.Single(team => team.Id == campaignHomeTeam.Id);
+var fallbackPlayer = fallbackTeam.Players.Single(player => player.Id == returningPlayer.Id);
+Assert(fallbackPlayer.Skills.Contains(fallbackSecondary.Id) && fallbackPlayer.StarPlayerPoints == 0, "the characteristic-to-secondary-skill fallback should add the skill and spend the full 18 SPP");
+Assert(fallbackTeam.TeamValue == updatedCampaignHome.TeamValue + 40_000, "the secondary-skill fallback should add the Chosen Secondary 40k value");
+
 // BB2020 player titles are derived from the number of advancements taken (one band each).
 Assert(LeagueService.PlayerTitle(humanRoster, returningPlayer) == "Rookie", "a player with no advancements is a Rookie");
 Assert(LeagueService.PlayerTitle(humanRoster, returningPlayer with { Skills = ["block"] }) == "Experienced", "one advancement makes a player Experienced");
@@ -2905,6 +2917,79 @@ var failedMoveBlitzResult = failedMoveBlitzService.BlitzPlayer(failedMoveBlitzMa
 Assert(failedMoveBlitzResult.PendingReroll?.Kind == PendingRerollKind.GoForIt, "failed blitz movement should pause before resolving the failed movement roll");
 Assert(failedMoveBlitzResult.Activations.Single(activation => activation.PlayerId == playerToPlace.Id).Action == PlayerTurnAction.Blitz, "failed blitz movement should still spend the blitz activation");
 Assert(failedMoveBlitzResult.Placements.Single(placement => placement.PlayerId == awayPlayerToPlace.Id).State == PlayerPitchState.Standing, "failed blitz movement should not resolve the block");
+
+smoke.StartSection("Lazy action declaration");
+var homeTeamId = loadedLeague.Teams[0].Id;
+
+// Lazy blitz: take plain Move steps with no declaration, then block from the adjacent square. The block
+// upgrades the provisional Move to a Blitz, carrying the squares already spent and spending the team blitz.
+var lazyBlitzService = new MatchService(new FixedDiceRoller(d6: [6, 1, 1]));
+var lazyBlitzMoved = lazyBlitzService.MovePlayer(blitzReadyMatch, ruleset, loadedLeague.Teams[0], playerToPlace.Id, new PitchSquare(2, 1), awayLeague.Teams[0]);
+var lazyMovedActivation = lazyBlitzMoved.Activations.Single(activation => activation.PlayerId == playerToPlace.Id);
+Assert(lazyMovedActivation.Action == PlayerTurnAction.Move, "an undeclared move should record a provisional Move activation");
+Assert(lazyMovedActivation.MovementSquaresUsed == 2, "the provisional move should record the squares it spent");
+Assert(!MatchQueries.HasUsedBlitz(lazyBlitzMoved, homeTeamId), "a plain move must not consume the team blitz");
+var lazyBlitzed = lazyBlitzService.BlitzPlayer(lazyBlitzMoved, ruleset, loadedLeague.Teams[0], playerToPlace.Id, new PitchSquare(2, 1), awayLeague.Teams[0], awayPlayerToPlace.Id);
+var lazyBlitzActivation = lazyBlitzed.Activations.Single(activation => activation.PlayerId == playerToPlace.Id);
+Assert(lazyBlitzActivation.Action == PlayerTurnAction.Blitz, "blocking after a plain move should upgrade the activation to Blitz");
+Assert(lazyBlitzActivation.MovementSquaresUsed == 2, "the upgraded blitz should preserve the squares already moved");
+Assert(MatchQueries.HasUsedBlitz(lazyBlitzed, homeTeamId), "the upgraded blitz should consume the team blitz");
+
+// Gotcha: a lazy blitz that still has movement to a destination must carry the provisional move's squares
+// into the blitz move, not reset them to zero (which would let the blitzer over-move).
+var lazyBlitzMoveService = new MatchService(new FixedDiceRoller(d6: [6, 1, 1]));
+var lazyBlitzStep = lazyBlitzMoveService.MovePlayer(blitzReadyMatch, ruleset, loadedLeague.Teams[0], playerToPlace.Id, new PitchSquare(1, 1), awayLeague.Teams[0]);
+var lazyBlitzToTarget = lazyBlitzMoveService.BlitzPlayer(lazyBlitzStep, ruleset, loadedLeague.Teams[0], playerToPlace.Id, new PitchSquare(2, 1), awayLeague.Teams[0], awayPlayerToPlace.Id);
+var lazyBlitzToTargetActivation = lazyBlitzToTarget.Activations.Single(activation => activation.PlayerId == playerToPlace.Id);
+Assert(lazyBlitzToTargetActivation.Action == PlayerTurnAction.Blitz, "moving then blitzing to a destination should upgrade to Blitz");
+Assert(lazyBlitzToTargetActivation.MovementSquaresUsed == 2, "the upgraded blitz must carry the squares spent during the provisional move");
+
+// A consumed lazy blitz still reserves the team's once-per-turn blitz: a second player cannot blitz.
+var lazyBlitzResolved = ConfirmBlockDie(lazyBlitzService, lazyBlitzed, ruleset, loadedLeague.Teams[0], awayLeague.Teams[0]);
+if (lazyBlitzResolved.PendingPush is not null)
+{
+    lazyBlitzResolved = lazyBlitzService.ChoosePushSquare(lazyBlitzResolved, ruleset, loadedLeague.Teams[0], awayLeague.Teams[0], new PitchSquare(4, 1));
+}
+AssertThrows(
+    () => lazyBlitzService.DeclarePlayerAction(lazyBlitzResolved, loadedLeague.Teams[0], handOffReceiver.Id, PlayerTurnAction.Blitz),
+    "a lazy blitz should consume the team blitz so no second blitz can be taken");
+
+// Lazy hand-off: move the carrier without declaring, then hand off to an adjacent team-mate.
+var lazyHandOffService = new MatchService(new FixedDiceRoller(d6: [4]));
+var lazyHandOffMoved = lazyHandOffService.MovePlayer(handOffReadyMatch, ruleset, loadedLeague.Teams[0], playerToPlace.Id, new PitchSquare(1, 0), awayLeague.Teams[0]);
+Assert(lazyHandOffMoved.Activations.Single(activation => activation.PlayerId == playerToPlace.Id).Action == PlayerTurnAction.Move, "moving the carrier without declaring should stay a provisional Move");
+Assert(!MatchQueries.HasUsedHandOff(lazyHandOffMoved, homeTeamId), "a provisional move must not consume the hand-off");
+var lazyHandOffDone = lazyHandOffService.HandOffBall(lazyHandOffMoved, ruleset, loadedLeague.Teams[0], playerToPlace.Id, handOffReceiver.Id);
+Assert(lazyHandOffDone.Ball.CarrierPlayerId == handOffReceiver.Id, "handing off after a plain move should transfer the ball");
+Assert(lazyHandOffDone.Activations.Single(activation => activation.PlayerId == playerToPlace.Id).Action == PlayerTurnAction.HandOff, "handing off should upgrade the provisional Move to Hand-off");
+Assert(MatchQueries.HasUsedHandOff(lazyHandOffDone, homeTeamId), "the upgraded hand-off should consume the team hand-off");
+
+// Lazy pass: move the passer without declaring, then throw.
+var lazyPassService = new MatchService(new FixedDiceRoller(d6: [6, 6]));
+var lazyPassMoved = lazyPassService.MovePlayer(passReadyMatch, ruleset, loadedLeague.Teams[0], passerPlayer.Id, new PitchSquare(1, 0), awayLeague.Teams[0]);
+Assert(!MatchQueries.HasUsedPass(lazyPassMoved, homeTeamId), "a provisional move must not consume the pass");
+var lazyPassDone = lazyPassService.PassBall(lazyPassMoved, ruleset, loadedLeague.Teams[0], passerPlayer.Id, passReceiver.Id);
+Assert(lazyPassDone.Ball.CarrierPlayerId == passReceiver.Id, "passing after a plain move should transfer the ball");
+Assert(lazyPassDone.Activations.Single(activation => activation.PlayerId == passerPlayer.Id).Action == PlayerTurnAction.Pass, "throwing should upgrade the provisional Move to Pass");
+Assert(MatchQueries.HasUsedPass(lazyPassDone, homeTeamId), "the upgraded pass should consume the team pass");
+
+// Lazy foul: move adjacent to a prone victim without declaring, then foul.
+var lazyFoulBase = offensiveTurnMatch with
+{
+    Placements = offensiveTurnMatch.Placements
+        .Select(placement => placement.PlayerId == playerToPlace.Id
+            ? placement with { Square = new PitchSquare(0, 1), State = PlayerPitchState.Standing }
+            : placement.PlayerId == awayPlayerToPlace.Id
+                ? placement with { Square = new PitchSquare(2, 1), State = PlayerPitchState.Prone }
+                : placement)
+        .ToArray()
+};
+var lazyFoulService = new MatchService(new FixedDiceRoller(d6: [2, 3]));
+var lazyFoulMoved = lazyFoulService.MovePlayer(lazyFoulBase, ruleset, loadedLeague.Teams[0], playerToPlace.Id, new PitchSquare(1, 1), awayLeague.Teams[0]);
+Assert(!MatchQueries.HasUsedFoul(lazyFoulMoved, homeTeamId), "a provisional move must not consume the foul");
+var lazyFoulDone = lazyFoulService.FoulPlayer(lazyFoulMoved, ruleset, loadedLeague.Teams[0], playerToPlace.Id, awayLeague.Teams[0], awayPlayerToPlace.Id);
+Assert(lazyFoulDone.Activations.Single(activation => activation.PlayerId == playerToPlace.Id).Action == PlayerTurnAction.Foul, "fouling after a plain move should upgrade the provisional Move to Foul");
+Assert(MatchQueries.HasUsedFoul(lazyFoulDone, homeTeamId), "the upgraded foul should consume the team foul");
 
 var assistingPlayer = loadedLeague.Teams[0].Players[1];
 var assistedBlockMatch = offensiveTurnMatch with

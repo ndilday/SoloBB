@@ -385,6 +385,7 @@ public partial class Main : Control
             purchaseRandomSkill: async (playerId, secondary) => await PurchaseRandomSkillAsync(team.Id, playerId, secondary, screen),
             rollCharacteristic: playerId => RollCharacteristicAsync(team.Id, playerId, screen),
             applyCharacteristic: async (playerId, roll, characteristic) => await ApplyCharacteristicAsync(team.Id, playerId, roll, characteristic, screen),
+            applyCharacteristicSkill: async (playerId, skillId) => await ApplyCharacteristicSkillAsync(team.Id, playerId, skillId, screen),
             movePlayer: async (playerId, up) => await MovePlayerAsync(team.Id, playerId, up, screen),
             back: () => ShowTeamEditingScreen(team.Id));
     }
@@ -611,6 +612,32 @@ public partial class Main : Control
         }
     }
 
+    // BB2020 characteristic fallback: take a Chosen Secondary skill in place of a characteristic.
+    private async Task ApplyCharacteristicSkillAsync(Guid teamId, Guid playerId, string skillId, TeamRosterScreen screen)
+    {
+        try
+        {
+            if (_activeLeague is null || _ruleset is null || _rosterSet is null)
+            {
+                throw new InvalidOperationException("League data is not ready.");
+            }
+
+            var team = _activeLeague.Teams.First(current => current.Id == teamId);
+            var roster = _rosterSet.Rosters.First(current => string.Equals(current.Id, team.RosterId, StringComparison.OrdinalIgnoreCase));
+            _activeLeague = _leagueService.ApplyCharacteristicSecondarySkill(_activeLeague, _ruleset, roster, teamId, playerId, skillId);
+            await SaveActiveLeagueAsync();
+            ShowTeamRosterScreen(teamId);
+            if (CurrentScreen is TeamRosterScreen rosterScreen)
+            {
+                rosterScreen.SetStatus("Took a Chosen Secondary skill in place of a characteristic.");
+            }
+        }
+        catch (Exception ex)
+        {
+            screen.SetStatus($"Secondary skill choice failed: {ex.Message}");
+        }
+    }
+
 
     private async Task DeleteTeamAsync(Guid teamId, LeagueTeamsScreen screen)
     {
@@ -674,19 +701,20 @@ public partial class Main : Control
         var scene = GD.Load<PackedScene>(scenePath);
         var screen = scene.Instantiate<T>();
         var isMatchScreen = screen is MatchScreen;
+        var fillsViewport = isMatchScreen || screen is PreGameScreen;
         ClearScreenHost(_scrollStack);
         ClearScreenHost(_matchStack);
 
-        _shellScroll.Visible = !isMatchScreen;
-        _matchStack.Visible = isMatchScreen;
+        _shellScroll.Visible = !fillsViewport;
+        _matchStack.Visible = fillsViewport;
         _shellScroll.VerticalScrollMode = ScrollContainer.ScrollMode.Auto;
         _shellScroll.HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled;
         _shellScroll.ScrollVertical = 0;
         _shellScroll.ScrollHorizontal = 0;
 
         screen.SizeFlagsHorizontal = SizeFlags.ExpandFill;
-        screen.SizeFlagsVertical = isMatchScreen ? SizeFlags.ExpandFill : SizeFlags.Fill;
-        (isMatchScreen ? _matchStack : _scrollStack).AddChild(screen);
+        screen.SizeFlagsVertical = fillsViewport ? SizeFlags.ExpandFill : SizeFlags.Fill;
+        (fillsViewport ? _matchStack : _scrollStack).AddChild(screen);
         return screen;
     }
 

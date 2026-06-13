@@ -19,6 +19,7 @@ public partial class TeamRosterScreen : VBoxContainer
     private Func<Guid, Task<CharacteristicAdvancementRoll>> _rollCharacteristic =
         _ => Task.FromResult(new CharacteristicAdvancementRoll(0, 0, Array.Empty<PlayerCharacteristic>()));
     private Func<Guid, int, PlayerCharacteristic, Task> _applyCharacteristic = (_, _, _) => Task.CompletedTask;
+    private Func<Guid, string, Task> _applyCharacteristicSkill = (_, _) => Task.CompletedTask;
     private Func<Guid, bool, Task> _movePlayer = (_, _) => Task.CompletedTask;
 
     private Tree _playerTree = null!;
@@ -47,6 +48,7 @@ public partial class TeamRosterScreen : VBoxContainer
         Func<Guid, bool, Task> purchaseRandomSkill,
         Func<Guid, Task<CharacteristicAdvancementRoll>> rollCharacteristic,
         Func<Guid, int, PlayerCharacteristic, Task> applyCharacteristic,
+        Func<Guid, string, Task> applyCharacteristicSkill,
         Func<Guid, bool, Task> movePlayer,
         Action back)
     {
@@ -63,6 +65,7 @@ public partial class TeamRosterScreen : VBoxContainer
         _purchaseRandomSkill = purchaseRandomSkill;
         _rollCharacteristic = rollCharacteristic;
         _applyCharacteristic = applyCharacteristic;
+        _applyCharacteristicSkill = applyCharacteristicSkill;
         _movePlayer = movePlayer;
 
         AddHeader(back);
@@ -398,6 +401,23 @@ public partial class TeamRosterScreen : VBoxContainer
         }
     }
 
+    private SkillDefinition[] EligibleSecondarySkills(Guid playerId)
+    {
+        var player = _team.Players.FirstOrDefault(current => current.Id == playerId);
+        if (player is null)
+        {
+            return Array.Empty<SkillDefinition>();
+        }
+
+        var position = FindPosition(player.PositionId);
+        return _ruleset.Skills
+            .Where(skill => position.SecondarySkillCategories.Contains(skill.Category, StringComparer.OrdinalIgnoreCase))
+            .Where(skill => !skill.DataOnly && !skill.Compulsory)
+            .Where(skill => !player.Skills.Contains(skill.Id, StringComparer.OrdinalIgnoreCase))
+            .OrderBy(skill => skill.Name, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
     private async Task MoveSelectedAsync(bool up)
     {
         var player = SelectedPlayer();
@@ -466,19 +486,19 @@ public partial class TeamRosterScreen : VBoxContainer
 
         var content = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
         content.AddThemeConstantOverride("separation", 8);
-        content.AddChild(new Label { Text = $"Rolled {roll.Roll} on the D16 table." });
+        content.AddChild(new Label { Text = $"Rolled {roll.Roll} on the D16 table. Spends {roll.Cost} SPP." });
 
         if (roll.Options.Count == 0)
         {
             content.AddChild(new Label
             {
-                Text = "This roll unlocks no characteristic this player can still improve. No SPP was spent.",
+                Text = "This roll unlocks no characteristic this player can improve.",
                 AutowrapMode = TextServer.AutowrapMode.WordSmart
             });
         }
         else
         {
-            content.AddChild(ScreenStyles.MutedLabel("Choose a characteristic to raise:"));
+            content.AddChild(ScreenStyles.MutedLabel("Raise a characteristic:"));
             foreach (var option in roll.Options)
             {
                 var button = ScreenStyles.StyledButton(CharacteristicLabel(option), primary: true);
@@ -491,6 +511,37 @@ public partial class TeamRosterScreen : VBoxContainer
                 };
                 content.AddChild(button);
             }
+        }
+
+        // BB2020: a characteristic that cannot be (or the coach does not wish to) improve may always be
+        // exchanged for a Chosen Secondary skill, for the same 18 SPP.
+        var secondarySkills = EligibleSecondarySkills(playerId);
+        if (secondarySkills.Length > 0)
+        {
+            content.AddChild(new HSeparator());
+            content.AddChild(ScreenStyles.MutedLabel("Or take a Chosen Secondary skill instead:"));
+            var skillOption = new OptionButton { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+            for (var index = 0; index < secondarySkills.Length; index++)
+            {
+                skillOption.AddItem(secondarySkills[index].Name);
+                skillOption.SetItemMetadata(index, Variant.From(secondarySkills[index].Id));
+            }
+            content.AddChild(skillOption);
+
+            var skillButton = ScreenStyles.StyledButton("Take Secondary Skill");
+            skillButton.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+            skillButton.Pressed += async () =>
+            {
+                if (skillOption.Selected < 0)
+                {
+                    return;
+                }
+
+                var skillId = skillOption.GetItemMetadata(skillOption.Selected).AsString();
+                popup.Hide();
+                await _applyCharacteristicSkill(playerId, skillId);
+            };
+            content.AddChild(skillButton);
         }
 
         popup.AddChild(content);

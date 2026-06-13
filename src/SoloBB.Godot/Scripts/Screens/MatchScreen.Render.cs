@@ -82,7 +82,7 @@ public partial class MatchScreen : VBoxContainer
             var canTargetKickoff = IsLegalKickoffTarget(square);
             var canTargetWizard = IsLegalWizardTarget(square);
             var canMove = _selectedPlayerId is Guid movingPlayerId && IsLegalMovementTarget(movingPlayerId, square);
-            var canPassSquare = _passMode && _selectedPlayerId is Guid passingPlayerId && IsLegalPassTargetSquare(passingPlayerId, square);
+            var canPassSquare = _selectedPlayerId is Guid passingPlayerId && IsLegalPassTargetSquare(passingPlayerId, square);
             var canPush = IsLegalPushSquare(square);
             var canFollowUp = IsLegalFollowUpSquare(square);
             var canPlaceBall = IsLegalBallPlacementSquare(square);
@@ -171,7 +171,7 @@ public partial class MatchScreen : VBoxContainer
             var canBlockTarget = _selectedPlayerId is Guid attackerId && IsLegalBlockTarget(attackerId, placement.PlayerId);
             var canBlitzTarget = _selectedPlayerId is Guid blitzerId && IsLegalBlitzTarget(blitzerId, placement.PlayerId);
             var canKickoffBlitzTarget = _selectedPlayerId is Guid kickoffBlitzerId && IsLegalKickoffBlitzTarget(kickoffBlitzerId, placement.PlayerId);
-            var canPassTarget = _passMode && _selectedPlayerId is Guid passerId && IsLegalPassTarget(passerId, placement.PlayerId);
+            var canPassTarget = _selectedPlayerId is Guid passerId && IsLegalPassTarget(passerId, placement.PlayerId);
             var canHandOffTarget = _selectedPlayerId is Guid handOffCarrierId && IsHandingOff(handOffCarrierId) && IsLegalHandOffTarget(handOffCarrierId, placement.PlayerId);
             var canFoulTarget = _selectedPlayerId is Guid foulerId && IsLegalFoulTarget(foulerId, placement.PlayerId);
             var canPushTarget = IsLegalPushSquare(placement.Square!);
@@ -237,9 +237,6 @@ public partial class MatchScreen : VBoxContainer
             : _endTurnConfirmationArmed && RequiresEndTurnConfirmation()
                 ? "Click again to end the current team turn."
                 : "Advance the current phase or turn.";
-        RefreshPassModeButton();
-        RefreshHandOffModeButton();
-        RefreshBlitzModeButton();
         RefreshLaunchModeButtons();
         RefreshInducementButtons();
 
@@ -402,8 +399,7 @@ public partial class MatchScreen : VBoxContainer
             MatchPhase.OffensivePlayerTurn or MatchPhase.DefensiveTurn when _previewHandOffReceiverId is Guid handOffReceiver => $"Right-click {FindPlayer(handOffReceiver)?.Name ?? "team-mate"} again to confirm the hand-off.",
             MatchPhase.OffensivePlayerTurn or MatchPhase.DefensiveTurn when _throwTeamMateMode || _kickTeamMateMode => LaunchPreviewSummary(),
             MatchPhase.OffensivePlayerTurn or MatchPhase.DefensiveTurn when _previewDestination is not null => $"Click {_previewDestination.X + 1},{_previewDestination.Y + 1} again to confirm movement.",
-            MatchPhase.OffensivePlayerTurn or MatchPhase.DefensiveTurn when _passMode => "Right-click a team-mate or target square to aim the pass, then right-click again to confirm.",
-            MatchPhase.OffensivePlayerTurn or MatchPhase.DefensiveTurn when _handOffMode => "Right-click an adjacent team-mate to aim the hand-off, then right-click again to confirm.",
+            MatchPhase.OffensivePlayerTurn or MatchPhase.DefensiveTurn when _selectedPlayerId is Guid ballActorId && _match.Ball.CarrierPlayerId == ballActorId && (CanEnterPassMode(ballActorId) || CanEnterHandOffMode(ballActorId)) => "Right-click an adjacent team-mate to hand off, or a team-mate or square to pass.",
             MatchPhase.OffensivePlayerTurn or MatchPhase.DefensiveTurn => $"{activeTeam.Name}: choose a ready player or continue the turn.",
             _ => $"{activeTeam.Name}: resolve {_match.Phase}."
         };
@@ -500,79 +496,6 @@ public partial class MatchScreen : VBoxContainer
             WeatherCondition.Blizzard => "Weather effect: passing rolls are harder by 1 and go-for-its need 3+.",
             _ => "Weather effect: unknown."
         };
-    }
-
-    private void RefreshPassModeButton()
-    {
-        var declaredPass = _selectedPlayerId is Guid passId &&
-            CurrentTurnActivation(passId)?.Action == PlayerTurnAction.Pass;
-        var canPass = _selectedPlayerId is Guid passerId && CanEnterPassMode(passerId);
-        if (!canPass && !declaredPass)
-        {
-            _passMode = false;
-        }
-
-        if (declaredPass)
-        {
-            _passMode = true;
-        }
-
-        _passModeButton.Disabled = !canPass && !declaredPass;
-        _passModeButton.Text = _passMode ? "Pass: On" : "Pass";
-        _passModeButton.TooltipText = declaredPass
-            ? "This player has declared a Pass."
-            : canPass
-                ? "Declare a pass (commits the action), then move to collect the ball if needed and toggle targeting to throw."
-                : "Select an unactivated player to declare a pass.";
-        SetModeButtonStyle(_passModeButton, _passMode, canPass || declaredPass);
-    }
-
-    private void RefreshHandOffModeButton()
-    {
-        var declaredHandOff = _selectedPlayerId is Guid hoId &&
-            CurrentTurnActivation(hoId)?.Action == PlayerTurnAction.HandOff;
-        var canHandOff = _selectedPlayerId is Guid carrierId && CanEnterHandOffMode(carrierId);
-        if (!canHandOff && !declaredHandOff)
-        {
-            _handOffMode = false;
-        }
-
-        if (declaredHandOff)
-        {
-            _handOffMode = true;
-        }
-
-        _handOffModeButton.Disabled = !canHandOff && !declaredHandOff;
-        _handOffModeButton.Text = _handOffMode ? "Hand-off: On" : "Hand-off";
-        _handOffModeButton.TooltipText = declaredHandOff
-            ? "This player has declared a Hand-off."
-            : canHandOff
-                ? "Declare a hand-off (commits the action), then move to collect the ball if needed and hand off to an adjacent team-mate."
-                : "Select an unactivated player to declare a hand-off.";
-        SetModeButtonStyle(_handOffModeButton, _handOffMode, canHandOff || declaredHandOff);
-    }
-
-    private void RefreshBlitzModeButton()
-    {
-        var declaredBlitz = _selectedPlayerId is Guid playerId &&
-            CurrentTurnActivation(playerId)?.Action == PlayerTurnAction.Blitz;
-        var canBlitz = _selectedPlayerId is Guid blitzerId && CanEnterBlitzMode(blitzerId);
-        if (!canBlitz && !declaredBlitz)
-        {
-            _blitzMode = false;
-        }
-
-        if (declaredBlitz)
-        {
-            _blitzMode = true;
-        }
-
-        _blitzModeButton.Disabled = !canBlitz && !declaredBlitz;
-        _blitzModeButton.Text = _blitzMode ? "Blitz: On" : "Blitz";
-        _blitzModeButton.TooltipText = declaredBlitz
-            ? "This player has declared a Blitz."
-            : canBlitz ? "Declare this player's Blitz action." : "Select an unactivated player to declare a Blitz.";
-        SetModeButtonStyle(_blitzModeButton, _blitzMode, canBlitz || declaredBlitz);
     }
 
     private void RefreshLaunchModeButtons()
@@ -917,7 +840,9 @@ public partial class MatchScreen : VBoxContainer
         // Always offer the up-front reroll button, regardless of how many dice were rolled. A player
         // may want to reroll even a "good" single-die result (e.g. a 5 against a Dodge defender when
         // they need the knock-down), so single- and multi-die blocks behave identically here.
-        if (TeamRerollsRemaining(pending.AttackerTeamId) > 0)
+        // A given block roll may only be rerolled once: if these dice already came from a team reroll,
+        // suppress the button so the same roll can't be rerolled repeatedly.
+        if (!pending.AlreadyRerolled && TeamRerollsRemaining(pending.AttackerTeamId) > 0)
         {
             var rerollButton = new Button { Text = $"Reroll ({TeamRerollsRemaining(pending.AttackerTeamId)})" };
             rerollButton.TooltipText = "Use a team reroll to reroll all block dice.";

@@ -403,6 +403,11 @@ public sealed partial class MatchService
             throw new InvalidOperationException("Pending block teams do not match the selected teams.");
         }
 
+        if (pending.AlreadyRerolled)
+        {
+            throw new InvalidOperationException("These block dice have already been rerolled and cannot be rerolled again.");
+        }
+
         if (!CanUseTeamReroll(match, ruleset, attackerTeam))
         {
             throw new InvalidOperationException($"{attackerTeam.Name} has no team rerolls available.");
@@ -437,7 +442,8 @@ public sealed partial class MatchService
                     Rolls = rerolledRolls,
                     AttackerStrength = pending.AttackerStrength,
                     DefenderStrength = pending.DefenderStrength,
-                    PreventFollowUp = pending.PreventFollowUp
+                    PreventFollowUp = pending.PreventFollowUp,
+                    AlreadyRerolled = true
                 }
             }
             : ResolveChosenBlockDie(
@@ -744,9 +750,14 @@ public sealed partial class MatchService
         var attackerPlacementBeforeMove = match.Placements.FirstOrDefault(placement => placement.PlayerId == attackerPlayerId);
         var defenderPlacementBeforeMove = match.Placements.FirstOrDefault(placement => placement.PlayerId == defenderPlayerId);
         var existingActivation = GetActivation(match, attackerPlayerId, attackerTeam.Id);
-        var isDeclaredOrOngoingBlitz = existingActivation?.Action == PlayerTurnAction.Blitz;
+        // The blitz may resolve from the attacker's current square when they are already a blitzer, when they
+        // have only taken plain Move steps (a lazy blitz that upgrades here), or when they have not activated
+        // yet (a standing-adjacent blitz with no movement).
+        var canBlitzFromCurrentState = existingActivation is null ||
+            existingActivation.Action == PlayerTurnAction.Blitz ||
+            existingActivation is { Action: PlayerTurnAction.Move, Completed: false, DeclaredOnly: false };
         var isBlockingFromCurrentSquare =
-            isDeclaredOrOngoingBlitz &&
+            canBlitzFromCurrentState &&
             attackerPlacementBeforeMove?.Square == destination &&
             attackerPlacementBeforeMove.State == PlayerPitchState.Standing &&
             defenderPlacementBeforeMove?.Square is not null &&
@@ -1215,7 +1226,8 @@ public sealed partial class MatchService
                     Rolls = rerolledRolls,
                     AttackerStrength = pending.AttackerStrength,
                     DefenderStrength = pending.DefenderStrength,
-                    PreventFollowUp = pending.PreventFollowUp
+                    PreventFollowUp = pending.PreventFollowUp,
+                    AlreadyRerolled = true
                 }
             }
             : ResolveChosenBlockDie(
@@ -1380,10 +1392,10 @@ public sealed partial class MatchService
             }, attacker.Id, attackerTeam.Id);
         }
 
-        var mustFrenzy = !knockDefenderDown &&
-            blocksMadeBeforePush == 0 &&
-            PlayerHasHookedEffect(ruleset, attacker, GameEventKind.Push, GameEventStage.AfterEvent, SkillEffect.Frenzy);
-        if (mustFrenzy)
+        // Frenzy makes the follow-up mandatory on any push, regardless of whether the defender was
+        // knocked down. The optional follow-up prompt below is skipped entirely for a Frenzy attacker.
+        var hasFrenzy = PlayerHasHookedEffect(ruleset, attacker, GameEventKind.Push, GameEventStage.AfterEvent, SkillEffect.Frenzy);
+        if (hasFrenzy)
         {
             var followedMatch = MoveAttackerToFollowUpSquare(countedMatch, attacker, followUpSquare);
             followedMatch = followedMatch with
@@ -1395,24 +1407,22 @@ public sealed partial class MatchService
                 ]
             };
 
+            // Frenzy grants a second block only when the first block left the defender standing and
+            // adjacent. If the defender was knocked down, or this is already the second block, the
+            // mandatory follow-up still happens but no further block is thrown.
+            var canSecondBlock = !knockDefenderDown && blocksMadeBeforePush == 0;
             var attackerPlacement = followedMatch.Placements.First(placement => placement.PlayerId == attacker.Id);
             var defenderPlacement = followedMatch.Placements.FirstOrDefault(placement => placement.PlayerId == defender.Id);
-            if (defenderPlacement?.Square is null ||
-                defenderPlacement.State != PlayerPitchState.Standing ||
-                attackerPlacement.Square is null ||
-                !PlacementsAreAdjacent(attackerPlacement, defenderPlacement))
+            if (canSecondBlock &&
+                defenderPlacement?.Square is not null &&
+                defenderPlacement.State == PlayerPitchState.Standing &&
+                attackerPlacement.Square is not null &&
+                PlacementsAreAdjacent(attackerPlacement, defenderPlacement))
             {
-                return CompleteBlockActivationIfDone(followedMatch with
-                {
-                    Log =
-                    [
-                        .. followedMatch.Log,
-                        new MatchLogEntry { Message = $"{attacker.Name}'s Frenzy cannot continue because {defender.Name} is no longer adjacent and standing." }
-                    ]
-                }, attacker.Id, attackerTeam.Id);
+                return ResolveBlock(followedMatch, ruleset, attackerTeam, attacker, attackerPlacement, defenderTeam, defender);
             }
 
-            return ResolveBlock(followedMatch, ruleset, attackerTeam, attacker, attackerPlacement, defenderTeam, defender);
+            return CompleteBlockActivationIfDone(followedMatch, attacker.Id, attackerTeam.Id);
         }
 
         if (countedMatch.PendingApothecary is not null || countedMatch.PendingBallPlacement is not null)
