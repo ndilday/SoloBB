@@ -90,6 +90,7 @@ public partial class MatchScreen : VBoxContainer
     private float _pitchZoom = 1.0f;
     private Vector2 _pitchPan = Vector2.Zero;
     private Func<MatchState, Task> _saveMatch = _ => Task.CompletedTask;
+    private Action _back = () => { };
 
     private const float BasePitchSquareSize = 32.0f;
     private const float PitchSquareOverlap = 1.0f;
@@ -138,6 +139,7 @@ public partial class MatchScreen : VBoxContainer
         _homeTeam = homeTeam;
         _awayTeam = awayTeam;
         _saveMatch = saveMatch;
+        _back = back;
         _selectedPlayerId = null;
         _currentActivationPlayerId = null;
         _previewBlockDefenderId = null;

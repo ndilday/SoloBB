@@ -223,20 +223,34 @@ public partial class MatchScreen : VBoxContainer
             _match.Placements.FirstOrDefault(placement => placement.PlayerId == carrierId)?.Square is PitchSquare carrierSquare &&
             _pitchTiles.TryGetValue(carrierSquare, out var carrierTile))
         {
-            carrierTile.SetOverlay(BallSprite(4), new Color(1f, 0.85f, 0f));
+            carrierTile.SetOverlay(
+                BallSprite(4),
+                new Color(1f, 0.85f, 0f),
+                inset: 3,
+                offset: new Vector2(1, -1));
             carrierTile.Text = "";
             carrierTile.TooltipText = $"{FindPlayer(carrierId)?.Name ?? "Ball carrier"} with ball";
         }
 
         var activeTeam = ActiveTeam();
         var selected = _selectedPlayerId is Guid playerId ? FindPlayer(playerId)?.Name ?? "none" : "none";
-        _doneButton.Disabled = !CanAdvanceCurrentStep();
-        _doneButton.Text = AdvanceButtonText();
-        _doneButton.TooltipText = _doneButton.Disabled
-            ? AdvanceBlockedMessage()
-            : _endTurnConfirmationArmed && RequiresEndTurnConfirmation()
-                ? "Click again to end the current team turn."
-                : "Advance the current phase or turn.";
+        if (_match.Phase is MatchPhase.Complete)
+        {
+            // The match is over and its results are already saved; the button becomes a way out.
+            _doneButton.Disabled = false;
+            _doneButton.Text = "Back to League";
+            _doneButton.TooltipText = "Return to the league. The match result has been saved.";
+        }
+        else
+        {
+            _doneButton.Disabled = !CanAdvanceCurrentStep();
+            _doneButton.Text = AdvanceButtonText();
+            _doneButton.TooltipText = _doneButton.Disabled
+                ? AdvanceBlockedMessage()
+                : _endTurnConfirmationArmed && RequiresEndTurnConfirmation()
+                    ? "Click again to end the current team turn."
+                    : "Advance the current phase or turn.";
+        }
         RefreshLaunchModeButtons();
         RefreshInducementButtons();
 
@@ -399,7 +413,7 @@ public partial class MatchScreen : VBoxContainer
             MatchPhase.OffensivePlayerTurn or MatchPhase.DefensiveTurn when _previewHandOffReceiverId is Guid handOffReceiver => $"Right-click {FindPlayer(handOffReceiver)?.Name ?? "team-mate"} again to confirm the hand-off.",
             MatchPhase.OffensivePlayerTurn or MatchPhase.DefensiveTurn when _throwTeamMateMode || _kickTeamMateMode => LaunchPreviewSummary(),
             MatchPhase.OffensivePlayerTurn or MatchPhase.DefensiveTurn when _previewDestination is not null => $"Click {_previewDestination.X + 1},{_previewDestination.Y + 1} again to confirm movement.",
-            MatchPhase.OffensivePlayerTurn or MatchPhase.DefensiveTurn when _selectedPlayerId is Guid ballActorId && _match.Ball.CarrierPlayerId == ballActorId && (CanEnterPassMode(ballActorId) || CanEnterHandOffMode(ballActorId)) => "Right-click an adjacent team-mate to hand off, or a team-mate or square to pass.",
+            MatchPhase.OffensivePlayerTurn or MatchPhase.DefensiveTurn when _selectedPlayerId is Guid ballActorId && _match.Ball.CarrierPlayerId == ballActorId && (CanEnterPassMode(ballActorId) || CanEnterHandOffMode(ballActorId)) => "Right-click an enemy to blitz, an adjacent team-mate to hand off, or a team-mate or square to pass.",
             MatchPhase.OffensivePlayerTurn or MatchPhase.DefensiveTurn => $"{activeTeam.Name}: choose a ready player or continue the turn.",
             _ => $"{activeTeam.Name}: resolve {_match.Phase}."
         };
@@ -679,7 +693,6 @@ public partial class MatchScreen : VBoxContainer
             MatchPhase.DefenseSetup or MatchPhase.OffenseSetup => $"Finish {ActiveTeam().Name} Setup",
             MatchPhase.Kickoff => "Kickoff",
             MatchPhase.OffensivePlayerTurn or MatchPhase.DefensiveTurn => $"End {ActiveTeam().Name} Turn",
-            MatchPhase.Complete => "Match Complete",
             _ => "Advance"
         };
     }

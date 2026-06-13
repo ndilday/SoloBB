@@ -193,11 +193,11 @@ public partial class MatchScreen : VBoxContainer
     }
 
     /// <summary>
-    /// Handles a right-click on a pitch square. Right-click is reserved for aiming a Pass or Hand-off:
-    /// the first click aims (sets a preview) and a second right-click on the same target confirms it.
-    /// With lazy declaration the gesture itself commits the ball action — an adjacent standing team-mate
-    /// resolves as a Hand-off, anything farther as a Pass — so no up-front mode is required. Anything that
-    /// is not a legal target is ignored except for a gentle nudge when the selected carrier could throw.
+    /// Handles a right-click on a pitch square as an "aim at this target" gesture. With lazy declaration the
+    /// gesture itself commits the action implied by the target: an opponent resolves as a Blitz (after moving)
+    /// or in-place Block, an adjacent standing team-mate as a Hand-off, and any other in-range square as a
+    /// Pass. The first click aims (sets a preview) and a second right-click on the same target confirms it.
+    /// Anything that is not a legal target is ignored except for a gentle nudge when the carrier could throw.
     /// </summary>
     private async Task HandleTargetingClickAsync(PitchSquare square)
     {
@@ -209,6 +209,24 @@ public partial class MatchScreen : VBoxContainer
         var occupied = _match.Placements.FirstOrDefault(placement => placement.Square == square);
         if (occupied is not null)
         {
+            // Right-clicking an opponent targets aggression, not a throw. Resolve it as a blitz (after moving)
+            // or an in-place block first, so a carrier's pass range can never swallow a blitz on an adjacent
+            // enemy whose square happens to be a legal pass target.
+            if (occupied.TeamId != _match.ActiveTeamId)
+            {
+                if (IsLegalBlitzTarget(actorId, occupied.PlayerId))
+                {
+                    await HandleBlitzTargetAsync(actorId, occupied.PlayerId);
+                    return;
+                }
+
+                if (IsLegalBlockTarget(actorId, occupied.PlayerId))
+                {
+                    await HandleBlockTargetAsync(actorId, occupied.PlayerId);
+                    return;
+                }
+            }
+
             if (IsHandingOff(actorId) && IsLegalHandOffTarget(actorId, occupied.PlayerId))
             {
                 await HandleHandOffTargetAsync(actorId, occupied.PlayerId);
@@ -222,7 +240,7 @@ public partial class MatchScreen : VBoxContainer
             }
         }
 
-        if (IsLegalPassTargetSquare(actorId, square))
+        if ((occupied is null || occupied.TeamId == _match.ActiveTeamId) && IsLegalPassTargetSquare(actorId, square))
         {
             await HandlePassTargetAsync(actorId, square, occupied?.TeamId == _match.ActiveTeamId ? occupied.PlayerId : null);
             return;
@@ -680,7 +698,10 @@ public partial class MatchScreen : VBoxContainer
             return;
         }
 
-        if (_match.ActiveTeamId == activeTeamBeforeHandOff && IsPlayerTurnPhase() && _match.Ball.CarrierPlayerId == receiverId)
+        // Auto-select the receiver for a hand-off-and-run, but only when they are still eligible to act.
+        // A receiver who had already been activated this turn has their activation closed by the catch,
+        // so they must not be re-selected to move again.
+        if (_match.ActiveTeamId == activeTeamBeforeHandOff && IsPlayerTurnPhase() && _match.Ball.CarrierPlayerId == receiverId && CanSelectPlayer(receiverId))
         {
             _selectedPlayerId = receiverId;
             _currentActivationPlayerId = null;
@@ -1096,6 +1117,13 @@ public partial class MatchScreen : VBoxContainer
     {
         try
         {
+            if (_match.Phase is MatchPhase.Complete)
+            {
+                // Results are saved as soon as the match completes; this just returns to the league.
+                _back();
+                return;
+            }
+
             if (!CanAdvanceCurrentStep())
             {
                 _summaryLabel.Text = AdvanceBlockedMessage();

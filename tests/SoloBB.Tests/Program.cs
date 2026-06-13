@@ -1643,6 +1643,27 @@ Assert(handOffMatch.Ball.CarrierPlayerId == handOffReceiver.Id, "successful hand
 Assert(handOffMatch.Activations.Single(activation => activation.PlayerId == playerToPlace.Id).Action == PlayerTurnAction.HandOff, "handoff should record an activation");
 Assert(handOffMatch.Activations.Single(activation => activation.PlayerId == playerToPlace.Id).Completed, "handing off should end the carrier's activation");
 
+// A receiver who has already been activated this turn must not be reactivated by catching the ball:
+// the catch closes their existing activation so they cannot move again under it.
+var alreadyActivatedReceiverMatch = handOffReadyMatch with
+{
+    Activations =
+    [
+        new PlayerTurnActivation
+        {
+            PlayerId = handOffReceiver.Id,
+            TeamId = loadedLeague.Teams[0].Id,
+            Half = handOffReadyMatch.Half,
+            Turn = handOffReadyMatch.Turn,
+            Action = PlayerTurnAction.Move
+        }
+    ]
+};
+var reactivateService = new MatchService(new FixedDiceRoller(d6: [4]));
+var reactivateResult = reactivateService.HandOffBall(alreadyActivatedReceiverMatch, ruleset, loadedLeague.Teams[0], playerToPlace.Id, handOffReceiver.Id);
+Assert(reactivateResult.Ball.CarrierPlayerId == handOffReceiver.Id, "hand-off to an already-activated receiver should still transfer the ball");
+Assert(reactivateResult.Activations.Single(a => a.PlayerId == handOffReceiver.Id).Completed, "catching a hand-off must close an already-activated receiver's activation so they cannot move again");
+
 // A player may declare a hand-off without the ball, move to collect it, then hand off to a team-mate.
 var pickupHandOffCarrier = playerToPlace;
 var pickupHandOffReceiver = loadedLeague.Teams[0].Players[1];

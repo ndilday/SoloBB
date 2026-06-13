@@ -925,6 +925,18 @@ public sealed partial class MatchService
         };
     }
 
+    // A player who catches the ball as a receiver may run with it only if they have not already been
+    // activated this turn. If they already have an activation record, receiving the ball closes it so the
+    // catch cannot hand them a second activation. A catcher with no record (the normal hand-off/pass-and-run
+    // case) is left untouched and may still be activated. Catchers on the non-active team have no activation
+    // this turn, so this is a no-op for them.
+    private static MatchState CompleteCatcherActivationIfActivated(MatchState match, Guid catcherId, Guid catcherTeamId)
+    {
+        return GetActivation(match, catcherId, catcherTeamId) is not null
+            ? CompleteActivation(match, catcherId, catcherTeamId)
+            : match;
+    }
+
     private static MatchState CompleteActivation(MatchState match, Guid playerId, Guid teamId)
     {
         return match with

@@ -85,10 +85,15 @@ public partial class PitchTileView : Button
         _pieceLayer.OffsetBottom = 0;
     }
 
-    public void SetOverlay(Texture2D? texture, Color? modulate = null)
+    public void SetOverlay(Texture2D? texture, Color? modulate = null, float inset = 0, Vector2? offset = null)
     {
+        var shift = offset ?? Vector2.Zero;
         _overlayLayer.Texture = texture;
         _overlayLayer.Modulate = modulate ?? Colors.White;
+        _overlayLayer.OffsetLeft = inset + shift.X;
+        _overlayLayer.OffsetTop = inset + shift.Y;
+        _overlayLayer.OffsetRight = -inset + shift.X;
+        _overlayLayer.OffsetBottom = -inset + shift.Y;
     }
 
     /// <summary>

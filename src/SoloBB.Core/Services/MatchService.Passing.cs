@@ -100,7 +100,7 @@ public sealed partial class MatchService
 
         if (catchAttempt.Success)
         {
-            return activatedMatch with
+            var caughtMatch = activatedMatch with
             {
                 Ball = new BallState { CarrierPlayerId = receiver.Id },
                 Log =
@@ -109,6 +109,7 @@ public sealed partial class MatchService
                     new MatchLogEntry { Message = $"{carrier.Name} hands off to {receiver.Name}: {FormatCatchAttempt(catchAttempt, target)}, success." }
                 ]
             };
+            return CompleteCatcherActivationIfActivated(caughtMatch, receiver.Id, team.Id);
         }
 
         var scatterSquare = ScatterFrom(ruleset, receiverPlacement.Square!);
@@ -813,7 +814,7 @@ public sealed partial class MatchService
 
         if (catchAttempt.Success)
         {
-            return match with
+            var caughtMatch = match with
             {
                 Ball = new BallState { CarrierPlayerId = receiver.Id },
                 PlayerAwards = AddPlayerAward(match, team.Id, passer.Id, MatchPlayerAwardKind.Completion, 1, teamName: team.Name, playerName: passer.Name),
@@ -823,6 +824,7 @@ public sealed partial class MatchService
                     new MatchLogEntry { Message = $"{passer.Name} passes to {receiver.Name}: {passRangeName} pass roll {passRoll} vs {passTarget}+, {FormatCatchAttempt(catchAttempt, catchTarget)} ({catchTackleZones} opposing tackle zones), complete." }
                 ]
             };
+            return CompleteCatcherActivationIfActivated(caughtMatch, receiver.Id, team.Id);
         }
 
         var scatterSquare = ScatterFrom(ruleset, receiverPlacement.Square!);
@@ -882,7 +884,7 @@ public sealed partial class MatchService
 
             if (catchResult.Attempt.Success)
             {
-                return match with
+                var caughtMatch = match with
                 {
                     Ball = new BallState { CarrierPlayerId = catcher.Id },
                     Log =
@@ -891,6 +893,7 @@ public sealed partial class MatchService
                         new MatchLogEntry { Message = $"{catcher.Name} catches the bouncing ball: {FormatCatchAttempt(catchResult.Attempt, catchResult.Target)}." }
                     ]
                 };
+                return CompleteCatcherActivationIfActivated(caughtMatch, catcher.Id, catcherTeam.Id);
             }
 
             if (forcedCatchRoll is null &&
@@ -938,7 +941,7 @@ public sealed partial class MatchService
 
             if (divingCatch.Attempt.Success)
             {
-                return movedMatch with
+                var caughtMatch = movedMatch with
                 {
                     Ball = new BallState { CarrierPlayerId = divingReceiver.Id },
                     Log =
@@ -947,6 +950,7 @@ public sealed partial class MatchService
                         new MatchLogEntry { Message = $"{divingReceiver.Name} uses Diving Catch at {square.X},{square.Y}: {FormatCatchAttempt(divingCatch.Attempt, divingCatch.Target)}, success." }
                     ]
                 };
+                return CompleteCatcherActivationIfActivated(caughtMatch, divingReceiver.Id, originalTeam.Id);
             }
 
             var divingNextSquare = ScatterFrom(ruleset, square);
