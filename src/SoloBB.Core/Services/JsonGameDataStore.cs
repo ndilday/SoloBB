@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using SoloBB.Core.Domain;
 
@@ -28,9 +29,41 @@ public sealed class JsonGameDataStore
         return rosterSet;
     }
 
-    public Task<League> LoadLeagueAsync(string path, CancellationToken cancellationToken = default)
+    public async Task<League> LoadLeagueAsync(string path, CancellationToken cancellationToken = default)
     {
-        return LoadAsync<League>(path, cancellationToken);
+        await using var stream = File.OpenRead(path);
+        var node = await JsonNode.ParseAsync(stream, cancellationToken: cancellationToken)
+            ?? throw new InvalidDataException($"Could not read '{path}'.");
+        MigrateLeagueNode(node);
+        return node.Deserialize<League>(_jsonOptions)
+            ?? throw new InvalidDataException($"Could not read '{path}'.");
+    }
+
+    // Saved leagues from before the BB2020 fan-factor work stored the persistent characteristic under the
+    // camelCase key "fanFactor". It is now "dedicatedFans" (per-game Fan Factor is rolled at kickoff and is
+    // not persisted on the team). Rewrite the legacy key on load so older save files keep working.
+    private static void MigrateLeagueNode(JsonNode node)
+    {
+        if (node["teams"] is not JsonArray teams)
+        {
+            return;
+        }
+
+        foreach (var team in teams)
+        {
+            if (team is not JsonObject teamObject ||
+                !teamObject.TryGetPropertyValue("fanFactor", out var legacyValue))
+            {
+                continue;
+            }
+
+            if (!teamObject.ContainsKey("dedicatedFans") && legacyValue is not null)
+            {
+                teamObject["dedicatedFans"] = legacyValue.DeepClone();
+            }
+
+            teamObject.Remove("fanFactor");
+        }
     }
 
     public Task SaveLeagueAsync(string path, League league, CancellationToken cancellationToken = default)

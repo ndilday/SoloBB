@@ -321,6 +321,13 @@ await store.SaveLeagueAsync(leaguePath, league);
 var loadedLeague = await store.LoadLeagueAsync(leaguePath);
 
 Assert(loadedLeague.Teams.Count == 1, "saved league should round-trip with one team");
+
+// Legacy saves stored the persistent characteristic under the old "fanFactor" key; the loader migrates it.
+var legacyLeagueJson = (await File.ReadAllTextAsync(leaguePath)).Replace("\"dedicatedFans\"", "\"fanFactor\"", StringComparison.Ordinal);
+var legacyLeaguePath = Path.Combine(root, "tests", "SoloBB.Tests", "bin", "smoke-legacy-league.json");
+await File.WriteAllTextAsync(legacyLeaguePath, legacyLeagueJson);
+var migratedLeague = await store.LoadLeagueAsync(legacyLeaguePath);
+Assert(migratedLeague.Teams[0].DedicatedFans == loadedLeague.Teams[0].DedicatedFans, "legacy fanFactor saves should migrate to DedicatedFans on load");
 Assert(loadedLeague.TargetTeamCount == 4, "saved league should round-trip target team count");
 Assert(loadedLeague.Teams[0].Players.Count == 11, "team should round-trip with eleven players");
 
@@ -382,7 +389,7 @@ fanFactorLeague = leagueService.AddTeam(
     humanRoster,
     Enumerable.Range(1, 11).Select(index => new PlayerDraftPick($"Fan Lineman {index}", "lineman")),
     rerolls: 0,
-    fanFactor: 1);
+    dedicatedFans:1);
 
 Assert(fanFactorLeague.Teams[0].Treasury == 450_000, "fan factor one should be free");
 Assert(fanFactorLeague.Teams[0].TeamValue == 550_000, "team value should include free fan factor correctly");
@@ -396,7 +403,7 @@ paidFanFactorLeague = leagueService.AddTeam(
     humanRoster,
     Enumerable.Range(1, 11).Select(index => new PlayerDraftPick($"Paid Fan Lineman {index}", "lineman")),
     rerolls: 0,
-    fanFactor: 2);
+    dedicatedFans:2);
 
 Assert(paidFanFactorLeague.Teams[0].Treasury == 440_000, "fan factor above one should cost 10,000 gp per point");
 Assert(paidFanFactorLeague.Teams[0].TeamValue == 560_000, "team value should include paid fan factor");
@@ -410,7 +417,7 @@ staffLeague = leagueService.AddTeam(
     humanRoster,
     Enumerable.Range(1, 11).Select(index => new PlayerDraftPick($"Staff Lineman {index}", "lineman")),
     rerolls: 0,
-    fanFactor: 1,
+    dedicatedFans:1,
     cheerleaders: 2,
     assistantCoaches: 1,
     apothecaries: 1);
@@ -495,6 +502,8 @@ var completedCampaignMatch = new MatchState
     Phase = MatchPhase.Complete,
     HomeScore = 2,
     AwayScore = 1,
+    HomeFanFactor = 4,
+    AwayFanFactor = 3,
     HomeTreasurySpent = 100_000,
     PlayerAwards =
     [
@@ -540,10 +549,35 @@ Assert(enrichedTouchdownAward.PlayerName == campaignScorer.Name && enrichedTouch
 Assert(enrichedCasualtyAward.PlayerName == returningPlayer.Name && enrichedCasualtyAward.VictimPlayerName == injuredAwayPlayer.Name && enrichedCasualtyAward.CasualtyResult == CasualtyResult.SeriouslyHurt, "post-match should enrich casualty SPP awards with victim names and casualty results");
 Assert(afterFirstCampaignMatch.Seasons.Single().CurrentWeek == 1, "league week should not advance until every game in the week is complete");
 Assert(updatedCampaignHome.Treasury == campaignHomeTeam.Treasury - 100_000 + firstCampaignResult.HomeWinnings, "post-match should apply pre-game treasury spend and winnings");
+// BB2020 winnings: Fan Attendance (4 + 3 = 7) / 2 = 3, plus touchdowns scored, multiplied by 10,000.
+Assert(firstCampaignResult.HomeWinnings == 50_000, "BB2020 winnings should be (Fan Attendance / 2 + touchdowns) * 10,000 for the home team");
+Assert(firstCampaignResult.AwayWinnings == 40_000, "BB2020 winnings should be (Fan Attendance / 2 + touchdowns) * 10,000 for the away team");
 Assert(updatedCampaignHome.Players.Single(player => player.Id == campaignScorer.Id).StarPlayerPoints == 7, "post-match should apply touchdown and MVP SPP");
 Assert(updatedCampaignHome.Players.Single(player => player.Id == returningPlayer.Id).StarPlayerPoints == 2, "post-match should apply casualty SPP to the credited player");
+
+// BB2020 end-of-season redraft. The home team played one fixture and won it.
+var redraftBudget = leagueService.CalculateRedraftBudget(afterFirstCampaignMatch, campaignHomeTeam.Id);
+Assert(redraftBudget.FixturesPlayed == 1 && redraftBudget.FixturesWon == 1 && redraftBudget.FixturesDrawn == 0, "redraft budget should reflect the team's season record");
+Assert(redraftBudget.Base == 1_000_000, "redraft base budget should be 1,000,000 gp");
+Assert(redraftBudget.Subtotal == 1_000_000 + updatedCampaignHome.Treasury + 20_000 + 20_000, "redraft subtotal should add treasury plus 20k per fixture played and 20k per win");
+Assert(redraftBudget.Total == Math.Min(redraftBudget.Subtotal, 1_300_000), "redraft budget should be capped at 1,300,000 gp");
+
+var redraftRetainedIds = updatedCampaignHome.Players.Where(player => player.Status == PlayerStatus.Available).Select(player => player.Id).ToArray();
+var redraftedLeague = leagueService.RedraftTeam(afterFirstCampaignMatch, ruleset, humanRoster, campaignHomeTeam.Id, redraftRetainedIds, [], rerolls: 0, cheerleaders: 0, assistantCoaches: 0, apothecaries: 0);
+var redraftedTeam = redraftedLeague.Teams.Single(team => team.Id == campaignHomeTeam.Id);
+Assert(redraftedTeam.Players.Count == redraftRetainedIds.Length, "redraft should retain the chosen players");
+Assert(redraftedTeam.Players.All(player => player.Status == PlayerStatus.Available), "redrafted players should be available for the new season");
+Assert(redraftedTeam.DedicatedFans == updatedCampaignHome.DedicatedFans, "Dedicated Fans should carry over through the redraft");
+Assert(redraftedTeam.Rerolls == 0, "redraft should rebuild rerolls from the chosen amount");
+var redraftFansCost = Math.Max(0, redraftedTeam.DedicatedFans - 1) * 10_000;
+var redraftRetainedCost = (redraftedTeam.TeamValue - redraftFansCost) + (20_000 * redraftRetainedIds.Length);
+Assert(redraftedTeam.Treasury == redraftBudget.Total - redraftRetainedCost, "redraft should charge each retained player their value plus a 20,000 agent fee and bank the remainder");
+
+var nextSeasonLeague = leagueService.StartNewSeason(redraftedLeague, "Season 2");
+Assert(nextSeasonLeague.Seasons.Count == afterFirstCampaignMatch.Seasons.Count + 1, "StartNewSeason should append a new season");
+Assert(nextSeasonLeague.Seasons.Last().Schedule.Count > 0, "the new season should have a generated schedule");
 Assert(updatedCampaignHome.Players.Single(player => player.Id == returningPlayer.Id).Status == PlayerStatus.Available, "post-match should clear old Miss Next Game status after the missed match");
-Assert(updatedCampaignHome.FanFactor == campaignHomeTeam.FanFactor + 1, "post-match should improve the winning team's fan factor");
+Assert(updatedCampaignHome.DedicatedFans == campaignHomeTeam.DedicatedFans + 1, "post-match win should improve the team's Dedicated Fans");
 Assert(updatedCampaignAway.Players.Single(player => player.Id == injuredAwayPlayer.Id).Status == PlayerStatus.MissNextGame, "post-match should apply current-match casualty roster status");
 
 var selectedAdvancementLeague = leagueService.PurchaseSelectedSkillAdvancement(afterFirstCampaignMatch, ruleset, humanRoster, campaignHomeTeam.Id, campaignScorer.Id, "block");
@@ -855,6 +889,22 @@ var weatherMageResult = new MatchService(new FixedDiceRoller(d6: [6, 6])).UseWea
 Assert(weatherMageResult.Weather == WeatherCondition.Blizzard && weatherMageResult.HomeWeatherMagesRemaining == 0, "Weather Mage should roll new weather and be consumed");
 var specialPlayResult = new MatchService(new FixedDiceRoller(d6: [3])).UseSpecialPlay(inducementTurn, preparedFixedInducements.HomeTeam);
 Assert(specialPlayResult.HomeBribesRemaining == inducementTurn.HomeBribesRemaining + 1 && specialPlayResult.HomeSpecialPlaysRemaining == 0, "Special Play table result 3 should grant a bribe and consume the play");
+
+// BB2020 Prayers to Nuffle: the 200k-poorer home team is the underdog and rolls 200,000 / 50,000 = 4 prayers.
+// D16 rolls 5/8/4/16 select Knuckle Dusters, Blessed Statue, Iron Man, and Intensive Training (all "choose"
+// prayers that deterministically pick the lowest-numbered eligible non-Loner player).
+var prayerService = new PreGameService(new FixedDiceRoller(d16: [5, 8, 4, 16]));
+var prayerPrepared = prayerService.PrepareMatch(ruleset, rosterSet, loadedLeague.Teams[0], richerAwayTeam);
+Assert(prayerPrepared.Prayers.Count == 4, "underdog should roll one Prayer to Nuffle per full 50,000 gp of team value difference");
+Assert(prayerPrepared.Prayers.All(prayer => prayer.TeamId == loadedLeague.Teams[0].Id), "prayers should belong to the underdog team");
+Assert(prayerPrepared.Prayers.Any(prayer => prayer.Prayer == PrayerToNuffle.KnuckleDusters && prayer.EffectApplied), "Knuckle Dusters should be applied to the match-only team");
+var underdogFirstPlayer = loadedLeague.Teams[0].Players.OrderBy(player => player.Number).First();
+var preparedFirstPlayer = prayerPrepared.HomeTeam.Players.Single(player => player.Id == underdogFirstPlayer.Id);
+Assert(preparedFirstPlayer.Skills.Contains("mighty-blow", StringComparer.OrdinalIgnoreCase), "Knuckle Dusters should grant Mighty Blow to the chosen player");
+Assert(preparedFirstPlayer.Stats.Armor == underdogFirstPlayer.Stats.Armor + 1, "Iron Man should raise the chosen player's Armour Value by 1");
+var prayerMatch = new MatchService().CreateHotseatMatch(ruleset, prayerPrepared.HomeTeam, prayerPrepared.AwayTeam, prayerPrepared.Inducements.Home, prayerPrepared.Inducements.Away, prayerPrepared.Prayers);
+Assert(prayerMatch.Prayers.Count == 4, "match state should record the rolled prayers");
+Assert(prayerMatch.Log.Any(entry => entry.Message.Contains("Prayer to Nuffle", StringComparison.Ordinal)), "match log should note the prayers to Nuffle");
 
 var snotlingTeam = loadedLeague.Teams[0] with { RosterId = "snotling" };
 var riotousPlan = new PreGameService().CreatePlan(
@@ -1181,6 +1231,10 @@ Assert(placedPlayer.Square == new PitchSquare(0, 0), "offense player should keep
 
 smoke.StartSection("Kickoff, weather, and kickoff events");
 var kickoffMatch = matchService.AdvancePhase(placedMatch, ruleset);
+// This match was created with a non-deterministic dice roller, so its per-game Fan Factor/FAME are random.
+// Normalize them here so the fixed-dice kickoff-event assertions below remain deterministic; the focused
+// FAME contest tests override these explicitly.
+kickoffMatch = kickoffMatch with { HomeFanFactor = 1, AwayFanFactor = 1, HomeFame = 0, AwayFame = 0 };
 Assert(kickoffMatch.Phase == MatchPhase.Kickoff, "offense setup should advance to kickoff");
 Assert(matchService.AdvancePhase(kickoffMatch, ruleset).Phase == MatchPhase.Kickoff, "generic phase advance should not skip unresolved kickoff");
 
@@ -1229,11 +1283,19 @@ Assert(getRefMatch.HomeBribesRemaining == 1 && getRefMatch.AwayBribesRemaining =
 
 var cheeringFansService = new MatchService(new FixedDiceRoller(d6: [3, 3, 1, 6, 1], d8: [5]));
 var cheeringFansMatch = cheeringFansService.ResolveKickoff(
-    kickoffMatch with { HomeCheerleaders = 3 },
+    kickoffMatch with { HomeCheerleaders = 3, HomeFanFactor = 1, AwayFanFactor = 1, HomeFame = 0, AwayFame = 0 },
     ruleset,
     loadedLeague.Teams[0],
     new(2, 2));
 Assert(cheeringFansMatch.HomeRerollsRemaining == loadedLeague.Teams[0].Rerolls + 1, "cheerleaders should modify Cheering Fans kickoff contests");
+
+var fameKickoffService = new MatchService(new FixedDiceRoller(d6: [3, 3, 1, 1, 1], d8: [5]));
+var fameKickoffMatch = fameKickoffService.ResolveKickoff(
+    kickoffMatch with { HomeFanFactor = 6, AwayFanFactor = 1, HomeFame = 2, AwayFame = 0 },
+    ruleset,
+    loadedLeague.Teams[0],
+    new(2, 2));
+Assert(fameKickoffMatch.HomeRerollsRemaining == loadedLeague.Teams[0].Rerolls + 1, "FAME should modify Cheering Fans kickoff contests (BB2020)");
 
 var changingWeatherKickoffService = new MatchService(new FixedDiceRoller(d6: [4, 4, 3, 3, 1], d8: [5, 5, 5]));
 var changingWeatherKickoffMatch = changingWeatherKickoffService.ResolveKickoff(kickoffMatch, ruleset, loadedLeague.Teams[0], new(2, 2));
@@ -1255,6 +1317,7 @@ Assert(highKickResolved.DriveState == DriveState.InProgress, "resolving a kickof
 var quickSnapService = new MatchService(new FixedDiceRoller(d6: [4, 5, 1, 1], d8: [5]));
 var quickSnapMatch = quickSnapService.ResolveKickoff(kickoffMatch, ruleset, loadedLeague.Teams[0], new(2, 2));
 Assert(quickSnapMatch.PendingKickoffEvent?.Kind == KickoffEventKind.QuickSnap, "quick snap should create a pending free-move choice");
+Assert(quickSnapMatch.PendingKickoffEvent?.MovesRemaining == quickSnapMatch.PendingKickoffEvent?.EligiblePlayerIds.Count, "BB2020 quick snap should let every open player move, not just D3+3");
 var quickSnapMoved = quickSnapService.MovePendingKickoffEventPlayer(quickSnapMatch, ruleset, playerToPlace.Id, new(1, 0));
 Assert(quickSnapMoved.Placements.Single(placement => placement.PlayerId == playerToPlace.Id).Square == new PitchSquare(1, 0), "quick snap should move an open receiving player one square");
 
@@ -1268,9 +1331,13 @@ AssertThrows(
 var solidDefenceMoved = solidDefenceService.MovePendingKickoffEventPlayer(solidDefenceMatch, ruleset, awayPlayerToPlace.Id, new(18, 5));
 Assert(solidDefenceMoved.Placements.Single(placement => placement.PlayerId == awayPlayerToPlace.Id).Square == new PitchSquare(18, 5), "solid defence should allow defensive players to be set up in different legal places");
 
-var rockService = new MatchService(new FixedDiceRoller(d6: [5, 6, 1, 6, 4, 1], d8: [5]));
-var rockMatch = rockService.ResolveKickoff(kickoffMatch, ruleset, loadedLeague.Teams[0], new(2, 2));
-Assert(rockMatch.Log.Any(entry => entry.Message.Contains("Throw a Rock", StringComparison.Ordinal)), "throw a rock should resolve and log a random crowd injury");
+// Officious Ref (kickoff 11): coaches roll D6 + FAME; the lower coach's randomly chosen player is stunned
+// (2+) or sent off (1). Event roll 5+6 = 11; receiving rolls 1 vs kicking 6, so a receiving player is hit
+// and the ref roll of 4 leaves them stunned.
+var officiousRefService = new MatchService(new FixedDiceRoller(d6: [5, 6, 1, 6, 1, 4, 1], d8: [5]));
+var officiousRefMatch = officiousRefService.ResolveKickoff(kickoffMatch, ruleset, loadedLeague.Teams[0], new(2, 2));
+Assert(officiousRefMatch.Log.Any(entry => entry.Message.Contains("Officious Ref", StringComparison.Ordinal)), "officious ref should resolve and log the ref singling out a player");
+Assert(officiousRefMatch.Placements.Count(placement => placement.TeamId == loadedLeague.Teams[0].Id && placement.State == PlayerPitchState.Stunned) == 1, "officious ref should stun the selected player on a 2+");
 
 smoke.StartSection("Movement, ball pickup, and scoring");
 var declaredMoveMatch = matchService.DeclarePlayerAction(offensiveTurnMatch, loadedLeague.Teams[0], playerToPlace.Id, PlayerTurnAction.Move);

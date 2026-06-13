@@ -29,6 +29,7 @@ public sealed record PreparedPreGameMatch
     public required LeagueTeam AwayTeam { get; init; }
     public required MatchInducementPlan Inducements { get; init; }
     public required PreGameSummary Summary { get; init; }
+    public IReadOnlyList<ActivePrayer> Prayers { get; init; } = [];
 }
 
 public sealed record PreGameSummary

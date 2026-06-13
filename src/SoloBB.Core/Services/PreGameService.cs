@@ -2,7 +2,7 @@ using SoloBB.Core.Domain;
 
 namespace SoloBB.Core.Services;
 
-public sealed class PreGameService
+public sealed partial class PreGameService
 {
     public const int BribeCost = 100_000;
     private const string StarPlayerInducementId = "star-player";
@@ -100,12 +100,28 @@ public sealed class PreGameService
         ValidateStarPlayerPlan(ruleset, rosterSet, awayRoster, awayTeam, plan.Away);
         ValidateCompleteBudget(ruleset, rosterSet, homeRoster, plan.Home);
         ValidateCompleteBudget(ruleset, rosterSet, awayRoster, plan.Away);
+
+        var preparedHome = ApplyMatchOnlyInducements(ruleset, rosterSet, homeRoster, homeTeam, plan.Home);
+        var preparedAway = ApplyMatchOnlyInducements(ruleset, rosterSet, awayRoster, awayTeam, plan.Away);
+
+        // BB2020 Prayers to Nuffle: the underdog rolls on the D16 table for each full 50,000 gp of Current
+        // Team Value difference. Player-affecting prayers are baked into the match-only teams here.
+        var prayed = ApplyPrayersToNuffle(
+            ruleset,
+            homeRoster,
+            awayRoster,
+            preparedHome,
+            preparedAway,
+            CurrentTeamValue(ruleset, homeRoster, homeTeam),
+            CurrentTeamValue(ruleset, awayRoster, awayTeam));
+
         return new PreparedPreGameMatch
         {
-            HomeTeam = ApplyMatchOnlyInducements(ruleset, rosterSet, homeRoster, homeTeam, plan.Home),
-            AwayTeam = ApplyMatchOnlyInducements(ruleset, rosterSet, awayRoster, awayTeam, plan.Away),
+            HomeTeam = prayed.Home,
+            AwayTeam = prayed.Away,
             Inducements = plan,
-            Summary = summary
+            Summary = summary,
+            Prayers = prayed.Prayers
         };
     }
 
@@ -651,7 +667,7 @@ public sealed class PreGameService
         return Math.Max(0, team.TeamValue - unavailableValue + journeymanValue);
     }
 
-    private static int PlayerValue(Ruleset ruleset, TeamRoster roster, Player player)
+    internal static int PlayerValue(Ruleset ruleset, TeamRoster roster, Player player)
     {
         var position = roster.Positions.FirstOrDefault(current => string.Equals(current.Id, player.PositionId, StringComparison.OrdinalIgnoreCase))
             ?? throw new InvalidOperationException($"Roster '{roster.Id}' does not contain position '{player.PositionId}'.");

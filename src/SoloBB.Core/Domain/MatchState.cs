@@ -47,9 +47,16 @@ public sealed record MatchState
     public int AwayWizardsRemaining { get; init; }
     public int HomeBribeRollModifier { get; init; }
     public int AwayBribeRollModifier { get; init; }
+    // BB2020: each team's Fan Factor for this game is its Dedicated Fans plus a D3, rolled once at kickoff.
+    // FAME (FAns at the ME) is derived by comparing the two Fan Factors and is used by kickoff events.
+    public int HomeFanFactor { get; init; }
+    public int AwayFanFactor { get; init; }
+    public int HomeFame { get; init; }
+    public int AwayFame { get; init; }
     public WeatherCondition Weather { get; init; } = WeatherCondition.Nice;
     public BallState Ball { get; init; } = new();
     public IReadOnlyList<PlayerPlacement> Placements { get; init; } = [];
+    public IReadOnlyList<ActivePrayer> Prayers { get; init; } = [];
     public IReadOnlyList<Guid> SecretWeaponPlayerIds { get; init; } = [];
     public IReadOnlyList<Guid> PickMeUpPlayerIds { get; init; } = [];
     public IReadOnlyList<PlayerTurnActivation> Activations { get; init; } = [];

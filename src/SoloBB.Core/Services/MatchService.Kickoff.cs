@@ -101,7 +101,7 @@ public sealed partial class MatchService
             8 => ResolveChangingWeather(match),
             9 => new KickoffEventResult(match, "Quick Snap", "The receiving team may move open players one square before the ball lands.", PendingKind: KickoffEventKind.QuickSnap),
             10 => new KickoffEventResult(match, "Blitz", "The kicking team may move open players one square before the ball lands.", PendingKind: KickoffEventKind.Blitz),
-            11 => ResolveThrowARock(match),
+            11 => ResolveOfficiousRef(match, receivingTeamId, kickingTeamId),
             12 => ResolvePitchInvasion(match),
             _ => new KickoffEventResult(match, "Kickoff", "No kickoff event.")
         };
@@ -336,7 +336,11 @@ public sealed partial class MatchService
             return null;
         }
 
-        var moves = Math.Min(eligible.Length, RollD3() + 3);
+        // BB2020: Quick Snap lets every open player move one square. The other repositioning events
+        // (Solid Defence, Blitz) only move up to D3+3 players.
+        var moves = kind == KickoffEventKind.QuickSnap
+            ? eligible.Length
+            : Math.Min(eligible.Length, RollD3() + 3);
         return new PendingKickoffEventChoice
         {
             Kind = kind,
@@ -378,8 +382,10 @@ public sealed partial class MatchService
     {
         var receivingStaff = TeamKickoffStaff(match, receivingTeamId, useCheerleaders);
         var kickingStaff = TeamKickoffStaff(match, kickingTeamId, useCheerleaders);
-        var receivingRoll = RollD3() + receivingStaff;
-        var kickingRoll = RollD3() + kickingStaff;
+        // BB2020: each coach rolls a D3 and adds their relevant staff (Cheerleaders or Assistant Coaches)
+        // plus their team's FAME for this game.
+        var receivingRoll = RollD3() + receivingStaff + TeamFame(match, receivingTeamId);
+        var kickingRoll = RollD3() + kickingStaff + TeamFame(match, kickingTeamId);
         if (receivingRoll == kickingRoll)
         {
             return new KickoffEventResult(match, name, $"Receiving coach total {receivingRoll}, kicking coach total {kickingRoll}; no bonus reroll.");
@@ -392,32 +398,62 @@ public sealed partial class MatchService
         return new KickoffEventResult(nextMatch, name, $"Receiving coach total {receivingRoll}, kicking coach total {kickingRoll}; winner gains a bonus reroll for the drive.");
     }
 
-    private KickoffEventResult ResolveThrowARock(MatchState match)
+    // BB2020 Officious Ref (kickoff 11): each coach rolls a D6 and adds their FAME; the coach with the lower
+    // total (both, on a tie) randomly selects one of their players on the pitch. A D6 is rolled for each
+    // selected player: on a 1 the player is Sent-off, otherwise they are placed Prone and Stunned.
+    private KickoffEventResult ResolveOfficiousRef(MatchState match, Guid receivingTeamId, Guid kickingTeamId)
     {
-        var candidates = match.Placements
-            .Where(placement => placement.State == PlayerPitchState.Standing && placement.Square is not null)
-            .ToArray();
-        if (candidates.Length == 0)
+        var receivingTotal = _dice.RollD6() + TeamFame(match, receivingTeamId);
+        var kickingTotal = _dice.RollD6() + TeamFame(match, kickingTeamId);
+
+        var affectedTeamIds = new List<Guid>();
+        if (receivingTotal <= kickingTotal)
         {
-            return new KickoffEventResult(match, "Throw a Rock", "No standing players are on the pitch.");
+            affectedTeamIds.Add(receivingTeamId);
         }
 
-        var victim = candidates[RollIndex(candidates.Length)];
-        var injury = ResolveInjury(Roll2D6());
-        var victimName = PlayerName(victim.PlayerId);
-        var apothecary = CreatePendingApothecaryIfAvailable(match, victim, victimName, injury);
-        injury = apothecary.Injury;
-        var nextMatch = apothecary.Match with
+        if (kickingTotal <= receivingTotal)
         {
-            Placements = apothecary.Match.Placements
-                .Select(placement => placement.PlayerId == victim.PlayerId
-                    ? ApplyPitchState(apothecary.Match, placement, injury.State, OccupiesPitch(injury.State) ? placement.Square : null, injury.Casualty)
-                    : placement)
-                .ToArray()
-        };
-        var casualtyText = injury.Casualty is null ? "" : $" Casualty roll {injury.Casualty.Roll}: {FormatCasualtyResult(injury.Casualty.Result)}.";
-        var apothecaryText = apothecary.Log.Count == 0 ? "" : $" {apothecary.Log[0].Message}";
-        return new KickoffEventResult(nextMatch, "Throw a Rock", $"{victimName} is hit by a rock and is {FormatPitchState(injury.State)}.{casualtyText}{apothecaryText}");
+            affectedTeamIds.Add(kickingTeamId);
+        }
+
+        var current = match;
+        var outcomes = new List<string>();
+        foreach (var teamId in affectedTeamIds)
+        {
+            var candidates = current.Placements
+                .Where(placement => placement.TeamId == teamId && placement.Square is not null && OccupiesPitch(placement.State))
+                .ToArray();
+            if (candidates.Length == 0)
+            {
+                continue;
+            }
+
+            var victim = candidates[RollIndex(candidates.Length)];
+            var victimName = PlayerName(victim.PlayerId);
+            if (_dice.RollD6() == 1)
+            {
+                current = SendOffPlayer(current, victim.PlayerId, $"Officious Ref: {victimName} argues with the ref and is sent off.");
+                outcomes.Add($"{victimName} is sent off");
+            }
+            else
+            {
+                current = current with
+                {
+                    Placements = current.Placements
+                        .Select(placement => placement.PlayerId == victim.PlayerId
+                            ? ApplyPitchState(current, placement, PlayerPitchState.Stunned, placement.Square)
+                            : placement)
+                        .ToArray()
+                };
+                outcomes.Add($"{victimName} is stunned");
+            }
+        }
+
+        var summary = outcomes.Count == 0
+            ? "No players are on the pitch for the ref to single out."
+            : $"{string.Join("; ", outcomes)}.";
+        return new KickoffEventResult(current, "Officious Ref", summary);
     }
 
     private KickoffEventResult ResolvePitchInvasion(MatchState match)

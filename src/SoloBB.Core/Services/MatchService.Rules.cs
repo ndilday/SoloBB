@@ -262,6 +262,18 @@ public sealed partial class MatchService
         return ((_dice.RollD6() - 1) / 2) + 1;
     }
 
+    // BB2020 FAME: +2 if this team brought at least twice as many fans as the opponent, +1 if it simply
+    // brought more, otherwise 0 (the team with fewer or equal fans gains no FAME).
+    private static int ComputeFame(int teamFanFactor, int opponentFanFactor)
+    {
+        if (teamFanFactor >= opponentFanFactor * 2)
+        {
+            return 2;
+        }
+
+        return teamFanFactor > opponentFanFactor ? 1 : 0;
+    }
+
     private int RollIndex(int count)
     {
         if (count <= 0)

@@ -14,7 +14,7 @@ public sealed record TeamDraftRequest(
     TeamRoster Roster,
     IReadOnlyList<PlayerDraftPick> Draft,
     int Rerolls,
-    int FanFactor,
+    int DedicatedFans,
     int Cheerleaders,
     int AssistantCoaches,
     int Apothecaries);
@@ -25,7 +25,7 @@ public sealed record TeamManagementRequest(
     string CoachName,
     TeamRoster Roster,
     int Rerolls,
-    int FanFactor,
+    int DedicatedFans,
     int Cheerleaders,
     int AssistantCoaches,
     int Apothecaries);
@@ -33,7 +33,7 @@ public sealed record TeamManagementRequest(
 public partial class TeamCreationScreen : VBoxContainer
 {
     private const int MaximumRosterPlayers = 16;
-    private const int FanFactorCost = 10_000;
+    private const int DedicatedFanCost = 10_000;
     private const int CheerleaderCost = 10_000;
     private const int AssistantCoachCost = 10_000;
     private const int ApothecaryCost = 50_000;
@@ -53,7 +53,7 @@ public partial class TeamCreationScreen : VBoxContainer
     private OptionButton _rosterOption = null!;
     private Label _rerollCostLabel = null!;
     private SpinBox _rerollsSpin = null!;
-    private SpinBox _fanFactorSpin = null!;
+    private SpinBox _dedicatedFansSpin = null!;
     private SpinBox _cheerleadersSpin = null!;
     private SpinBox _assistantCoachesSpin = null!;
     private SpinBox _apothecariesSpin = null!;
@@ -177,7 +177,7 @@ public partial class TeamCreationScreen : VBoxContainer
         sideColumn.AddChild(ScreenStyles.Panel("Save Status", BuildStatusPanel(), "Changed", ScreenStyles.Warning));
 
         _rerollsSpin.Value = team.Rerolls;
-        _fanFactorSpin.Value = team.FanFactor;
+        _dedicatedFansSpin.Value = team.DedicatedFans;
         _cheerleadersSpin.Value = team.Cheerleaders;
         _assistantCoachesSpin.Value = team.AssistantCoaches;
         _apothecariesSpin.Value = team.Apothecaries;
@@ -292,8 +292,8 @@ public partial class TeamCreationScreen : VBoxContainer
         _rerollsSpin = CreateSpinBox(0, _ruleset.RerollCap, _editingTeam?.Rerolls ?? 2);
         grid.AddChild(AssetControl("Rerolls", _rerollCostLabel, _rerollsSpin));
 
-        _fanFactorSpin = CreateSpinBox(1, 9, _editingTeam?.FanFactor ?? 1);
-        grid.AddChild(AssetControl("Fan Factor", ScreenStyles.MutedLabel(FormatGold(FanFactorCost)), _fanFactorSpin));
+        _dedicatedFansSpin = CreateSpinBox(1, 9, _editingTeam?.DedicatedFans ?? 1);
+        grid.AddChild(AssetControl("Dedicated Fans", ScreenStyles.MutedLabel(FormatGold(DedicatedFanCost)), _dedicatedFansSpin));
 
         _assistantCoachesSpin = CreateSpinBox(0, 12, _editingTeam?.AssistantCoaches ?? 0);
         grid.AddChild(AssetControl("Assistants", ScreenStyles.MutedLabel(FormatGold(AssistantCoachCost)), _assistantCoachesSpin));
@@ -543,7 +543,7 @@ public partial class TeamCreationScreen : VBoxContainer
             _selectedRoster,
             CreateDraft(_selectedRoster),
             (int)_rerollsSpin.Value,
-            (int)_fanFactorSpin.Value,
+            (int)_dedicatedFansSpin.Value,
             (int)_cheerleadersSpin.Value,
             (int)_assistantCoachesSpin.Value,
             (int)_apothecariesSpin.Value);
@@ -565,7 +565,7 @@ public partial class TeamCreationScreen : VBoxContainer
             _coachNameEdit.Text,
             _selectedRoster,
             (int)_rerollsSpin.Value,
-            (int)_fanFactorSpin.Value,
+            (int)_dedicatedFansSpin.Value,
             (int)_cheerleadersSpin.Value,
             (int)_assistantCoachesSpin.Value,
             (int)_apothecariesSpin.Value);
@@ -600,17 +600,17 @@ public partial class TeamCreationScreen : VBoxContainer
             : ExistingPlayerSummary(_selectedRoster, _editingTeam);
 
         var rerollCost = (int)_rerollsSpin.Value * _selectedRoster.RerollCost;
-        var fanFactorCost = Math.Max(0, (int)_fanFactorSpin.Value - 1) * FanFactorCost;
+        var dedicatedFansCost = Math.Max(0, (int)_dedicatedFansSpin.Value - 1) * DedicatedFanCost;
         var staffCost = ((int)_cheerleadersSpin.Value * CheerleaderCost) +
             ((int)_assistantCoachesSpin.Value * AssistantCoachCost) +
             ((int)_apothecariesSpin.Value * ApothecaryCost);
-        var totalCost = playerCost + rerollCost + fanFactorCost + staffCost;
+        var totalCost = playerCost + rerollCost + dedicatedFansCost + staffCost;
         var treasury = _ruleset.StartingTreasury - totalCost;
         var isReady = _editingTeam is not null || (playerCount >= _ruleset.PlayersPerSide && playerCount <= MaximumRosterPlayers && treasury >= 0);
 
         _budgetPlayersLabel.Text = FormatGold(playerCost);
         _budgetRerollsLabel.Text = FormatGold(rerollCost);
-        _budgetStaffLabel.Text = FormatGold(fanFactorCost + staffCost);
+        _budgetStaffLabel.Text = FormatGold(dedicatedFansCost + staffCost);
         _budgetRemainingLabel.Text = _editingTeam is null ? FormatGold(treasury) : FormatGold(totalCost);
 
         if (_rosterPreviewLabel is not null)
@@ -670,7 +670,7 @@ public partial class TeamCreationScreen : VBoxContainer
         }
 
         SetAffordableMax(_rerollsSpin, _ruleset.RerollCap, _selectedRoster.RerollCost, treasury);
-        SetAffordableMax(_fanFactorSpin, 9, FanFactorCost, treasury);
+        SetAffordableMax(_dedicatedFansSpin, 9, DedicatedFanCost, treasury);
         SetAffordableMax(_cheerleadersSpin, 12, CheerleaderCost, treasury);
         SetAffordableMax(_assistantCoachesSpin, 12, AssistantCoachCost, treasury);
         SetAffordableMax(_apothecariesSpin, 1, ApothecaryCost, treasury);

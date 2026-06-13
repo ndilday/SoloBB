@@ -284,7 +284,7 @@ public partial class Main : Control
         var awayTeam = _activeLeague.Teams.First(team => team.Id == scheduledMatch.AwayTeamId);
         var preGame = _preGameService.PrepareMatch(_ruleset, _rosterSet, homeTeam, awayTeam, inducements);
         _activeScheduledMatchId = scheduledMatch.Id;
-        _activeMatch = _matchService.CreateHotseatMatch(_ruleset, preGame.HomeTeam, preGame.AwayTeam, preGame.Inducements.Home, preGame.Inducements.Away);
+        _activeMatch = _matchService.CreateHotseatMatch(_ruleset, preGame.HomeTeam, preGame.AwayTeam, preGame.Inducements.Home, preGame.Inducements.Away, preGame.Prayers);
         _activeHomeTeam = preGame.HomeTeam;
         _activeAwayTeam = preGame.AwayTeam;
         _activeMatchPath = ProjectPath($"user://matches/{Slugify(homeTeam.Name)}-vs-{Slugify(awayTeam.Name)}-{DateTimeOffset.UtcNow:yyyyMMddHHmmss}.json");
@@ -409,7 +409,7 @@ public partial class Main : Control
                 request.Roster,
                 request.Draft,
                 rerolls: request.Rerolls,
-                fanFactor: request.FanFactor,
+                dedicatedFans: request.DedicatedFans,
                 cheerleaders: request.Cheerleaders,
                 assistantCoaches: request.AssistantCoaches,
                 apothecaries: request.Apothecaries);
@@ -445,7 +445,7 @@ public partial class Main : Control
                 request.TeamName,
                 request.CoachName,
                 request.Rerolls,
-                request.FanFactor,
+                request.DedicatedFans,
                 request.Cheerleaders,
                 request.AssistantCoaches,
                 request.Apothecaries);

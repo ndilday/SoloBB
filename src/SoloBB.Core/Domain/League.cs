@@ -30,7 +30,7 @@ public sealed record LeagueTeam
     public int Treasury { get; init; }
     public int TeamValue { get; init; }
     public int Rerolls { get; init; }
-    public int FanFactor { get; init; }
+    public int DedicatedFans { get; init; }
     public int Cheerleaders { get; init; }
     public int AssistantCoaches { get; init; }
     public int Apothecaries { get; init; }

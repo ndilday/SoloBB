@@ -2,18 +2,14 @@ using SoloBB.Core.Domain;
 
 namespace SoloBB.Core.Services;
 
-public sealed class LeagueService
+public sealed partial class LeagueService
 {
     private const int MaximumRosterPlayers = 16;
-    private const int FanFactorCost = 10_000;
+    private const int DedicatedFanCost = 10_000;
     private const int CheerleaderCost = 10_000;
     private const int AssistantCoachCost = 10_000;
     private const int ApothecaryCost = 50_000;
-    private const int BaseWinnings = 30_000;
-    private const int TouchdownWinnings = 10_000;
-    private const int WinBonusWinnings = 10_000;
-    private const int TieBonusWinnings = 5_000;
-    private const int FanFactorWinnings = 5_000;
+    private const int WinningsPerPoint = 10_000;
 
     // BB2020 hard cap: a player may gain at most six advancements in their career, and any single
     // characteristic may be improved at most twice.
@@ -64,7 +60,7 @@ public sealed class LeagueService
         TeamRoster roster,
         IEnumerable<PlayerDraftPick> draft,
         int rerolls = 0,
-        int fanFactor = 1,
+        int dedicatedFans = 1,
         int cheerleaders = 0,
         int assistantCoaches = 0,
         int apothecaries = 0)
@@ -92,14 +88,14 @@ public sealed class LeagueService
             throw new InvalidOperationException($"Rerolls must be between 0 and {ruleset.RerollCap}.");
         }
 
-        if (fanFactor < 1)
+        if (dedicatedFans < 1)
         {
-            throw new InvalidOperationException("Fan factor must be at least 1.");
+            throw new InvalidOperationException("Dedicated Fans must be at least 1.");
         }
 
         ValidateStaff(cheerleaders, assistantCoaches, apothecaries);
 
-        var team = BuildTeam(Guid.NewGuid(), ruleset, teamName, coachName, roster, players, rerolls, fanFactor, cheerleaders, assistantCoaches, apothecaries);
+        var team = BuildTeam(Guid.NewGuid(), ruleset, teamName, coachName, roster, players, rerolls, dedicatedFans, cheerleaders, assistantCoaches, apothecaries);
 
         return league with { Teams = [.. league.Teams, team] };
     }
@@ -140,7 +136,7 @@ public sealed class LeagueService
         string teamName,
         string coachName,
         int rerolls,
-        int fanFactor,
+        int dedicatedFans,
         int cheerleaders,
         int assistantCoaches,
         int apothecaries)
@@ -157,25 +153,25 @@ public sealed class LeagueService
             throw new InvalidOperationException($"Rerolls must be between 0 and {ruleset.RerollCap}.");
         }
 
-        if (fanFactor < 1)
+        if (dedicatedFans < 1)
         {
-            throw new InvalidOperationException("Fan factor must be at least 1.");
+            throw new InvalidOperationException("Dedicated Fans must be at least 1.");
         }
 
         ValidateStaff(cheerleaders, assistantCoaches, apothecaries);
 
         var playerCost = existingTeam.Players.Sum(player => FindPosition(roster, player.PositionId).Cost);
         var rerollCost = rerolls * roster.RerollCost;
-        var fanFactorCost = Math.Max(0, fanFactor - 1) * FanFactorCost;
+        var dedicatedFansCost = Math.Max(0, dedicatedFans - 1) * DedicatedFanCost;
         var staffCost = (cheerleaders * CheerleaderCost) + (assistantCoaches * AssistantCoachCost) + (apothecaries * ApothecaryCost);
 
         var updatedTeam = existingTeam with
         {
             Name = RequireText(teamName, "Team name is required."),
             CoachName = string.IsNullOrWhiteSpace(coachName) ? "Solo Coach" : coachName.Trim(),
-            TeamValue = playerCost + rerollCost + fanFactorCost + staffCost,
+            TeamValue = playerCost + rerollCost + dedicatedFansCost + staffCost,
             Rerolls = rerolls,
-            FanFactor = fanFactor,
+            DedicatedFans = dedicatedFans,
             Cheerleaders = cheerleaders,
             AssistantCoaches = assistantCoaches,
             Apothecaries = apothecaries
@@ -265,8 +261,7 @@ public sealed class LeagueService
         var awayTeam = league.Teams.FirstOrDefault(team => team.Id == match.AwayTeamId)
             ?? throw new InvalidOperationException("Away team is not part of this league.");
         var awards = AppendMostValuablePlayerAwards(EnrichPlayerAwards(match.PlayerAwards, match, homeTeam, awayTeam), homeTeam, awayTeam);
-        var homeWinnings = CalculateWinnings(homeTeam, match.HomeScore, match.AwayScore);
-        var awayWinnings = CalculateWinnings(awayTeam, match.AwayScore, match.HomeScore);
+        var (homeWinnings, awayWinnings) = CalculateWinnings(match.HomeFanFactor + match.AwayFanFactor, match.HomeScore, match.AwayScore);
         var result = new MatchResult
         {
             HomeScore = match.HomeScore,
@@ -482,16 +477,16 @@ public sealed class LeagueService
         TeamRoster roster,
         IReadOnlyList<Player> players,
         int rerolls,
-        int fanFactor,
+        int dedicatedFans,
         int cheerleaders,
         int assistantCoaches,
         int apothecaries)
     {
         var playerCost = players.Sum(player => FindPosition(roster, player.PositionId).Cost);
         var rerollCost = rerolls * roster.RerollCost;
-        var fanFactorCost = Math.Max(0, fanFactor - 1) * FanFactorCost;
+        var dedicatedFansCost = Math.Max(0, dedicatedFans - 1) * DedicatedFanCost;
         var staffCost = (cheerleaders * CheerleaderCost) + (assistantCoaches * AssistantCoachCost) + (apothecaries * ApothecaryCost);
-        var totalCost = playerCost + rerollCost + fanFactorCost + staffCost;
+        var totalCost = playerCost + rerollCost + dedicatedFansCost + staffCost;
 
         if (totalCost > ruleset.StartingTreasury)
         {
@@ -507,7 +502,7 @@ public sealed class LeagueService
             Treasury = ruleset.StartingTreasury - totalCost,
             TeamValue = totalCost,
             Rerolls = rerolls,
-            FanFactor = fanFactor,
+            DedicatedFans = dedicatedFans,
             Cheerleaders = cheerleaders,
             AssistantCoaches = assistantCoaches,
             Apothecaries = apothecaries,
@@ -644,7 +639,7 @@ public sealed class LeagueService
         };
     }
 
-    private static LeagueTeam ApplyPostMatchTeamUpdates(
+    private LeagueTeam ApplyPostMatchTeamUpdates(
         LeagueTeam team,
         IReadOnlyList<MatchPlayerAward> awards,
         int winnings,
@@ -660,7 +655,7 @@ public sealed class LeagueService
         return team with
         {
             Treasury = Math.Max(0, team.Treasury - treasurySpent) + winnings,
-            FanFactor = AdjustFanFactor(team.FanFactor, scoreFor, scoreAgainst),
+            DedicatedFans = UpdateDedicatedFans(team.DedicatedFans, scoreFor, scoreAgainst),
             Players = team.Players
                 .Select(player => sppByPlayer.TryGetValue(player.Id, out var spp)
                     ? player with { StarPlayerPoints = player.StarPlayerPoints + spp }
@@ -669,29 +664,33 @@ public sealed class LeagueService
         };
     }
 
-    private static int CalculateWinnings(LeagueTeam team, int scoreFor, int scoreAgainst)
+    // BB2020 post-match Winnings: the game's Fan Attendance is the sum of both teams' Fan Factors (each
+    // team's Dedicated Fans plus a D3, rolled at kickoff and stored on the match). Each coach's winnings are
+    // (Fan Attendance / 2, rounding down) plus the touchdowns their team scored, multiplied by 10,000 gp.
+    private static (int Home, int Away) CalculateWinnings(int fanAttendance, int homeScore, int awayScore)
     {
-        var resultBonus = scoreFor > scoreAgainst
-            ? WinBonusWinnings
-            : scoreFor == scoreAgainst
-                ? TieBonusWinnings
-                : 0;
-        return BaseWinnings + (scoreFor * TouchdownWinnings) + resultBonus + (team.FanFactor * FanFactorWinnings);
+        var sharedGate = fanAttendance / 2;
+        var home = (sharedGate + homeScore) * WinningsPerPoint;
+        var away = (sharedGate + awayScore) * WinningsPerPoint;
+        return (home, away);
     }
 
-    private static int AdjustFanFactor(int fanFactor, int scoreFor, int scoreAgainst)
+    // BB2020 Dedicated Fans update. After a win, roll a D6: on a result equal to or higher than the team's
+    // current Dedicated Fans, gain one (to a maximum of 6). After a loss, roll a D6: on a result lower than
+    // the current Dedicated Fans, lose one (to a minimum of 1). A draw leaves Dedicated Fans unchanged.
+    private int UpdateDedicatedFans(int dedicatedFans, int scoreFor, int scoreAgainst)
     {
         if (scoreFor > scoreAgainst)
         {
-            return Math.Min(6, fanFactor + 1);
+            return _dice.RollD6() >= dedicatedFans ? Math.Min(6, dedicatedFans + 1) : dedicatedFans;
         }
 
         if (scoreFor < scoreAgainst)
         {
-            return Math.Max(1, fanFactor - 1);
+            return _dice.RollD6() < dedicatedFans ? Math.Max(1, dedicatedFans - 1) : dedicatedFans;
         }
 
-        return fanFactor;
+        return dedicatedFans;
     }
 
     private MatchPlayerAward[] AppendMostValuablePlayerAwards(

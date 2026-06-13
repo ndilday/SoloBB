@@ -50,4 +50,28 @@ public static class MatchFormatting
     {
         return state.ToString().ToLowerInvariant();
     }
+
+    public static string FormatPrayer(PrayerToNuffle prayer)
+    {
+        return prayer switch
+        {
+            PrayerToNuffle.TreacherousTrapdoor => "Treacherous Trapdoor",
+            PrayerToNuffle.FriendsWithTheRef => "Friends with the Ref",
+            PrayerToNuffle.Stiletto => "Stiletto",
+            PrayerToNuffle.IronMan => "Iron Man",
+            PrayerToNuffle.KnuckleDusters => "Knuckle Dusters",
+            PrayerToNuffle.BadHabits => "Bad Habits",
+            PrayerToNuffle.GreasyCleats => "Greasy Cleats",
+            PrayerToNuffle.BlessedStatueOfNuffle => "Blessed Statue of Nuffle",
+            PrayerToNuffle.MolesUnderThePitch => "Moles under the Pitch",
+            PrayerToNuffle.PerfectPassing => "Perfect Passing",
+            PrayerToNuffle.FanInteraction => "Fan Interaction",
+            PrayerToNuffle.NecessaryViolence => "Necessary Violence",
+            PrayerToNuffle.FoulingFrenzy => "Fouling Frenzy",
+            PrayerToNuffle.ThrowARock => "Throw a Rock",
+            PrayerToNuffle.UnderScrutiny => "Under Scrutiny",
+            PrayerToNuffle.IntensiveTraining => "Intensive Training",
+            _ => prayer.ToString()
+        };
+    }
 }

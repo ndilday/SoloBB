@@ -799,6 +799,11 @@ public sealed partial class MatchService
 
         return cheerleaders ? match.AwayCheerleaders : match.AwayAssistantCoaches;
     }
+
+    private static int TeamFame(MatchState match, Guid teamId)
+    {
+        return teamId == match.HomeTeamId ? match.HomeFame : match.AwayFame;
+    }
     private static IReadOnlyList<string> AvailableSkillRerolls(Ruleset ruleset, Player player, PendingRerollKind kind)
     {
         var (eventKind, effect) = kind switch

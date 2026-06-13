@@ -1,4 +1,5 @@
 using SoloBB.Core.Domain;
+using static SoloBB.Core.Services.MatchFormatting;
 using static SoloBB.Core.Services.MatchGeometry;
 using static SoloBB.Core.Services.MatchQueries;
 
@@ -35,7 +36,8 @@ public sealed partial class MatchService
         LeagueTeam homeTeam,
         LeagueTeam awayTeam,
         TeamInducementPlan homeInducements,
-        TeamInducementPlan awayInducements)
+        TeamInducementPlan awayInducements,
+        IReadOnlyList<ActivePrayer>? prayers = null)
     {
         if (homeTeam.Id == awayTeam.Id)
         {
@@ -53,6 +55,11 @@ public sealed partial class MatchService
             throw new InvalidOperationException($"Both teams must have at least {minimumPlayersToField} players available.");
         }
 
+        // BB2020: roll each team's Fan Factor (Dedicated Fans + D3) for this game, then derive FAME. A team
+        // gains FAME +1 if it brought more fans than the opponent, or +2 if it brought at least twice as many.
+        var homeFanFactor = homeTeam.DedicatedFans + RollD3();
+        var awayFanFactor = awayTeam.DedicatedFans + RollD3();
+
         var initialMatch = new MatchState
         {
             Id = Guid.NewGuid(),
@@ -60,6 +67,10 @@ public sealed partial class MatchService
             HomeTeamId = homeTeam.Id,
             AwayTeamId = awayTeam.Id,
             ActiveTeamId = awayTeam.Id,
+            HomeFanFactor = homeFanFactor,
+            AwayFanFactor = awayFanFactor,
+            HomeFame = ComputeFame(homeFanFactor, awayFanFactor),
+            AwayFame = ComputeFame(awayFanFactor, homeFanFactor),
             FirstHalfReceivingTeamId = homeTeam.Id,
             Phase = MatchPhase.DefenseSetup,
             HomeRerollsRemaining = homeTeam.Rerolls,
@@ -93,6 +104,7 @@ public sealed partial class MatchService
             HomeBribeRollModifier = SelectedOptionEffectCount(ruleset, homeInducements, "biased-referee", "referee-friendly") - SelectedOptionEffectCount(ruleset, awayInducements, "biased-referee", "referee-intimidating"),
             AwayBribeRollModifier = SelectedOptionEffectCount(ruleset, awayInducements, "biased-referee", "referee-friendly") - SelectedOptionEffectCount(ruleset, homeInducements, "biased-referee", "referee-intimidating"),
             Placements = CreateInitialPlacements(homeTeam, awayTeam),
+            Prayers = prayers ?? [],
             SecretWeaponPlayerIds =
             [
                 .. homeTeam.Players.Where(player => PlayerHasHookedEffect(ruleset, player, GameEventKind.DriveEnd, GameEventStage.BeforeResolve, SkillEffect.SecretWeapon)).Select(player => player.Id),
@@ -105,11 +117,31 @@ public sealed partial class MatchService
             ],
             Log =
             [
-                new MatchLogEntry { Message = $"Created hotseat match: {homeTeam.Name} vs {awayTeam.Name}. Defense sets up first." }
+                new MatchLogEntry { Message = $"Created hotseat match: {homeTeam.Name} vs {awayTeam.Name}. Defense sets up first." },
+                .. PrayerLogEntries(homeTeam, awayTeam, prayers)
             ]
         };
 
         return ApplyMasterChef(initialMatch);
+    }
+
+    private static IReadOnlyList<MatchLogEntry> PrayerLogEntries(LeagueTeam homeTeam, LeagueTeam awayTeam, IReadOnlyList<ActivePrayer>? prayers)
+    {
+        if (prayers is null || prayers.Count == 0)
+        {
+            return [];
+        }
+
+        return prayers
+            .Select(prayer =>
+            {
+                var team = prayer.TeamId == homeTeam.Id ? homeTeam : awayTeam;
+                var player = team.Players.FirstOrDefault(current => current.Id == prayer.PlayerId);
+                var target = player is null ? "" : $" ({player.Name})";
+                var note = prayer.EffectApplied ? "" : " [recorded only]";
+                return new MatchLogEntry { Message = $"Prayer to Nuffle for {team.Name}: {FormatPrayer(prayer.Prayer)}{target}.{note}" };
+            })
+            .ToArray();
     }
 
     public MatchState UseWeatherMage(MatchState match, LeagueTeam team)
