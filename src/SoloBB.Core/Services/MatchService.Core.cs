@@ -334,6 +334,16 @@ public sealed partial class MatchService
             throw new InvalidOperationException("Resolve the pending Diving Tackle choice before advancing the turn.");
         }
 
+        if (match.PendingOnTheBall is not null)
+        {
+            throw new InvalidOperationException("Resolve the pending On the Ball choice before advancing the turn.");
+        }
+
+        if (match.PendingDumpOff is not null)
+        {
+            throw new InvalidOperationException("Resolve the pending Dump-Off choice before advancing the turn.");
+        }
+
         if (match.PendingFollowUp is not null)
         {
             throw new InvalidOperationException("Resolve the pending follow-up choice before advancing the turn.");

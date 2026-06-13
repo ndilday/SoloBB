@@ -9,6 +9,11 @@ public static class MatchGeometry
         return Math.Max(Math.Abs(first.X - second.X), Math.Abs(first.Y - second.Y)) == 1;
     }
 
+    public static int ChebyshevDistance(PitchSquare first, PitchSquare second)
+    {
+        return Math.Max(Math.Abs(first.X - second.X), Math.Abs(first.Y - second.Y));
+    }
+
     public static IEnumerable<PitchSquare> AdjacentSquares(PitchSquare square)
     {
         for (var y = square.Y - 1; y <= square.Y + 1; y++)

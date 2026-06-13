@@ -51,7 +51,7 @@ public partial class MatchScreen : VBoxContainer
             return false;
         }
 
-        if (_match.PendingKickoffEvent is not null)
+        if (_match.PendingKickoffEvent is not null || _match.PendingOnTheBall is not null)
         {
             return false;
         }
@@ -138,6 +138,11 @@ public partial class MatchScreen : VBoxContainer
         }
 
         if (_match.PendingDivingTackle is not null)
+        {
+            return false;
+        }
+
+        if (_match.PendingDumpOff is not null || _match.PendingOnTheBall is not null)
         {
             return false;
         }
@@ -372,6 +377,8 @@ public partial class MatchScreen : VBoxContainer
             _match.PendingSendOff is not null ||
             _match.PendingStandFirm is not null ||
             _match.PendingDivingTackle is not null ||
+            _match.PendingDumpOff is not null ||
+            _match.PendingOnTheBall is not null ||
             _match.PendingBombThrow is not null ||
             HasCurrentTurnActivation(attackerId))
         {
@@ -400,6 +407,8 @@ public partial class MatchScreen : VBoxContainer
             _match.PendingSendOff is not null ||
             _match.PendingStandFirm is not null ||
             _match.PendingDivingTackle is not null ||
+            _match.PendingDumpOff is not null ||
+            _match.PendingOnTheBall is not null ||
             _match.PendingBombThrow is not null ||
             _match.PendingInterception is not null ||
             _match.PendingReroll is not null ||
@@ -472,6 +481,8 @@ public partial class MatchScreen : VBoxContainer
             _match.PendingReroll is not null ||
             _match.PendingSendOff is not null ||
             _match.PendingDivingTackle is not null ||
+            _match.PendingDumpOff is not null ||
+            _match.PendingOnTheBall is not null ||
             _match.PendingBombThrow is not null ||
             HasCurrentTurnActivation(foulerId) ||
             HasUsedFoul(_match.ActiveTeamId))
@@ -716,6 +727,8 @@ public partial class MatchScreen : VBoxContainer
             _match.PendingSendOff is not null ||
             _match.PendingStandFirm is not null ||
             _match.PendingDivingTackle is not null ||
+            _match.PendingDumpOff is not null ||
+            _match.PendingOnTheBall is not null ||
             _match.PendingBombThrow is not null ||
             _match.PendingInterception is not null ||
             _match.PendingReroll is not null)
@@ -769,6 +782,8 @@ public partial class MatchScreen : VBoxContainer
             _match.PendingSendOff is not null ||
             _match.PendingStandFirm is not null ||
             _match.PendingDivingTackle is not null ||
+            _match.PendingDumpOff is not null ||
+            _match.PendingOnTheBall is not null ||
             _match.PendingBombThrow is not null ||
             _match.PendingInterception is not null ||
             _match.PendingReroll is not null ||
@@ -793,6 +808,8 @@ public partial class MatchScreen : VBoxContainer
             _match.PendingSendOff is not null ||
             _match.PendingStandFirm is not null ||
             _match.PendingDivingTackle is not null ||
+            _match.PendingDumpOff is not null ||
+            _match.PendingOnTheBall is not null ||
             _match.PendingBombThrow is not null ||
             _match.PendingInterception is not null ||
             HasCurrentTurnActivation(actorId))
@@ -1080,6 +1097,62 @@ public partial class MatchScreen : VBoxContainer
         }
 
         return ResolvePassRange(pending.BombSquare, square) is not null;
+    }
+
+    private bool IsLegalDumpOffSquare(PitchSquare square)
+    {
+        if (_match.PendingDumpOff is not PendingDumpOffChoice pending || !IsOnPitch(square))
+        {
+            return false;
+        }
+
+        var carrierSquare = _match.Placements.FirstOrDefault(placement => placement.PlayerId == pending.CarrierPlayerId)?.Square;
+        if (carrierSquare is null || carrierSquare == square)
+        {
+            return false;
+        }
+
+        // Dump-Off can only make a Quick Pass.
+        return ResolvePassRange(carrierSquare, square)?.Name == "quick";
+    }
+
+    private bool IsLegalOnTheBallSquare(PitchSquare square)
+    {
+        if (_match.PendingOnTheBall is not PendingOnTheBallChoice pending || !IsOnPitch(square))
+        {
+            return false;
+        }
+
+        if (_onTheBallMoverId is not Guid moverId || !pending.EligiblePlayerIds.Contains(moverId))
+        {
+            return false;
+        }
+
+        var moverSquare = _match.Placements.FirstOrDefault(placement => placement.PlayerId == moverId)?.Square;
+        if (moverSquare is null || moverSquare == square)
+        {
+            return false;
+        }
+
+        if (ChebyshevDistance(moverSquare, square) > 3)
+        {
+            return false;
+        }
+
+        if (_match.Placements.Any(placement => placement.PlayerId != moverId && PlacementOccupiesSquare(placement, square) && OccupiesPitch(placement.State)))
+        {
+            return false;
+        }
+
+        if (pending.Trigger == OnTheBallTrigger.PassDeclared)
+        {
+            return pending.PassTargetSquare is PitchSquare target &&
+                ChebyshevDistance(square, target) < ChebyshevDistance(moverSquare, target);
+        }
+
+        // Kickoff window: the mover must stay in their own half (the side they currently occupy).
+        var midline = _ruleset.PitchWidth / 2;
+        return (moverSquare.X < midline) == (square.X < midline);
     }
 
     private string? MovementPathMarker(PitchSquare square)

@@ -748,6 +748,20 @@ var twiceStrengthThenMovement = new LeagueService(new FixedDiceRoller(d16: [5]))
     .Teams.Single(team => team.Id == campaignHomeTeam.Id).Players.Single(player => player.Id == returningPlayer.Id);
 Assert(twiceStrengthThenMovement.Stats.Movement == returningPlayer.Stats.Movement + 1 && twiceStrengthThenMovement.CharacteristicImprovements.Count == 3, "the twice-per-characteristic cap should not block a different characteristic");
 
+// BB2020-accurate two-step UI flow: RollCharacteristicAdvancement rolls the D16 and reports the legal
+// choices, then ApplyCharacteristicAdvancement commits the chosen one against that same roll.
+var twoStepService = new LeagueService(new FixedDiceRoller(d16: [5]));
+var characteristicRoll = twoStepService.RollCharacteristicAdvancement(characteristicReadyLeague, ruleset, humanRoster, campaignHomeTeam.Id, returningPlayer.Id);
+Assert(characteristicRoll.Roll == 5 && characteristicRoll.Cost == 18, "rolling a characteristic advancement reports the D16 result and its 18 SPP cost");
+Assert(characteristicRoll.Options.Contains(PlayerCharacteristic.Movement) && characteristicRoll.Options.Contains(PlayerCharacteristic.Armor) && !characteristicRoll.Options.Contains(PlayerCharacteristic.Strength), "a roll of 1-7 should offer only Movement and Armour");
+var twoStepImproved = twoStepService
+    .ApplyCharacteristicAdvancement(characteristicReadyLeague, ruleset, humanRoster, campaignHomeTeam.Id, returningPlayer.Id, characteristicRoll.Roll, PlayerCharacteristic.Movement)
+    .Teams.Single(team => team.Id == campaignHomeTeam.Id).Players.Single(player => player.Id == returningPlayer.Id);
+Assert(twoStepImproved.Stats.Movement == returningPlayer.Stats.Movement + 1 && twoStepImproved.StarPlayerPoints == 0, "applying the rolled characteristic advancement should raise MA and spend 18 SPP");
+AssertThrows(
+    () => twoStepService.ApplyCharacteristicAdvancement(characteristicReadyLeague, ruleset, humanRoster, campaignHomeTeam.Id, returningPlayer.Id, 5, PlayerCharacteristic.Strength),
+    "applying a characteristic the rolled table does not permit should be rejected");
+
 // BB2020 player titles are derived from the number of advancements taken (one band each).
 Assert(LeagueService.PlayerTitle(humanRoster, returningPlayer) == "Rookie", "a player with no advancements is a Rookie");
 Assert(LeagueService.PlayerTitle(humanRoster, returningPlayer with { Skills = ["block"] }) == "Experienced", "one advancement makes a player Experienced");
@@ -1249,6 +1263,36 @@ var longKickoffScatterService = new MatchService(new FixedDiceRoller(d6: [3, 3, 
 var longKickoffScatterMatch = longKickoffScatterService.ResolveKickoff(kickoffMatch, ruleset, loadedLeague.Teams[0], new(2, 2));
 
 Assert(longKickoffScatterMatch.Ball.Square == new PitchSquare(6, 2), "kickoff scatter should move d6 squares in the d8 direction, then bounce once on the empty landing");
+
+// BB2020 On the Ball: after the kick but before the kick-off event roll, the receiving team may move a
+// player with the skill up to three squares (staying in their own half).
+var kickoffOnTheBallTeam = loadedLeague.Teams[0] with
+{
+    Players = loadedLeague.Teams[0].Players
+        .Select(player => player.Id == playerToPlace.Id ? player with { Skills = [.. player.Skills, "on-the-ball"] } : player)
+        .ToArray()
+};
+var kickoffOnTheBallMatch = kickoffMatch with
+{
+    Placements = kickoffMatch.Placements
+        .Select(placement => placement.PlayerId == playerToPlace.Id
+            ? placement with { Square = new PitchSquare(3, 3), State = PlayerPitchState.Standing }
+            : placement with { Square = null, State = PlayerPitchState.Reserve })
+        .ToArray()
+};
+var kickoffOnTheBallService = new MatchService(new FixedDiceRoller(d6: [3, 3, 3, 3, 1], d8: [5, 5]));
+var kickoffOnTheBallPending = kickoffOnTheBallService.ResolveKickoff(kickoffOnTheBallMatch, ruleset, kickoffOnTheBallTeam, new(2, 2));
+Assert(kickoffOnTheBallPending.PendingOnTheBall?.Trigger == OnTheBallTrigger.Kickoff && kickoffOnTheBallPending.PendingOnTheBall.EligiblePlayerIds.Contains(playerToPlace.Id), "kickoff should offer On the Ball before the event roll");
+Assert(kickoffOnTheBallPending.Phase == MatchPhase.Kickoff, "an unresolved kickoff On the Ball should keep the kickoff phase");
+
+var declinedKickoffOnTheBall = kickoffOnTheBallService.ResolvePendingOnTheBall(kickoffOnTheBallPending, ruleset, kickoffOnTheBallTeam, awayLeague.Teams[0], null, null);
+Assert(declinedKickoffOnTheBall.PendingOnTheBall is null && declinedKickoffOnTheBall.Phase == MatchPhase.OffensivePlayerTurn, "declining kickoff On the Ball should resume and resolve the kickoff");
+
+var kickoffOnTheBallMoveService = new MatchService(new FixedDiceRoller(d6: [3, 3, 3, 3, 1], d8: [5, 5]));
+var kickoffOnTheBallMovePending = kickoffOnTheBallMoveService.ResolveKickoff(kickoffOnTheBallMatch, ruleset, kickoffOnTheBallTeam, new(2, 2));
+var movedKickoffOnTheBall = kickoffOnTheBallMoveService.ResolvePendingOnTheBall(kickoffOnTheBallMovePending, ruleset, kickoffOnTheBallTeam, awayLeague.Teams[0], playerToPlace.Id, new PitchSquare(6, 3));
+Assert(movedKickoffOnTheBall.Placements.Single(placement => placement.PlayerId == playerToPlace.Id).Square == new PitchSquare(6, 3), "kickoff On the Ball should move the receiver up to three squares");
+Assert(movedKickoffOnTheBall.PendingOnTheBall is null && movedKickoffOnTheBall.Phase == MatchPhase.OffensivePlayerTurn, "moving a kickoff On the Ball player should resume and resolve the kickoff");
 
 var caughtKickoffService = new MatchService(new FixedDiceRoller(d6: [3, 3, 3, 3, 1, 4], d8: [1]));
 var caughtKickoffMatch = caughtKickoffService.ResolveKickoff(kickoffMatch, ruleset, loadedLeague.Teams[0], new(1, 1));
@@ -2274,6 +2318,105 @@ Assert(declinedDivingTackle.Placements.Single(placement => placement.PlayerId ==
 var usedDivingTackle = divingTackleService.ResolvePendingDivingTackle(divingTacklePending, ruleset, loadedLeague.Teams[0], divingTackleTeam, useDivingTackle: true);
 Assert(usedDivingTackle.PendingReroll?.Kind == PendingRerollKind.Dodge && usedDivingTackle.PendingReroll.Target == 4, "using Diving Tackle should turn the dodge into a failed dodge with reroll options");
 Assert(usedDivingTackle.Placements.Single(placement => placement.PlayerId == awayPlayerToPlace.Id).State == PlayerPitchState.Prone, "using Diving Tackle should place the tackler prone");
+
+// BB2020: Diving Tackle also applies to a successful Leap that leaves the tackler's zone.
+var leapTeam = loadedLeague.Teams[0] with
+{
+    Players = loadedLeague.Teams[0].Players
+        .Select(player => player.Id == playerToPlace.Id ? player with { Skills = [.. player.Skills, "leap"] } : player)
+        .ToArray()
+};
+var leapDivingTackleService = new MatchService(new FixedDiceRoller(d6: [5, 2, 2]));
+var leapDivingTacklePending = leapDivingTackleService.LeapPlayer(divingTackleMatch, ruleset, leapTeam, playerToPlace.Id, new PitchSquare(1, 3), divingTackleTeam);
+Assert(leapDivingTacklePending.PendingDivingTackle?.IsLeap == true && leapDivingTacklePending.PendingDivingTackle.TacklerPlayerId == awayPlayerToPlace.Id, "Diving Tackle should interrupt a successful leap that leaves the tackler's zone");
+AssertThrows(
+    () => leapDivingTackleService.AdvanceTurn(leapDivingTacklePending, ruleset),
+    "pending Diving Tackle on a leap should block turn advancement");
+
+var declinedLeapDivingTackle = leapDivingTackleService.ResolvePendingDivingTackle(leapDivingTacklePending, ruleset, loadedLeague.Teams[0], divingTackleTeam, useDivingTackle: false);
+Assert(declinedLeapDivingTackle.PendingDivingTackle is null, "declining Diving Tackle on a leap should clear the pending choice");
+Assert(declinedLeapDivingTackle.Placements.Single(placement => placement.PlayerId == playerToPlace.Id).Square == new PitchSquare(1, 3), "declining Diving Tackle should let the leap finish");
+
+var usedLeapDivingTackle = leapDivingTackleService.ResolvePendingDivingTackle(leapDivingTacklePending, ruleset, loadedLeague.Teams[0], divingTackleTeam, useDivingTackle: true);
+Assert(usedLeapDivingTackle.Placements.Single(placement => placement.PlayerId == awayPlayerToPlace.Id).State == PlayerPitchState.Prone, "using Diving Tackle on a leap should place the tackler prone");
+Assert(usedLeapDivingTackle.Placements.Single(placement => placement.PlayerId == playerToPlace.Id).State == PlayerPitchState.Prone, "the -2 from Diving Tackle should turn the leap into a fall");
+
+// BB2020 On the Ball: a defender with the skill may reposition before the pass is rolled.
+var onTheBallAwayTeam = awayLeague.Teams[0] with
+{
+    Players = awayLeague.Teams[0].Players
+        .Select(player => player.Id == awayPlayerToPlace.Id ? player with { Skills = [.. player.Skills, "on-the-ball"] } : player)
+        .ToArray()
+};
+var onTheBallPassMatch = passReadyMatch with
+{
+    Placements = passReadyMatch.Placements
+        .Select(placement => placement.PlayerId == passerPlayer.Id
+            ? placement with { Square = new PitchSquare(1, 1), State = PlayerPitchState.Standing }
+            : placement.PlayerId == passReceiver.Id
+                ? placement with { Square = new PitchSquare(4, 1), State = PlayerPitchState.Standing }
+                : placement.PlayerId == awayPlayerToPlace.Id
+                    ? placement with { Square = new PitchSquare(2, 3), State = PlayerPitchState.Standing }
+                    : placement with { Square = null, State = PlayerPitchState.Reserve })
+        .ToArray()
+};
+var onTheBallInterruptService = new MatchService(new FixedDiceRoller(d6: [2, 3]));
+var onTheBallInterruptPending = onTheBallInterruptService.PassBall(onTheBallPassMatch, ruleset, loadedLeague.Teams[0], passerPlayer.Id, passReceiver.Id, onTheBallAwayTeam);
+Assert(onTheBallInterruptPending.PendingOnTheBall?.EligiblePlayerIds.Contains(awayPlayerToPlace.Id) == true, "a declared pass should offer On the Ball to a defender with the skill before any roll");
+AssertThrows(
+    () => onTheBallInterruptService.AdvanceTurn(onTheBallInterruptPending, ruleset),
+    "pending On the Ball should block turn advancement");
+AssertThrows(
+    () => onTheBallInterruptService.ResolvePendingOnTheBall(onTheBallInterruptPending, ruleset, onTheBallAwayTeam, loadedLeague.Teams[0], awayPlayerToPlace.Id, new PitchSquare(2, 4)),
+    "On the Ball should reject a move that does not get closer to the pass target");
+
+var declinedOnTheBall = onTheBallInterruptService.ResolvePendingOnTheBall(onTheBallInterruptPending, ruleset, onTheBallAwayTeam, loadedLeague.Teams[0], null, null);
+Assert(declinedOnTheBall.PendingOnTheBall is null, "declining On the Ball should clear the pending choice");
+Assert(declinedOnTheBall.Ball.CarrierPlayerId == passReceiver.Id, "declining On the Ball should resume and complete the interrupted pass");
+
+var onTheBallMoveService = new MatchService(new FixedDiceRoller(d6: [2, 3]));
+var onTheBallMovePending = onTheBallMoveService.PassBall(onTheBallPassMatch, ruleset, loadedLeague.Teams[0], passerPlayer.Id, passReceiver.Id, onTheBallAwayTeam);
+var movedOnTheBall = onTheBallMoveService.ResolvePendingOnTheBall(onTheBallMovePending, ruleset, onTheBallAwayTeam, loadedLeague.Teams[0], awayPlayerToPlace.Id, new PitchSquare(3, 2));
+Assert(movedOnTheBall.Placements.Single(placement => placement.PlayerId == awayPlayerToPlace.Id).Square == new PitchSquare(3, 2), "On the Ball should reposition the defender closer to the pass target");
+Assert(movedOnTheBall.PendingOnTheBall is null, "moving an On the Ball player should resume the interrupted pass");
+
+// BB2020 Dump-Off: a block on a ball carrier with the skill offers a Quick Pass before the block dice.
+var dumpOffDefenderTeam = awayLeague.Teams[0] with
+{
+    Players = awayLeague.Teams[0].Players
+        .Select(player => player.Id == awayPlayerToPlace.Id ? player with { Skills = [.. player.Skills, "dump-off"] } : player)
+        .ToArray()
+};
+var dumpOffReceiver = awayLeague.Teams[0].Players[1];
+var dumpOffBlockMatch = blockReadyMatch with
+{
+    Ball = new BallState { CarrierPlayerId = awayPlayerToPlace.Id },
+    Placements = blockReadyMatch.Placements
+        .Select(placement => placement.PlayerId == playerToPlace.Id
+            ? placement with { Square = new PitchSquare(1, 1), State = PlayerPitchState.Standing }
+            : placement.PlayerId == awayPlayerToPlace.Id
+                ? placement with { Square = new PitchSquare(2, 1), State = PlayerPitchState.Standing }
+                : placement.PlayerId == dumpOffReceiver.Id
+                    ? placement with { Square = new PitchSquare(4, 1), State = PlayerPitchState.Standing }
+                    : placement with { Square = null, State = PlayerPitchState.Reserve })
+        .ToArray()
+};
+var dumpOffInterruptService = new MatchService(new FixedDiceRoller(d6: [6, 6, 6, 6, 6]));
+var dumpOffInterruptPending = dumpOffInterruptService.BlockPlayer(dumpOffBlockMatch, ruleset, loadedLeague.Teams[0], playerToPlace.Id, dumpOffDefenderTeam, awayPlayerToPlace.Id);
+Assert(dumpOffInterruptPending.PendingDumpOff?.CarrierPlayerId == awayPlayerToPlace.Id, "a block on a Dump-Off carrier should offer a Quick Pass before the block dice");
+AssertThrows(
+    () => dumpOffInterruptService.AdvanceTurn(dumpOffInterruptPending, ruleset),
+    "pending Dump-Off should block turn advancement");
+
+var thrownDumpOff = dumpOffInterruptService.ResolvePendingDumpOff(dumpOffInterruptPending, ruleset, dumpOffDefenderTeam, loadedLeague.Teams[0], new PitchSquare(4, 1));
+Assert(thrownDumpOff.Ball.CarrierPlayerId == dumpOffReceiver.Id, "Dump-Off should complete the Quick Pass to the receiver");
+Assert(thrownDumpOff.PendingDumpOff is null && thrownDumpOff.DeferredBlock is null, "throwing Dump-Off should resume the held block once the pass settles");
+
+var declinedDumpOffService = new MatchService(new FixedDiceRoller(d6: [6, 6, 6, 6, 6]));
+var declinedDumpOffPending = declinedDumpOffService.BlockPlayer(dumpOffBlockMatch, ruleset, loadedLeague.Teams[0], playerToPlace.Id, dumpOffDefenderTeam, awayPlayerToPlace.Id);
+var declinedDumpOff = declinedDumpOffService.ResolvePendingDumpOff(declinedDumpOffPending, ruleset, dumpOffDefenderTeam, loadedLeague.Teams[0], targetSquare: null);
+Assert(declinedDumpOff.PendingDumpOff is null && declinedDumpOff.DeferredBlock is null, "declining Dump-Off should resume the held block");
+Assert(declinedDumpOff.Ball.CarrierPlayerId == awayPlayerToPlace.Id, "declining Dump-Off should leave the ball with the carrier");
 
 var titchyMarkerTeam = awayLeague.Teams[0] with
 {

@@ -70,24 +70,53 @@ public sealed partial class MatchService
         }
 
         var leapedMatch = leapedAction.Match;
+        var armBarApplies = ArmBarApplies(match, ruleset, opposingTeam, playerId, startSquare, destination);
         if (!RollSucceeds(roll, target, ruleset.Dice))
         {
-            return ResolveFailedDodge(
-                leapedMatch,
-                ruleset,
-                team,
-                player,
-                destination,
-                roll,
-                target,
-                ArmBarApplies(match, ruleset, opposingTeam, playerId, startSquare, destination));
+            return ResolveFailedDodge(leapedMatch, ruleset, team, player, destination, roll, target, armBarApplies);
         }
 
-        var movedMatch = leapedMatch with
+        // BB2020: Diving Tackle may be declared after a successful Leap that leaves the tackler's zone,
+        // applying a -2 modifier (which can turn the leap into a fall). Only prompt when it can matter.
+        var leapTarget = Math.Clamp(player.Stats.Agility + 1 + Math.Max(0, tackleZones + veryLongLegsModifier) + 2, 2, 6);
+        var divingTackle = FindDivingTackler(leapedMatch, ruleset, opposingTeam, startSquare, destination);
+        if (divingTackle is not null && !RollSucceeds(roll, leapTarget, ruleset.Dice))
         {
-            Placements = leapedMatch.Placements
-                .Select(current => current.PlayerId == playerId ? current with { Square = destination } : current)
-                .ToArray(),
+            return leapedMatch with
+            {
+                PendingDivingTackle = new PendingDivingTackleChoice
+                {
+                    DodgingTeamId = team.Id,
+                    TacklerTeamId = opposingTeam!.Id,
+                    DodgerPlayerId = player.Id,
+                    TacklerPlayerId = divingTackle.PlayerId,
+                    DodgerSquare = startSquare,
+                    Destination = destination,
+                    Roll = roll,
+                    TargetWithoutDivingTackle = target,
+                    TargetWithDivingTackle = leapTarget,
+                    IsLeap = true,
+                    Context = new PendingRerollContext
+                    {
+                        MatchBeforeRoll = leapedMatch,
+                        Action = PlayerTurnAction.Move,
+                        Destination = destination,
+                        Path = [destination],
+                        StepIndex = 0,
+                        MovementAllowance = 0,
+                        ArmBarApplies = armBarApplies
+                    }
+                },
+                Log =
+                [
+                    .. leapedMatch.Log,
+                    new MatchLogEntry { Message = $"{FindTeamPlayer(opposingTeam, divingTackle.PlayerId).Name} may use Diving Tackle against {player.Name}'s leap from {startSquare.X},{startSquare.Y}." }
+                ]
+            };
+        }
+
+        var loggedMatch = leapedMatch with
+        {
             Log =
             [
                 .. leapedMatch.Log,
@@ -95,12 +124,28 @@ public sealed partial class MatchService
             ]
         };
 
+        return FinalizeSuccessfulLeap(loggedMatch, ruleset, team, player, destination);
+    }
+
+    /// <summary>
+    /// Completes a successful leap by moving the leaper to the destination and resolving a ball pickup or
+    /// touchdown there. Shared by the direct leap path and the Diving Tackle resolution.
+    /// </summary>
+    private MatchState FinalizeSuccessfulLeap(MatchState match, Ruleset ruleset, LeagueTeam team, Player player, PitchSquare destination)
+    {
+        var movedMatch = match with
+        {
+            Placements = match.Placements
+                .Select(current => current.PlayerId == player.Id ? current with { Square = destination } : current)
+                .ToArray()
+        };
+
         if (movedMatch.Ball.CarrierPlayerId is null && movedMatch.Ball.Square == destination)
         {
             return ResolvePickup(movedMatch, ruleset, team, player, destination, PlayerTurnAction.Move, destination, [destination], 0, 1);
         }
 
-        return IsTouchdown(movedMatch, ruleset, team, playerId, destination)
+        return IsTouchdown(movedMatch, ruleset, team, player.Id, destination)
             ? ScoreTouchdown(movedMatch, ruleset, team)
             : movedMatch;
     }
@@ -112,7 +157,8 @@ public sealed partial class MatchService
         Guid playerId,
         PitchSquare destination,
         bool kickoffMove = false,
-        LeagueTeam? opposingTeam = null)
+        LeagueTeam? opposingTeam = null,
+        PitchSquare? passTargetSquare = null)
     {
         var player = FindTeamPlayer(team, playerId);
         if (!PlayerHasHookedEffect(ruleset, player, GameEventKind.MoveStep, GameEventStage.BeforeEvent, SkillEffect.OnTheBall))
@@ -135,6 +181,21 @@ public sealed partial class MatchService
         if (kickoffMove && CrossesMidline(ruleset, placement.Square!, destination))
         {
             throw new InvalidOperationException("On the Ball kickoff movement cannot cross into the opponent's half.");
+        }
+
+        // BB2020: when reacting to a declared pass, each square entered must be closer to the pass target.
+        if (passTargetSquare is not null)
+        {
+            var previous = placement.Square!;
+            foreach (var step in path)
+            {
+                if (ChebyshevDistance(step, passTargetSquare) >= ChebyshevDistance(previous, passTargetSquare))
+                {
+                    throw new InvalidOperationException("On the Ball must move closer to the pass target with each square.");
+                }
+
+                previous = step;
+            }
         }
 
         var nextMatch = match;

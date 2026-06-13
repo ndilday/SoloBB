@@ -61,6 +61,103 @@ public sealed partial class MatchService
     }
 
     /// <summary>
+    /// Resolves a Dump-Off interrupt. Passing a <paramref name="targetSquare"/> throws the carrier's Quick
+    /// Pass; passing null declines it. The held block resumes once the pass (and anything it spawns) settles.
+    /// </summary>
+    public MatchState ResolvePendingDumpOff(
+        MatchState match,
+        Ruleset ruleset,
+        LeagueTeam carrierTeam,
+        LeagueTeam blockingTeam,
+        PitchSquare? targetSquare,
+        bool usePassSkillReroll = false,
+        bool useCloudBurster = false)
+    {
+        var pending = match.PendingDumpOff
+            ?? throw new InvalidOperationException("There is no pending Dump-Off choice.");
+
+        if (pending.CarrierTeamId != carrierTeam.Id || pending.BlockingTeamId != blockingTeam.Id)
+        {
+            throw new InvalidOperationException("Pending Dump-Off teams do not match the selected teams.");
+        }
+
+        var block = pending.Block;
+        var cleared = match with { PendingDumpOff = null };
+
+        if (targetSquare is null)
+        {
+            var carrier = FindTeamPlayer(carrierTeam, pending.CarrierPlayerId);
+            var declined = cleared with
+            {
+                Log = [.. cleared.Log, new MatchLogEntry { Message = $"{carrier.Name} declines Dump-Off." }]
+            };
+            return ResumeBlock(declined, ruleset, blockingTeam, carrierTeam, block);
+        }
+
+        var passedMatch = DumpOffPassBall(cleared, ruleset, carrierTeam, pending.CarrierPlayerId, targetSquare, blockingTeam, usePassSkillReroll, useCloudBurster);
+
+        // If the Quick Pass spawned its own choice (interception or reroll), hold the block until that
+        // settles; otherwise resolve it now.
+        return HasActionPending(passedMatch)
+            ? passedMatch with { DeferredBlock = block }
+            : ResumeBlock(passedMatch, ruleset, blockingTeam, carrierTeam, block);
+    }
+
+    /// <summary>
+    /// Re-enters a block held behind an interrupt. Skips the Dump-Off check (already offered) and no-ops if
+    /// the attacker can no longer make the block (e.g. they were removed while the pass resolved).
+    /// </summary>
+    private MatchState ResumeBlock(MatchState match, Ruleset ruleset, LeagueTeam attackerTeam, LeagueTeam defenderTeam, DeferredBlock block)
+    {
+        var cleared = match with { DeferredBlock = null };
+        var attackerPlacement = cleared.Placements.FirstOrDefault(placement => placement.PlayerId == block.AttackerPlayerId);
+        var defenderPlacement = cleared.Placements.FirstOrDefault(placement => placement.PlayerId == block.DefenderPlayerId);
+        if (attackerPlacement is null || attackerPlacement.State != PlayerPitchState.Standing ||
+            defenderPlacement is null || !OccupiesPitch(defenderPlacement.State))
+        {
+            return cleared;
+        }
+
+        var attacker = FindTeamPlayer(attackerTeam, block.AttackerPlayerId);
+        var defender = FindTeamPlayer(defenderTeam, block.DefenderPlayerId);
+        return ResolveBlock(cleared, ruleset, attackerTeam, attacker, attackerPlacement, defenderTeam, defender, block.DefenderStrengthBonus, block.PreventFollowUp, skipDumpOff: true);
+    }
+
+    /// <summary>
+    /// Resumes a block deferred behind a Dump-Off pass once that pass has fully settled. A no-op when there
+    /// is no deferred block or another choice is still outstanding. The two supplied teams are matched to
+    /// the stored attacker/defender ids in either order.
+    /// </summary>
+    private MatchState ResumeDeferredBlock(MatchState match, Ruleset ruleset, LeagueTeam teamA, LeagueTeam? teamB)
+    {
+        if (match.DeferredBlock is not DeferredBlock block || HasActionPending(match))
+        {
+            return match;
+        }
+
+        var attackerTeam = teamA.Id == block.AttackerTeamId ? teamA : teamB;
+        var defenderTeam = teamA.Id == block.DefenderTeamId ? teamA : teamB;
+        if (attackerTeam is null || defenderTeam is null)
+        {
+            return match;
+        }
+
+        return ResumeBlock(match, ruleset, attackerTeam, defenderTeam, block);
+    }
+
+    /// <summary>
+    /// True when an action-level choice (interception, reroll, ball placement) is still outstanding and must
+    /// be resolved before a deferred block can resume.
+    /// </summary>
+    private static bool HasActionPending(MatchState match)
+    {
+        return match.PendingInterception is not null ||
+            match.PendingReroll is not null ||
+            match.PendingBallPlacement is not null ||
+            match.PendingBombThrow is not null;
+    }
+
+    /// <summary>
     /// Resolves the Jump Up agility roll a prone player makes to stand and block, offering a team/Pro
     /// reroll on a failure before the attempt fizzles.
     /// </summary>
@@ -709,9 +806,45 @@ public sealed partial class MatchService
         Player defender,
         int defenderStrengthBonus = 0,
         bool preventFollowUp = false,
-        int? forcedDauntlessRoll = null)
+        int? forcedDauntlessRoll = null,
+        bool skipDumpOff = false)
     {
         var defenderPlacement = match.Placements.First(placement => placement.PlayerId == defender.Id);
+
+        // BB2020 Dump-Off: a standing ball carrier with the skill may throw a Quick Pass before any block
+        // dice are rolled. Raise the interrupt on the first roll attempt only (not on Dauntless re-entry).
+        if (!skipDumpOff &&
+            forcedDauntlessRoll is null &&
+            match.PendingMultipleBlock is null &&
+            defenderPlacement.State == PlayerPitchState.Standing &&
+            match.Ball.CarrierPlayerId == defender.Id &&
+            PlayerHasHookedEffect(ruleset, defender, GameEventKind.PassRoll, GameEventStage.BeforeEvent, SkillEffect.DumpOff))
+        {
+            return match with
+            {
+                PendingDumpOff = new PendingDumpOffChoice
+                {
+                    CarrierTeamId = defenderTeam.Id,
+                    BlockingTeamId = attackerTeam.Id,
+                    CarrierPlayerId = defender.Id,
+                    Block = new DeferredBlock
+                    {
+                        AttackerTeamId = attackerTeam.Id,
+                        DefenderTeamId = defenderTeam.Id,
+                        AttackerPlayerId = attacker.Id,
+                        DefenderPlayerId = defender.Id,
+                        DefenderStrengthBonus = defenderStrengthBonus,
+                        PreventFollowUp = preventFollowUp
+                    }
+                },
+                Log =
+                [
+                    .. match.Log,
+                    new MatchLogEntry { Message = $"{defender.Name} may use Dump-Off before {attacker.Name}'s block." }
+                ]
+            };
+        }
+
         var strength = ResolveBlockStrength(match, ruleset, attackerTeam, attackerPlacement, defenderTeam, defenderPlacement, attacker, defender, defenderStrengthBonus, forcedDauntlessRoll);
 
         // A failed Dauntless roll may be rerolled before the block dice are rolled. Skip the prompt while a

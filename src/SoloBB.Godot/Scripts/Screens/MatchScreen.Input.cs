@@ -16,6 +16,20 @@ public partial class MatchScreen : VBoxContainer
         ResetEndTurnConfirmation();
         try
         {
+            // Interrupt windows consume any board click as their action target, so they take priority
+            // over the normal right-click targeting flow below.
+            if (_match.PendingDumpOff is not null)
+            {
+                await ResolveDumpOffAsync(square);
+                return;
+            }
+
+            if (_match.PendingOnTheBall is not null)
+            {
+                await ResolveOnTheBallSquareAsync(square);
+                return;
+            }
+
             // Right-click is reserved for aiming and confirming Pass / Hand-off targets so that
             // an ordinary left-click while a thrower is selected can never be mistaken for a throw.
             if (button == MouseButton.Right)
@@ -982,6 +996,81 @@ public partial class MatchScreen : VBoxContainer
             _currentActivationPlayerId = null;
         }
 
+        await AnimateBallAsync(beforeMatch, _match, logStart);
+        await _saveMatch(_match);
+        RefreshRoster();
+        RefreshPitch();
+    }
+
+    private async Task ResolveDumpOffAsync(PitchSquare? targetSquare)
+    {
+        ResetEndTurnConfirmation();
+        if (_match.PendingDumpOff is not PendingDumpOffChoice pending)
+        {
+            return;
+        }
+
+        var beforeMatch = _match;
+        var logStart = _match.Log.Count;
+        try
+        {
+            var service = CreateMatchService();
+            _match = service.ResolvePendingDumpOff(_match, _ruleset, TeamById(pending.CarrierTeamId), TeamById(pending.BlockingTeamId), targetSquare);
+        }
+        catch (Exception ex)
+        {
+            _summaryLabel.Text = $"Dump-Off failed: {ex.Message}";
+            return;
+        }
+
+        _selectedPlayerId = null;
+        _currentActivationPlayerId = null;
+        await AnimateBallAsync(beforeMatch, _match, logStart);
+        await _saveMatch(_match);
+        RefreshRoster();
+        RefreshPitch();
+    }
+
+    private async Task ResolveOnTheBallSquareAsync(PitchSquare square)
+    {
+        if (_match.PendingOnTheBall is null)
+        {
+            return;
+        }
+
+        if (_onTheBallMoverId is not Guid moverId)
+        {
+            _summaryLabel.Text = "Choose an On the Ball player to move first.";
+            return;
+        }
+
+        await ResolveOnTheBallAsync(moverId, square);
+    }
+
+    private async Task ResolveOnTheBallAsync(Guid? playerId, PitchSquare? destination)
+    {
+        ResetEndTurnConfirmation();
+        if (_match.PendingOnTheBall is not PendingOnTheBallChoice pending)
+        {
+            return;
+        }
+
+        var beforeMatch = _match;
+        var logStart = _match.Log.Count;
+        try
+        {
+            var service = CreateMatchService();
+            _match = service.ResolvePendingOnTheBall(_match, _ruleset, TeamById(pending.TeamId), TeamById(pending.OpposingTeamId), playerId, destination);
+        }
+        catch (Exception ex)
+        {
+            _summaryLabel.Text = $"On the Ball failed: {ex.Message}";
+            return;
+        }
+
+        _onTheBallMoverId = null;
+        _selectedPlayerId = null;
+        _currentActivationPlayerId = null;
         await AnimateBallAsync(beforeMatch, _match, logStart);
         await _saveMatch(_match);
         RefreshRoster();

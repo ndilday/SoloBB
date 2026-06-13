@@ -14,6 +14,18 @@ public sealed partial class MatchService
         string? skillId = null,
         LeagueTeam? opposingTeam = null)
     {
+        // A Dump-Off pass that spawned this reroll (pass or catch) holds its block until the pass settles.
+        return ResumeDeferredBlock(ResolvePendingRerollCore(match, ruleset, team, useTeamReroll, skillId, opposingTeam), ruleset, team, opposingTeam);
+    }
+
+    private MatchState ResolvePendingRerollCore(
+        MatchState match,
+        Ruleset ruleset,
+        LeagueTeam team,
+        bool useTeamReroll,
+        string? skillId = null,
+        LeagueTeam? opposingTeam = null)
+    {
         var pending = match.PendingReroll
             ?? throw new InvalidOperationException("There is no pending reroll.");
 
@@ -498,6 +510,29 @@ public sealed partial class MatchService
         var baseMatch = context.MatchBeforeRoll with { PendingDivingTackle = null };
         var dodger = FindTeamPlayer(dodgingTeam, pending.DodgerPlayerId);
         var tackler = FindTeamPlayer(tacklerTeam, pending.TacklerPlayerId);
+
+        if (pending.IsLeap)
+        {
+            if (useDivingTackle)
+            {
+                var leapTacklerPlacement = FindPlacement(baseMatch, pending.TacklerPlayerId)
+                    ?? throw new InvalidOperationException("Diving Tackler is not part of this match.");
+                var leapTackledMatch = ApplyDivingTackle(baseMatch, leapTacklerPlacement, pending.DodgerSquare, tackler.Name);
+                // The -2 modifier turns the previously successful leap into a fall.
+                return ResolveFailedDodge(leapTackledMatch, ruleset, dodgingTeam, dodger, pending.Destination, pending.Roll, pending.TargetWithDivingTackle, context.ArmBarApplies);
+            }
+
+            var leapDeclinedMatch = baseMatch with
+            {
+                Log =
+                [
+                    .. baseMatch.Log,
+                    new MatchLogEntry { Message = $"{tackler.Name} declines Diving Tackle; {dodger.Name} leaps to {pending.Destination.X},{pending.Destination.Y}: rolled {pending.Roll} vs {pending.TargetWithoutDivingTackle}+, success." }
+                ]
+            };
+
+            return FinalizeSuccessfulLeap(leapDeclinedMatch, ruleset, dodgingTeam, dodger, pending.Destination);
+        }
 
         if (useDivingTackle)
         {

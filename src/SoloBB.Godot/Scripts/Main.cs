@@ -382,7 +382,9 @@ public partial class Main : Control
             team: team,
             renamePlayer: async (playerId, playerName) => await RenamePlayerAsync(team.Id, playerId, playerName, screen),
             purchaseSelectedSkill: async (playerId, skillId) => await PurchaseSelectedSkillAsync(team.Id, playerId, skillId, screen),
-            purchaseRandomSkill: async playerId => await PurchaseRandomSkillAsync(team.Id, playerId, screen),
+            purchaseRandomSkill: async (playerId, secondary) => await PurchaseRandomSkillAsync(team.Id, playerId, secondary, screen),
+            rollCharacteristic: playerId => RollCharacteristicAsync(team.Id, playerId, screen),
+            applyCharacteristic: async (playerId, roll, characteristic) => await ApplyCharacteristicAsync(team.Id, playerId, roll, characteristic, screen),
             movePlayer: async (playerId, up) => await MovePlayerAsync(team.Id, playerId, up, screen),
             back: () => ShowTeamEditingScreen(team.Id));
     }
@@ -536,7 +538,7 @@ public partial class Main : Control
         }
     }
 
-    private async Task PurchaseRandomSkillAsync(Guid teamId, Guid playerId, TeamRosterScreen screen)
+    private async Task PurchaseRandomSkillAsync(Guid teamId, Guid playerId, bool secondary, TeamRosterScreen screen)
     {
         try
         {
@@ -547,17 +549,65 @@ public partial class Main : Control
 
             var team = _activeLeague.Teams.First(current => current.Id == teamId);
             var roster = _rosterSet.Rosters.First(current => string.Equals(current.Id, team.RosterId, StringComparison.OrdinalIgnoreCase));
-            _activeLeague = _leagueService.PurchaseRandomSkillAdvancement(_activeLeague, _ruleset, roster, teamId, playerId);
+            _activeLeague = _leagueService.PurchaseRandomSkillAdvancement(_activeLeague, _ruleset, roster, teamId, playerId, secondary);
             await SaveActiveLeagueAsync();
             ShowTeamRosterScreen(teamId);
             if (CurrentScreen is TeamRosterScreen rosterScreen)
             {
-                rosterScreen.SetStatus("Purchased random primary skill advancement.");
+                rosterScreen.SetStatus($"Purchased random {(secondary ? "secondary" : "primary")} skill advancement.");
             }
         }
         catch (Exception ex)
         {
             screen.SetStatus($"Random skill purchase failed: {ex.Message}");
+        }
+    }
+
+    // BB2020 characteristic flow, step 1: roll the D16 and hand the legal choices back to the screen
+    // so it can present them. The league is not mutated until the coach picks an option.
+    private async Task<CharacteristicAdvancementRoll> RollCharacteristicAsync(Guid teamId, Guid playerId, TeamRosterScreen screen)
+    {
+        try
+        {
+            if (_activeLeague is null || _ruleset is null || _rosterSet is null)
+            {
+                throw new InvalidOperationException("League data is not ready.");
+            }
+
+            var team = _activeLeague.Teams.First(current => current.Id == teamId);
+            var roster = _rosterSet.Rosters.First(current => string.Equals(current.Id, team.RosterId, StringComparison.OrdinalIgnoreCase));
+            return _leagueService.RollCharacteristicAdvancement(_activeLeague, _ruleset, roster, teamId, playerId);
+        }
+        catch (Exception ex)
+        {
+            screen.SetStatus($"Characteristic roll failed: {ex.Message}");
+            return new CharacteristicAdvancementRoll(0, 0, Array.Empty<PlayerCharacteristic>());
+        }
+    }
+
+    // BB2020 characteristic flow, step 2: commit the chosen improvement from the rolled options.
+    private async Task ApplyCharacteristicAsync(Guid teamId, Guid playerId, int roll, PlayerCharacteristic characteristic, TeamRosterScreen screen)
+    {
+        try
+        {
+            if (_activeLeague is null || _ruleset is null || _rosterSet is null)
+            {
+                throw new InvalidOperationException("League data is not ready.");
+            }
+
+            var team = _activeLeague.Teams.First(current => current.Id == teamId);
+            var roster = _rosterSet.Rosters.First(current => string.Equals(current.Id, team.RosterId, StringComparison.OrdinalIgnoreCase));
+            _activeLeague = _leagueService.ApplyCharacteristicAdvancement(_activeLeague, _ruleset, roster, teamId, playerId, roll, characteristic);
+            await SaveActiveLeagueAsync();
+            ShowTeamRosterScreen(teamId);
+            if (CurrentScreen is TeamRosterScreen rosterScreen)
+            {
+                rosterScreen.SetStatus($"Improved {characteristic} via characteristic advancement.");
+            }
+        }
+        catch (Exception ex)
+        {
+            screen.SetStatus($"Characteristic improvement failed: {ex.Message}");
         }
     }
 

@@ -64,6 +64,8 @@ public partial class MatchScreen : VBoxContainer
         RefreshStandFirmChoice();
         RefreshPushChoice();
         RefreshDivingTackleChoice();
+        RefreshDumpOffChoice();
+        RefreshOnTheBallChoice();
         RefreshSetupChoice();
         // Resolve the current pass preview range name once so each tile can look it up cheaply.
         string? passPreviewRangeName = null;
@@ -85,15 +87,17 @@ public partial class MatchScreen : VBoxContainer
             var canFollowUp = IsLegalFollowUpSquare(square);
             var canPlaceBall = IsLegalBallPlacementSquare(square);
             var canThrowBomb = IsLegalBombThrowSquare(square);
+            var canDumpOff = IsLegalDumpOffSquare(square);
+            var canOnTheBall = IsLegalOnTheBallSquare(square);
             var canLaunchTarget = _selectedPlayerId is Guid launchActorId &&
                 _previewLaunchedPlayerId is Guid launchedId &&
                 IsLegalLaunchTargetSquare(launchActorId, launchedId, square);
             var isPreview = _previewPath.Contains(square);
             var isOnPassLine = _previewPassLinePath.Contains(square);
-            var pathMarker = canTargetWizard ? "W" : canLaunchTarget ? "L" : canThrowBomb ? "B" : canPlaceBall ? "o" : canFollowUp ? "F" : canPush ? ">" : _previewPassTargetSquare == square ? "P" : isOnPassLine ? "." : MovementPathMarker(square);
+            var pathMarker = canTargetWizard ? "W" : canLaunchTarget ? "L" : canThrowBomb ? "B" : canDumpOff ? "P" : canOnTheBall ? "o" : canPlaceBall ? "o" : canFollowUp ? "F" : canPush ? ">" : _previewPassTargetSquare == square ? "P" : isOnPassLine ? "." : MovementPathMarker(square);
             tile.Text = "";
             tile.Icon = null;
-            tile.SetTile(PitchTileTexture(square, canPlace || canTargetKickoff || canTargetWizard || canMove || canPassSquare || canPush || canFollowUp || canPlaceBall || canThrowBomb || canLaunchTarget, pathMarker));
+            tile.SetTile(PitchTileTexture(square, canPlace || canTargetKickoff || canTargetWizard || canMove || canPassSquare || canPush || canFollowUp || canPlaceBall || canThrowBomb || canDumpOff || canOnTheBall || canLaunchTarget, pathMarker));
             var isGfi = pathMarker?.StartsWith('!') == true ||
                 (canMove && _selectedPlayerId is Guid gfiPlayerId && IsGoForItMovementTarget(gfiPlayerId, square));
             var passLineActive = isOnPassLine || _previewPassTargetSquare == square;
@@ -101,13 +105,13 @@ public partial class MatchScreen : VBoxContainer
                 ? (Color?)PassRangeHighlightColor(passPreviewRangeName)
                 : null;
             // Pass range squares stay clickable but are not highlighted until a target is right-clicked.
-            var highlightCanUse = canPlace || canTargetKickoff || canTargetWizard || canMove || canPush || canFollowUp || canPlaceBall || canThrowBomb || canLaunchTarget || passLineActive;
+            var highlightCanUse = canPlace || canTargetKickoff || canTargetWizard || canMove || canPush || canFollowUp || canPlaceBall || canThrowBomb || canDumpOff || canOnTheBall || canLaunchTarget || passLineActive;
             tile.SetHighlight(PitchHighlightTexture(highlightCanUse, pathMarker), passRangeHighlightColor ?? (isGfi ? GoForItPathColor : null));
             tile.SetMarking(PitchMarkingTexture(square));
             tile.SetPiece(null);
             tile.SetOverlay(null);
             tile.SetStatus(null);
-            tile.Disabled = !canPlace && !canTargetKickoff && !canTargetWizard && !canMove && !canPassSquare && !canPush && !canFollowUp && !canPlaceBall && !canThrowBomb && !canLaunchTarget;
+            tile.Disabled = !canPlace && !canTargetKickoff && !canTargetWizard && !canMove && !canPassSquare && !canPush && !canFollowUp && !canPlaceBall && !canThrowBomb && !canDumpOff && !canOnTheBall && !canLaunchTarget;
             tile.TooltipText = canLaunchTarget
                 ? LaunchSquareTooltip(square)
                 : canTargetWizard
@@ -120,13 +124,17 @@ public partial class MatchScreen : VBoxContainer
                 ? "Follow up here"
                 : canPush
                 ? "Push here"
+                : canDumpOff
+                ? "Dump-Off Quick Pass here"
+                : canOnTheBall
+                ? "Move here"
                 : canPassSquare
                 ? PassSquareTooltip(square)
                 : canPlace || canTargetKickoff || canMove
                 ? MovementTooltip(square, pathMarker)
                 : "";
-            ApplySquareStyle(tile, square, isSelected: false, canUse: canPlace || canTargetKickoff || canTargetWizard || canMove || canPassSquare || canPush || canFollowUp || canPlaceBall || canThrowBomb || canLaunchTarget, pathMarker);
-            if (isPreview || canTargetWizard || canPush || canFollowUp || canThrowBomb || canLaunchTarget || _previewPassTargetSquare == square)
+            ApplySquareStyle(tile, square, isSelected: false, canUse: canPlace || canTargetKickoff || canTargetWizard || canMove || canPassSquare || canPush || canFollowUp || canPlaceBall || canThrowBomb || canDumpOff || canOnTheBall || canLaunchTarget, pathMarker);
+            if (isPreview || canTargetWizard || canPush || canFollowUp || canThrowBomb || canDumpOff || canOnTheBall || canLaunchTarget || _previewPassTargetSquare == square)
             {
                 tile.Text = pathMarker ?? (_previewDestination == square ? "X" : ".");
             }
@@ -175,12 +183,13 @@ public partial class MatchScreen : VBoxContainer
                 _previewLaunchedPlayerId is Guid launchedPlayerId &&
                 IsLegalLaunchTargetSquare(launchActorIdForSquare, launchedPlayerId, placement.Square!);
             var canPlaceBallOnPlayer = IsLegalBallPlacementSquare(placement.Square!);
-            tile.Disabled = !CanSelectPlayer(placement.PlayerId) && !canPlaceBallOnPlayer && !canBlockTarget && !canBlitzTarget && !canKickoffBlitzTarget && !canPassTarget && !canHandOffTarget && !canFoulTarget && !canPushTarget && !canFollowUpTarget && !canThrowBombTarget && !canWizardTarget && !canLaunchPlayer && !canLaunchTargetSquare;
+            var canDumpOffTarget = IsLegalDumpOffSquare(placement.Square!);
+            tile.Disabled = !CanSelectPlayer(placement.PlayerId) && !canPlaceBallOnPlayer && !canDumpOffTarget && !canBlockTarget && !canBlitzTarget && !canKickoffBlitzTarget && !canPassTarget && !canHandOffTarget && !canFoulTarget && !canPushTarget && !canFollowUpTarget && !canThrowBombTarget && !canWizardTarget && !canLaunchPlayer && !canLaunchTargetSquare;
             ApplySquareStyle(
                 tile,
                 placement.Square!,
                 isSelected,
-                canUse: canBlockTarget || canBlitzTarget || canKickoffBlitzTarget || canPassTarget || canHandOffTarget || canFoulTarget || canPushTarget || canFollowUpTarget || canThrowBombTarget || canWizardTarget || canLaunchPlayer || canLaunchTargetSquare,
+                canUse: canBlockTarget || canBlitzTarget || canKickoffBlitzTarget || canPassTarget || canHandOffTarget || canFoulTarget || canPushTarget || canFollowUpTarget || canThrowBombTarget || canDumpOffTarget || canWizardTarget || canLaunchPlayer || canLaunchTargetSquare,
                 pathMarker: canWizardTarget ? "W" : canLaunchPlayer ? "L" : canLaunchTargetSquare ? "L" : canHandOffTarget ? "H" : canFollowUpTarget ? "F" : canPushTarget ? ">" : null,
                 blockRole: BlockPreviewRole(placement.PlayerId),
                 passRole: PassPreviewRole(placement.PlayerId));
@@ -277,6 +286,16 @@ public partial class MatchScreen : VBoxContainer
             return "Diving Tackle";
         }
 
+        if (_match.PendingDumpOff is not null)
+        {
+            return "Dump-Off";
+        }
+
+        if (_match.PendingOnTheBall is not null)
+        {
+            return "On the Ball";
+        }
+
         if (_match.PendingBallPlacement is not null)
         {
             return "Place Ball";
@@ -360,6 +379,8 @@ public partial class MatchScreen : VBoxContainer
             _ when _match.PendingSendOff is PendingSendOffChoice pending => SendOffSummary(pending),
             _ when _match.PendingStandFirm is PendingStandFirmChoice pending => StandFirmSummary(pending),
             _ when _match.PendingDivingTackle is PendingDivingTackleChoice pending => DivingTackleSummary(pending),
+            _ when _match.PendingDumpOff is PendingDumpOffChoice pending => DumpOffSummary(pending),
+            _ when _match.PendingOnTheBall is PendingOnTheBallChoice pending => OnTheBallSummary(pending),
             _ when _match.PendingBallPlacement is PendingBallPlacementChoice { Reason: "Touchback" } => "Choose a receiving player to carry the touchback.",
             _ when _match.PendingBallPlacement is PendingBallPlacementChoice pending => $"Choose where {FindPlayer(pending.PlayerId)?.Name ?? "player"} places the ball with {pending.Reason}.",
             _ when _match.PendingBombThrow is PendingBombThrowChoice pending => BombThrowSummary(pending),
@@ -588,6 +609,8 @@ public partial class MatchScreen : VBoxContainer
             _match.PendingApothecary is null &&
             _match.PendingStandFirm is null &&
             _match.PendingDivingTackle is null &&
+            _match.PendingDumpOff is null &&
+            _match.PendingOnTheBall is null &&
             _match.PendingFollowUp is null &&
             _match.PendingBallPlacement is null &&
             _match.PendingBombThrow is null &&
@@ -659,6 +682,8 @@ public partial class MatchScreen : VBoxContainer
             _match.PendingSendOff is not null ||
             _match.PendingStandFirm is not null ||
             _match.PendingDivingTackle is not null ||
+            _match.PendingDumpOff is not null ||
+            _match.PendingOnTheBall is not null ||
             _match.PendingBallPlacement is not null ||
             _match.PendingBombThrow is not null ||
             _match.PendingBlock is not null ||
@@ -763,6 +788,16 @@ public partial class MatchScreen : VBoxContainer
         if (_match.PendingDivingTackle is not null)
         {
             return "Resolve the pending Diving Tackle choice first.";
+        }
+
+        if (_match.PendingDumpOff is not null)
+        {
+            return "Resolve the pending Dump-Off choice first.";
+        }
+
+        if (_match.PendingOnTheBall is not null)
+        {
+            return "Resolve the pending On the Ball choice first.";
         }
 
         if (_match.PendingBallPlacement is not null)
@@ -1181,6 +1216,75 @@ public partial class MatchScreen : VBoxContainer
         _divingTackleChoiceBox.AddChild(declineButton);
     }
 
+    private void RefreshDumpOffChoice()
+    {
+        foreach (var child in _dumpOffChoiceBox.GetChildren())
+        {
+            child.QueueFree();
+        }
+
+        if (_match.PendingDumpOff is not PendingDumpOffChoice)
+        {
+            _dumpOffChoiceBox.Visible = false;
+            return;
+        }
+
+        _dumpOffChoiceBox.Visible = true;
+        _dumpOffChoiceBox.AddChild(new Label { Text = "Dump-Off:" });
+
+        var declineButton = new Button { Text = "Decline" };
+        declineButton.TooltipText = "Take the block without passing.";
+        declineButton.Pressed += async () => await ResolveDumpOffAsync(null);
+        _dumpOffChoiceBox.AddChild(declineButton);
+    }
+
+    private void RefreshOnTheBallChoice()
+    {
+        foreach (var child in _onTheBallChoiceBox.GetChildren())
+        {
+            child.QueueFree();
+        }
+
+        if (_match.PendingOnTheBall is not PendingOnTheBallChoice pending)
+        {
+            _onTheBallMoverId = null;
+            _onTheBallChoiceBox.Visible = false;
+            return;
+        }
+
+        // Drop a stale selection if the previously chosen mover is no longer eligible.
+        if (_onTheBallMoverId is Guid moverId && !pending.EligiblePlayerIds.Contains(moverId))
+        {
+            _onTheBallMoverId = null;
+        }
+
+        _onTheBallChoiceBox.Visible = true;
+        _onTheBallChoiceBox.AddChild(new Label { Text = "On the Ball:" });
+
+        foreach (var playerId in pending.EligiblePlayerIds)
+        {
+            var selected = _onTheBallMoverId == playerId;
+            var button = new Button
+            {
+                Text = (selected ? "▶ " : "") + PlayerMarker(playerId),
+                CustomMinimumSize = new Vector2(42, 28)
+            };
+            button.TooltipText = $"{FindPlayer(playerId)?.Name ?? "player"} - move up to three squares, then click a destination.";
+            var captured = playerId;
+            button.Pressed += () =>
+            {
+                _onTheBallMoverId = captured;
+                RefreshPitch();
+            };
+            _onTheBallChoiceBox.AddChild(button);
+        }
+
+        var declineButton = new Button { Text = "Decline" };
+        declineButton.TooltipText = "Skip the On the Ball move.";
+        declineButton.Pressed += async () => await ResolveOnTheBallAsync(null, null);
+        _onTheBallChoiceBox.AddChild(declineButton);
+    }
+
     private string RerollSummary(PendingRerollChoice pending)
     {
         var playerName = FindPlayer(pending.PlayerId)?.Name ?? "player";
@@ -1231,6 +1335,26 @@ public partial class MatchScreen : VBoxContainer
         var tacklerName = FindPlayer(pending.TacklerPlayerId)?.Name ?? "tackler";
         var dodgerName = FindPlayer(pending.DodgerPlayerId)?.Name ?? "dodger";
         return $"{tacklerName} can use Diving Tackle against {dodgerName}: roll {pending.Roll} succeeds on {pending.TargetWithoutDivingTackle}+ but fails on {pending.TargetWithDivingTackle}+. Use it?";
+    }
+
+    private string DumpOffSummary(PendingDumpOffChoice pending)
+    {
+        var carrierName = FindPlayer(pending.CarrierPlayerId)?.Name ?? "carrier";
+        return $"{carrierName} can Dump-Off before the block. Click a square to make a Quick Pass, or decline.";
+    }
+
+    private string OnTheBallSummary(PendingOnTheBallChoice pending)
+    {
+        var constraint = pending.Trigger == OnTheBallTrigger.Kickoff
+            ? "staying in their own half"
+            : "each square closer to the pass target";
+        if (_onTheBallMoverId is Guid moverId)
+        {
+            var moverName = FindPlayer(moverId)?.Name ?? "player";
+            return $"On the Ball: click a destination for {moverName} (up to three squares, {constraint}), pick another player, or decline.";
+        }
+
+        return $"On the Ball: choose a player to move up to three squares ({constraint}) before the {(pending.Trigger == OnTheBallTrigger.Kickoff ? "kick-off event roll" : "pass")}, or decline.";
     }
 
     private string BombThrowSummary(PendingBombThrowChoice pending)

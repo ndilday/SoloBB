@@ -242,7 +242,8 @@ public sealed partial class MatchService
         bool useCloudBurster,
         bool isDumpOff,
         bool isHailMary,
-        int? forcedPassRoll = null)
+        int? forcedPassRoll = null,
+        bool skipOnTheBall = false)
     {
         if (match.Phase is not (MatchPhase.OffensivePlayerTurn or MatchPhase.DefensiveTurn))
         {
@@ -321,6 +322,47 @@ public sealed partial class MatchService
             : CountOpposingTackleZones(match, team.Id, passerPlayerId, passerPlacement.Square!);
         var passerDisturbingPresence = DisturbingPresenceModifier(match, ruleset, defendingTeam, passerPlacement.Square!);
         var target = PassingTarget(ruleset, passerPlayer, passRange, match.Weather, passerTackleZones, passerDisturbingPresence);
+
+        // BB2020 On the Ball: before any pass roll, a defender with the skill may reposition to set up an
+        // interception. Raise the interrupt window once; it re-enters this method with skipOnTheBall set.
+        if (!skipOnTheBall && !isDumpOff && !isHailMary && defendingTeam is not null && forcedPassRoll is null)
+        {
+            var onTheBallPlayers = match.Placements
+                .Where(placement => placement.TeamId == defendingTeam.Id &&
+                    placement.State == PlayerPitchState.Standing &&
+                    PlayerHasHookedEffect(ruleset, FindTeamPlayer(defendingTeam, placement.PlayerId), GameEventKind.MoveStep, GameEventStage.BeforeEvent, SkillEffect.OnTheBall))
+                .Select(placement => placement.PlayerId)
+                .ToArray();
+            if (onTheBallPlayers.Length > 0)
+            {
+                return match with
+                {
+                    PendingOnTheBall = new PendingOnTheBallChoice
+                    {
+                        Trigger = OnTheBallTrigger.PassDeclared,
+                        TeamId = defendingTeam.Id,
+                        OpposingTeamId = team.Id,
+                        PassTargetSquare = targetSquare,
+                        EligiblePlayerIds = onTheBallPlayers,
+                        PassResume = new PendingPassResume
+                        {
+                            PasserPlayerId = passerPlayerId,
+                            TargetSquare = targetSquare,
+                            UsePassSkillReroll = usePassSkillReroll,
+                            UseCloudBurster = useCloudBurster,
+                            IsDumpOff = isDumpOff,
+                            IsHailMary = isHailMary
+                        }
+                    },
+                    Log =
+                    [
+                        .. match.Log,
+                        new MatchLogEntry { Message = $"{passerPlayer.Name} declares a {passRange.Name} pass; the defending team may use On the Ball before any roll." }
+                    ]
+                };
+            }
+        }
+
         var passAction = isDumpOff
             ? new ActionStart(match, Prevented: false)
             : BeginPlayerAction(match, ruleset, team, passerPlayer, PlayerTurnAction.Pass, goForItsUsed: 0);
@@ -496,7 +538,7 @@ public sealed partial class MatchService
         var passer = FindTeamPlayer(passingTeam, pending.PasserPlayerId);
         var interceptorPlacement = FindStandingPlacement(match, interceptorPlayerId, defendingTeam.Id, "interceptor");
 
-        return ResolveInterceptionAttempt(
+        var resolved = ResolveInterceptionAttempt(
             match with { PendingInterception = null },
             ruleset,
             passingTeam,
@@ -509,6 +551,80 @@ public sealed partial class MatchService
             pending.PassRoll,
             pending.PassTarget,
             pending.UseCloudBurster);
+
+        // A Dump-Off pass that spawned this interception holds its block until the pass settles.
+        return ResumeDeferredBlock(resolved, ruleset, passingTeam, defendingTeam);
+    }
+
+    /// <summary>
+    /// Resolves an On the Ball interrupt window. Passing <paramref name="playerId"/>/<paramref name="destination"/>
+    /// moves that player (each square closer to the pass target for the pass window; staying in their own half
+    /// for the kickoff window); passing null for either declines. Either way the interrupted pass or kickoff
+    /// then resumes.
+    /// </summary>
+    public MatchState ResolvePendingOnTheBall(
+        MatchState match,
+        Ruleset ruleset,
+        LeagueTeam onTheBallTeam,
+        LeagueTeam opposingTeam,
+        Guid? playerId,
+        PitchSquare? destination)
+    {
+        var pending = match.PendingOnTheBall
+            ?? throw new InvalidOperationException("There is no pending On the Ball choice.");
+
+        if (pending.TeamId != onTheBallTeam.Id || pending.OpposingTeamId != opposingTeam.Id)
+        {
+            throw new InvalidOperationException("Pending On the Ball teams do not match the selected teams.");
+        }
+
+        var isKickoff = pending.Trigger == OnTheBallTrigger.Kickoff;
+        var movedMatch = match with { PendingOnTheBall = null };
+
+        if (playerId is Guid moverId && destination is not null)
+        {
+            if (!pending.EligiblePlayerIds.Contains(moverId))
+            {
+                throw new InvalidOperationException("Selected player does not have On the Ball.");
+            }
+
+            movedMatch = MoveOnTheBallPlayer(movedMatch, ruleset, onTheBallTeam, moverId, destination, kickoffMove: isKickoff, opposingTeam: opposingTeam, passTargetSquare: pending.PassTargetSquare);
+        }
+        else
+        {
+            movedMatch = movedMatch with
+            {
+                Log = [.. movedMatch.Log, new MatchLogEntry { Message = $"{onTheBallTeam.Name} declines On the Ball." }]
+            };
+        }
+
+        if (isKickoff)
+        {
+            var kickoffResume = pending.KickoffResume
+                ?? throw new InvalidOperationException("Kickoff On the Ball choice is missing its resume context.");
+            return ResolveKickoff(
+                movedMatch,
+                ruleset,
+                onTheBallTeam,
+                kickoffResume.TargetSquare,
+                kickoffResume.HadKickingTeam ? opposingTeam : null,
+                skipOnTheBall: true);
+        }
+
+        var resume = pending.PassResume
+            ?? throw new InvalidOperationException("Pass On the Ball choice is missing its resume context.");
+        return PassBallCore(
+            movedMatch,
+            ruleset,
+            opposingTeam,
+            resume.PasserPlayerId,
+            resume.TargetSquare,
+            onTheBallTeam,
+            resume.UsePassSkillReroll,
+            resume.UseCloudBurster,
+            resume.IsDumpOff,
+            resume.IsHailMary,
+            skipOnTheBall: true);
     }
 
     private MatchState ResolveInterceptionAttempt(

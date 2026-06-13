@@ -2,6 +2,10 @@ using SoloBB.Core.Domain;
 
 namespace SoloBB.Core.Services;
 
+// The outcome of rolling for a characteristic improvement: the D16 result, the SPP it will cost, and
+// the characteristics the coach may legally raise (already filtered for per-stat caps and maximums).
+public sealed record CharacteristicAdvancementRoll(int Roll, int Cost, IReadOnlyList<PlayerCharacteristic> Options);
+
 public sealed partial class LeagueService
 {
     private const int MaximumRosterPlayers = 16;
@@ -400,6 +404,108 @@ public sealed partial class LeagueService
                     }
                     : current)
                 .ToArray()
+        };
+    }
+
+    // BB2020-accurate two-step characteristic flow for the UI: roll the D16 first so the coach can be
+    // shown the legal choices, then commit the same roll via ApplyCharacteristicAdvancement. The roll
+    // is returned (rather than re-rolled on apply) so the options the coach sees are the ones applied.
+    public CharacteristicAdvancementRoll RollCharacteristicAdvancement(League league, Ruleset ruleset, TeamRoster roster, Guid teamId, Guid playerId)
+    {
+        var (player, position) = ResolveCharacteristicCandidate(league, ruleset, roster, teamId, playerId, out var cost);
+        var roll = _dice.RollD16();
+        var options = CharacteristicOptions(roll)
+            .Where(characteristic => CanImproveCharacteristic(player, characteristic))
+            .ToArray();
+        return new CharacteristicAdvancementRoll(roll, cost, options);
+    }
+
+    // Commits a characteristic improvement chosen from a prior RollCharacteristicAdvancement result.
+    public League ApplyCharacteristicAdvancement(League league, Ruleset ruleset, TeamRoster roster, Guid teamId, Guid playerId, int roll, PlayerCharacteristic characteristic)
+    {
+        var (player, _) = ResolveCharacteristicCandidate(league, ruleset, roster, teamId, playerId, out var cost);
+
+        if (!CharacteristicOptions(roll).Contains(characteristic))
+        {
+            throw new InvalidOperationException($"A characteristic roll of {roll} does not allow improving {characteristic}.");
+        }
+        if (!CanImproveCharacteristic(player, characteristic))
+        {
+            throw new InvalidOperationException($"{player.Name}'s {characteristic} cannot be improved further.");
+        }
+
+        var (updatedStats, valueIncrease) = ApplyCharacteristicImprovement(player.Stats, characteristic);
+        return league with
+        {
+            Teams = league.Teams
+                .Select(current => current.Id == teamId
+                    ? current with
+                    {
+                        TeamValue = current.TeamValue + valueIncrease,
+                        Players = current.Players
+                            .Select(currentPlayer => currentPlayer.Id == player.Id
+                                ? currentPlayer with
+                                {
+                                    StarPlayerPoints = currentPlayer.StarPlayerPoints - cost,
+                                    Stats = updatedStats,
+                                    CharacteristicImprovements = [.. currentPlayer.CharacteristicImprovements, characteristic]
+                                }
+                                : currentPlayer)
+                            .ToArray()
+                    }
+                    : current)
+                .ToArray()
+        };
+    }
+
+    // Validates that the player may take a characteristic improvement (team/roster match, advancement
+    // cap, and SPP), returning the player, position, and the SPP cost for the improvement.
+    private (Player Player, PositionTemplate Position) ResolveCharacteristicCandidate(League league, Ruleset ruleset, TeamRoster roster, Guid teamId, Guid playerId, out int cost)
+    {
+        var team = league.Teams.FirstOrDefault(current => current.Id == teamId)
+            ?? throw new InvalidOperationException("Team is not part of this league.");
+        if (!string.Equals(team.RosterId, roster.Id, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("Roster does not match the selected team.");
+        }
+
+        var player = team.Players.FirstOrDefault(current => current.Id == playerId)
+            ?? throw new InvalidOperationException("Player is not part of this team.");
+        var position = FindPosition(roster, player.PositionId);
+
+        if (AdvancementsTaken(position, player) >= MaxPlayerAdvancements)
+        {
+            throw new InvalidOperationException($"{player.Name} has reached the maximum of {MaxPlayerAdvancements} career advancements.");
+        }
+
+        cost = ruleset.AdvancementThresholds.TryGetValue("characteristic", out var thresholdCost)
+            ? thresholdCost
+            : throw new InvalidOperationException("Ruleset does not define the 'characteristic' advancement threshold.");
+        if (player.StarPlayerPoints < cost)
+        {
+            throw new InvalidOperationException($"{player.Name} needs {cost} SPP for a characteristic improvement.");
+        }
+
+        return (player, position);
+    }
+
+    // A characteristic may be raised if it has not already been improved the maximum number of times
+    // and the underlying stat is not already at its BB2020 maximum.
+    private static bool CanImproveCharacteristic(Player player, PlayerCharacteristic characteristic)
+    {
+        if (player.CharacteristicImprovements.Count(improvement => improvement == characteristic) >= MaxImprovementsPerCharacteristic)
+        {
+            return false;
+        }
+
+        return characteristic switch
+        {
+            PlayerCharacteristic.Movement => player.Stats.Movement < 9,
+            PlayerCharacteristic.Strength => player.Stats.Strength < 8,
+            PlayerCharacteristic.Agility => player.Stats.Agility > 1,
+            PlayerCharacteristic.Passing => player.Stats.Passing > 1,
+            PlayerCharacteristic.Armor => player.Stats.Armor < 11,
+            _ => false
         };
     }
 

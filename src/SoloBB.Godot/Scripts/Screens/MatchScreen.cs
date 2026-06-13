@@ -33,6 +33,8 @@ public partial class MatchScreen : VBoxContainer
     private HBoxContainer _standFirmChoiceBox = null!;
     private HBoxContainer _pushChoiceBox = null!;
     private HBoxContainer _divingTackleChoiceBox = null!;
+    private HBoxContainer _dumpOffChoiceBox = null!;
+    private HBoxContainer _onTheBallChoiceBox = null!;
     private HBoxContainer _sendOffChoiceBox = null!;
     private HBoxContainer _setupChoiceBox = null!;
     private Button _passModeButton = null!;
@@ -62,6 +64,7 @@ public partial class MatchScreen : VBoxContainer
     private LeagueTeam _homeTeam = null!;
     private LeagueTeam _awayTeam = null!;
     private Guid? _selectedPlayerId;
+    private Guid? _onTheBallMoverId;
     private Guid? _currentActivationPlayerId;
     private PitchSquare? _previewDestination;
     private IReadOnlyList<PitchSquare> _previewPath = [];
@@ -239,6 +242,14 @@ public partial class MatchScreen : VBoxContainer
         _divingTackleChoiceBox = new HBoxContainer();
         _divingTackleChoiceBox.AddThemeConstantOverride("separation", 4);
         decisionActions.AddChild(_divingTackleChoiceBox);
+
+        _dumpOffChoiceBox = new HBoxContainer();
+        _dumpOffChoiceBox.AddThemeConstantOverride("separation", 4);
+        decisionActions.AddChild(_dumpOffChoiceBox);
+
+        _onTheBallChoiceBox = new HBoxContainer();
+        _onTheBallChoiceBox.AddThemeConstantOverride("separation", 4);
+        decisionActions.AddChild(_onTheBallChoiceBox);
 
         _sendOffChoiceBox = new HBoxContainer();
         _sendOffChoiceBox.AddThemeConstantOverride("separation", 4);

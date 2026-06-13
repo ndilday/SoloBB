@@ -15,7 +15,10 @@ public partial class TeamRosterScreen : VBoxContainer
     private TeamRoster _roster = null!;
     private Func<Guid, string, Task> _renamePlayer = (_, _) => Task.CompletedTask;
     private Func<Guid, string, Task> _purchaseSelectedSkill = (_, _) => Task.CompletedTask;
-    private Func<Guid, Task> _purchaseRandomSkill = _ => Task.CompletedTask;
+    private Func<Guid, bool, Task> _purchaseRandomSkill = (_, _) => Task.CompletedTask;
+    private Func<Guid, Task<CharacteristicAdvancementRoll>> _rollCharacteristic =
+        _ => Task.FromResult(new CharacteristicAdvancementRoll(0, 0, Array.Empty<PlayerCharacteristic>()));
+    private Func<Guid, int, PlayerCharacteristic, Task> _applyCharacteristic = (_, _, _) => Task.CompletedTask;
     private Func<Guid, bool, Task> _movePlayer = (_, _) => Task.CompletedTask;
 
     private Tree _playerTree = null!;
@@ -30,6 +33,8 @@ public partial class TeamRosterScreen : VBoxContainer
     private Button _renameButton = null!;
     private Button _selectedSkillButton = null!;
     private Button _randomSkillButton = null!;
+    private Button _randomSecondaryButton = null!;
+    private Button _characteristicButton = null!;
     private Button _moveUpButton = null!;
     private Button _moveDownButton = null!;
 
@@ -39,7 +44,9 @@ public partial class TeamRosterScreen : VBoxContainer
         LeagueTeam team,
         Func<Guid, string, Task> renamePlayer,
         Func<Guid, string, Task> purchaseSelectedSkill,
-        Func<Guid, Task> purchaseRandomSkill,
+        Func<Guid, bool, Task> purchaseRandomSkill,
+        Func<Guid, Task<CharacteristicAdvancementRoll>> rollCharacteristic,
+        Func<Guid, int, PlayerCharacteristic, Task> applyCharacteristic,
         Func<Guid, bool, Task> movePlayer,
         Action back)
     {
@@ -54,6 +61,8 @@ public partial class TeamRosterScreen : VBoxContainer
         _renamePlayer = renamePlayer;
         _purchaseSelectedSkill = purchaseSelectedSkill;
         _purchaseRandomSkill = purchaseRandomSkill;
+        _rollCharacteristic = rollCharacteristic;
+        _applyCharacteristic = applyCharacteristic;
         _movePlayer = movePlayer;
 
         AddHeader(back);
@@ -249,8 +258,16 @@ public partial class TeamRosterScreen : VBoxContainer
         stack.AddChild(_selectedSkillButton);
 
         _randomSkillButton = ScreenStyles.StyledButton("Buy Random Primary");
-        _randomSkillButton.Pressed += async () => await PurchaseRandomSkillAsync();
+        _randomSkillButton.Pressed += async () => await PurchaseRandomSkillAsync(secondary: false);
         stack.AddChild(_randomSkillButton);
+
+        _randomSecondaryButton = ScreenStyles.StyledButton("Buy Random Secondary");
+        _randomSecondaryButton.Pressed += async () => await PurchaseRandomSkillAsync(secondary: true);
+        stack.AddChild(_randomSecondaryButton);
+
+        _characteristicButton = ScreenStyles.StyledButton("Improve Characteristic");
+        _characteristicButton.Pressed += async () => await ImproveCharacteristicAsync();
+        stack.AddChild(_characteristicButton);
 
         return stack;
     }
@@ -332,6 +349,8 @@ public partial class TeamRosterScreen : VBoxContainer
             _renameButton.Disabled = true;
             _selectedSkillButton.Disabled = true;
             _randomSkillButton.Disabled = true;
+            _randomSecondaryButton.Disabled = true;
+            _characteristicButton.Disabled = true;
             _moveUpButton.Disabled = true;
             _moveDownButton.Disabled = true;
             return;
@@ -352,6 +371,11 @@ public partial class TeamRosterScreen : VBoxContainer
         var canLevel = CanLevelUp(player);
         _selectedSkillButton.Disabled = !canLevel || _skillOption.ItemCount == 0;
         _randomSkillButton.Disabled = !canLevel;
+        _randomSecondaryButton.Disabled = !canLevel || position.SecondarySkillCategories.Count == 0;
+
+        var characteristicCost = CharacteristicCost();
+        _characteristicButton.Disabled = player.StarPlayerPoints < characteristicCost;
+        _characteristicButton.Text = $"Improve Characteristic ({characteristicCost} SPP)";
 
         _statusLabel.Text = canLevel
             ? $"{player.Name} can spend SPP now."
@@ -407,7 +431,7 @@ public partial class TeamRosterScreen : VBoxContainer
         await _purchaseSelectedSkill(player.Id, _skillOption.GetItemMetadata(_skillOption.Selected).AsString());
     }
 
-    private async Task PurchaseRandomSkillAsync()
+    private async Task PurchaseRandomSkillAsync(bool secondary)
     {
         var player = SelectedPlayer();
         if (player is null)
@@ -415,8 +439,76 @@ public partial class TeamRosterScreen : VBoxContainer
             return;
         }
 
-        await _purchaseRandomSkill(player.Id);
+        await _purchaseRandomSkill(player.Id, secondary);
     }
+
+    private async Task ImproveCharacteristicAsync()
+    {
+        var player = SelectedPlayer();
+        if (player is null)
+        {
+            return;
+        }
+
+        // BB2020: spend the SPP to roll the D16, then choose from the characteristics it unlocks.
+        var roll = await _rollCharacteristic(player.Id);
+        ShowCharacteristicChoice(player.Id, roll);
+    }
+
+    private void ShowCharacteristicChoice(Guid playerId, CharacteristicAdvancementRoll roll)
+    {
+        var popup = new AcceptDialog
+        {
+            Title = "Characteristic Improvement",
+            Unresizable = false,
+            MinSize = new Vector2I(320, 0)
+        };
+
+        var content = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        content.AddThemeConstantOverride("separation", 8);
+        content.AddChild(new Label { Text = $"Rolled {roll.Roll} on the D16 table." });
+
+        if (roll.Options.Count == 0)
+        {
+            content.AddChild(new Label
+            {
+                Text = "This roll unlocks no characteristic this player can still improve. No SPP was spent.",
+                AutowrapMode = TextServer.AutowrapMode.WordSmart
+            });
+        }
+        else
+        {
+            content.AddChild(ScreenStyles.MutedLabel("Choose a characteristic to raise:"));
+            foreach (var option in roll.Options)
+            {
+                var button = ScreenStyles.StyledButton(CharacteristicLabel(option), primary: true);
+                button.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+                var characteristic = option;
+                button.Pressed += async () =>
+                {
+                    popup.Hide();
+                    await _applyCharacteristic(playerId, roll.Roll, characteristic);
+                };
+                content.AddChild(button);
+            }
+        }
+
+        popup.AddChild(content);
+        popup.Confirmed += popup.QueueFree;
+        popup.Canceled += popup.QueueFree;
+        AddChild(popup);
+        popup.PopupCentered();
+    }
+
+    private static string CharacteristicLabel(PlayerCharacteristic characteristic) => characteristic switch
+    {
+        PlayerCharacteristic.Movement => "Movement Allowance (+1 MA)",
+        PlayerCharacteristic.Strength => "Strength (+1 ST)",
+        PlayerCharacteristic.Agility => "Agility (improve AG)",
+        PlayerCharacteristic.Passing => "Passing Ability (improve PA)",
+        PlayerCharacteristic.Armor => "Armour Value (+1 AV)",
+        _ => characteristic.ToString()
+    };
 
     private Player? SelectedPlayer()
     {
@@ -444,6 +536,11 @@ public partial class TeamRosterScreen : VBoxContainer
     {
         // BB2020: the cheapest advancement available is a Randomly Selected Primary skill.
         return _ruleset.AdvancementThresholds.TryGetValue("randomPrimary", out var cost) ? cost : int.MaxValue;
+    }
+
+    private int CharacteristicCost()
+    {
+        return _ruleset.AdvancementThresholds.TryGetValue("characteristic", out var cost) ? cost : int.MaxValue;
     }
 
     private string ProgressText(Player player)

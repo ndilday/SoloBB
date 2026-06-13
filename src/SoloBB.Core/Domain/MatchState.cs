@@ -76,6 +76,9 @@ public sealed record MatchState
     public PendingMultipleBlockContinuation? PendingMultipleBlock { get; init; }
     public PendingSendOffChoice? PendingSendOff { get; init; }
     public PendingKickoffEventChoice? PendingKickoffEvent { get; init; }
+    public PendingOnTheBallChoice? PendingOnTheBall { get; init; }
+    public PendingDumpOffChoice? PendingDumpOff { get; init; }
+    public DeferredBlock? DeferredBlock { get; init; }
     public IReadOnlyList<MatchLogEntry> Log { get; init; } = [];
 }
 
@@ -413,6 +416,92 @@ public sealed record PendingDivingTackleChoice
     public required int TargetWithoutDivingTackle { get; init; }
     public required int TargetWithDivingTackle { get; init; }
     public required PendingRerollContext Context { get; init; }
+
+    /// <summary>
+    /// True when the interrupted action is a Leap (single-roll) rather than a stepwise Dodge. The leap
+    /// resolves to a finalize-or-fall outcome instead of re-entering the movement step machinery.
+    /// </summary>
+    public bool IsLeap { get; init; }
+}
+
+/// <summary>
+/// BB2020 On the Ball, which has two interrupt windows for a player with the skill:
+/// <list type="bullet">
+/// <item>after an opposing Pass action is declared but before any roll, the defender may move up to three
+/// squares, each closer to the pass target (to set up an interception);</item>
+/// <item>after the opposing team's Kick-off but before the roll on the kick-off event table, the receiver
+/// may move up to three squares (staying in their own half).</item>
+/// </list>
+/// The interrupted pass or kickoff resumes once this resolves.
+/// </summary>
+public sealed record PendingOnTheBallChoice
+{
+    public required OnTheBallTrigger Trigger { get; init; }
+    public required Guid TeamId { get; init; }
+    public required Guid OpposingTeamId { get; init; }
+    public required IReadOnlyList<Guid> EligiblePlayerIds { get; init; }
+
+    // Pass window only: the pass target (moves must get closer to it) and the data to resume the pass.
+    public PitchSquare? PassTargetSquare { get; init; }
+    public PendingPassResume? PassResume { get; init; }
+
+    // Kickoff window only: the data to resume the kick-off resolution.
+    public PendingKickoffResume? KickoffResume { get; init; }
+}
+
+public enum OnTheBallTrigger
+{
+    PassDeclared,
+    Kickoff
+}
+
+/// <summary>
+/// Everything needed to re-enter <c>ResolveKickoff</c> after the On the Ball kickoff window resolves.
+/// </summary>
+public sealed record PendingKickoffResume
+{
+    public required PitchSquare TargetSquare { get; init; }
+    public bool HadKickingTeam { get; init; }
+}
+
+/// <summary>
+/// Everything needed to re-enter <c>PassBallCore</c> after an interrupt window (On the Ball) has resolved.
+/// </summary>
+public sealed record PendingPassResume
+{
+    public required Guid PasserPlayerId { get; init; }
+    public required PitchSquare TargetSquare { get; init; }
+    public bool UsePassSkillReroll { get; init; }
+    public bool UseCloudBurster { get; init; }
+    public bool IsDumpOff { get; init; }
+    public bool IsHailMary { get; init; }
+}
+
+/// <summary>
+/// BB2020 Dump-Off: when a standing ball carrier with this skill is the target of a Block (or the block at
+/// the end of a Blitz), before any block dice are rolled they may make a Quick Pass. The block is held in
+/// <see cref="Block"/> and resumes once the pass (and any interception/reroll it spawns) resolves.
+/// </summary>
+public sealed record PendingDumpOffChoice
+{
+    public required Guid CarrierTeamId { get; init; }
+    public required Guid BlockingTeamId { get; init; }
+    public required Guid CarrierPlayerId { get; init; }
+    public required DeferredBlock Block { get; init; }
+}
+
+/// <summary>
+/// A block whose resolution has been deferred behind an interrupt (Dump-Off). Carries enough context to
+/// re-enter <c>ResolveBlock</c> once the interrupting pass has fully resolved.
+/// </summary>
+public sealed record DeferredBlock
+{
+    public required Guid AttackerTeamId { get; init; }
+    public required Guid DefenderTeamId { get; init; }
+    public required Guid AttackerPlayerId { get; init; }
+    public required Guid DefenderPlayerId { get; init; }
+    public int DefenderStrengthBonus { get; init; }
+    public bool PreventFollowUp { get; init; }
 }
 
 public enum PlayerPitchState

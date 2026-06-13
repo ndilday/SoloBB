@@ -7,7 +7,7 @@ namespace SoloBB.Core.Services;
 
 public sealed partial class MatchService
 {
-    public MatchState ResolveKickoff(MatchState match, Ruleset ruleset, LeagueTeam receivingTeam, PitchSquare targetSquare, LeagueTeam? kickingTeam = null)
+    public MatchState ResolveKickoff(MatchState match, Ruleset ruleset, LeagueTeam receivingTeam, PitchSquare targetSquare, LeagueTeam? kickingTeam = null, bool skipOnTheBall = false)
     {
         if (match.Phase is not MatchPhase.Kickoff)
         {
@@ -19,8 +19,44 @@ public sealed partial class MatchService
             throw new InvalidOperationException("The active team must receive the kickoff.");
         }
 
-        var eventRoll = Roll2D6Detailed();
         var kickingTeamId = GetOpponentTeamId(match, receivingTeam.Id);
+
+        // BB2020 On the Ball: after the kick but before the kick-off event roll, the receiving team may move a
+        // player with the skill up to three squares. Raise the window once; it re-enters with skipOnTheBall set.
+        if (!skipOnTheBall)
+        {
+            var onTheBallPlayers = match.Placements
+                .Where(placement => placement.TeamId == receivingTeam.Id &&
+                    placement.State == PlayerPitchState.Standing &&
+                    PlayerHasHookedEffect(ruleset, FindTeamPlayer(receivingTeam, placement.PlayerId), GameEventKind.MoveStep, GameEventStage.BeforeEvent, SkillEffect.OnTheBall))
+                .Select(placement => placement.PlayerId)
+                .ToArray();
+            if (onTheBallPlayers.Length > 0)
+            {
+                return match with
+                {
+                    PendingOnTheBall = new PendingOnTheBallChoice
+                    {
+                        Trigger = OnTheBallTrigger.Kickoff,
+                        TeamId = receivingTeam.Id,
+                        OpposingTeamId = kickingTeamId,
+                        EligiblePlayerIds = onTheBallPlayers,
+                        KickoffResume = new PendingKickoffResume
+                        {
+                            TargetSquare = targetSquare,
+                            HadKickingTeam = kickingTeam is not null
+                        }
+                    },
+                    Log =
+                    [
+                        .. match.Log,
+                        new MatchLogEntry { Message = "The receiving team may use On the Ball before the kick-off event roll." }
+                    ]
+                };
+            }
+        }
+
+        var eventRoll = Roll2D6Detailed();
         var eventResult = ResolveKickoffEvent(match, ruleset, receivingTeam.Id, kickingTeamId, eventRoll.Total);
         var kickoffMatch = eventResult.Match;
         var rawScatterDistance = _dice.RollD6();
