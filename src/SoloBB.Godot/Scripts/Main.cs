@@ -30,6 +30,7 @@ public partial class Main : Control
     private Guid? _activeScheduledMatchId;
     private int _targetTeamCount = 2;
     private string _catalogStatus = "Loading rulesets...";
+    private Action _teamEditingBack = () => { };
 
     public override void _Ready()
     {
@@ -243,7 +244,7 @@ public partial class Main : Control
         var screen = ShowScreen<LeagueHomeScreen>("res://scenes/screens/league_home_screen.tscn");
         screen.Setup(
             league: _activeLeague,
-            openTeam: ShowTeamHomeScreen,
+            openTeam: ShowLeagueTeamEditingScreen,
             playGame: ShowPreGameScreen,
             back: _activeLeague.Seasons.Any() ? ShowMainMenu : ShowLeagueTeamsScreen);
     }
@@ -329,6 +330,16 @@ public partial class Main : Control
 
     private void ShowTeamEditingScreen(Guid teamId)
     {
+        ShowTeamEditingScreen(teamId, ShowLeagueTeamsScreen);
+    }
+
+    private void ShowLeagueTeamEditingScreen(Guid teamId)
+    {
+        ShowTeamEditingScreen(teamId, ShowLeagueHomeScreen);
+    }
+
+    private void ShowTeamEditingScreen(Guid teamId, Action back)
+    {
         if (_activeLeague is null)
         {
             ShowMainMenu();
@@ -344,9 +355,11 @@ public partial class Main : Control
         var team = _activeLeague.Teams.FirstOrDefault(current => current.Id == teamId);
         if (team is null)
         {
-            ShowLeagueTeamsScreen();
+            back();
             return;
         }
+
+        _teamEditingBack = back;
 
         var screen = ShowScreen<TeamCreationScreen>("res://scenes/screens/team_creation_screen.tscn");
         screen.Setup(
@@ -354,8 +367,9 @@ public partial class Main : Control
             rosterSet: _rosterSet,
             defaultTeamName: team.Name,
             saveTeam: async request => await SaveTeamAsync(request, screen),
-            back: ShowLeagueTeamsScreen,
+            back: back,
             editingTeam: team,
+            record: _leagueService.GetTeamRecord(_activeLeague, team.Id),
             saveManagement: async request => await SaveTeamManagementAsync(request, screen),
             openRoster: ShowTeamRosterScreen);
     }
@@ -364,14 +378,14 @@ public partial class Main : Control
     {
         if (_activeLeague is null || _ruleset is null || _rosterSet is null)
         {
-            ShowLeagueTeamsScreen();
+            _teamEditingBack();
             return;
         }
 
         var team = _activeLeague.Teams.FirstOrDefault(current => current.Id == teamId);
         if (team is null)
         {
-            ShowLeagueTeamsScreen();
+            _teamEditingBack();
             return;
         }
 
@@ -387,7 +401,7 @@ public partial class Main : Control
             applyCharacteristic: async (playerId, roll, characteristic) => await ApplyCharacteristicAsync(team.Id, playerId, roll, characteristic, screen),
             applyCharacteristicSkill: async (playerId, skillId) => await ApplyCharacteristicSkillAsync(team.Id, playerId, skillId, screen),
             movePlayer: async (playerId, up) => await MovePlayerAsync(team.Id, playerId, up, screen),
-            back: () => ShowTeamEditingScreen(team.Id));
+            back: () => ShowTeamEditingScreen(team.Id, _teamEditingBack));
     }
 
     private async Task SaveTeamAsync(TeamDraftRequest request, TeamCreationScreen screen)
@@ -454,7 +468,7 @@ public partial class Main : Control
                 request.Apothecaries);
 
             await SaveActiveLeagueAsync();
-            ShowLeagueTeamsScreen();
+            _teamEditingBack();
             if (CurrentScreen is LeagueTeamsScreen leagueTeamsScreen)
             {
                 var savedTeam = _activeLeague.Teams.First(team => team.Id == request.TeamId);

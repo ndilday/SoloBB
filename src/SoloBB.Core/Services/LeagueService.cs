@@ -6,6 +6,11 @@ namespace SoloBB.Core.Services;
 // the characteristics the coach may legally raise (already filtered for per-stat caps and maximums).
 public sealed record CharacteristicAdvancementRoll(int Roll, int Cost, IReadOnlyList<PlayerCharacteristic> Options);
 
+public sealed record TeamRecord(int Wins, int Draws, int Losses)
+{
+    public int Played => Wins + Draws + Losses;
+}
+
 public sealed partial class LeagueService
 {
     private const int MaximumRosterPlayers = 16;

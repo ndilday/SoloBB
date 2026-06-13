@@ -560,6 +560,11 @@ Assert(firstCampaignResult.AwayWinnings == 40_000, "BB2020 winnings should be (F
 Assert(updatedCampaignHome.Players.Single(player => player.Id == campaignScorer.Id).StarPlayerPoints == 7, "post-match should apply touchdown and MVP SPP");
 Assert(updatedCampaignHome.Players.Single(player => player.Id == returningPlayer.Id).StarPlayerPoints == 2, "post-match should apply casualty SPP to the credited player");
 
+var campaignHomeRecord = leagueService.GetTeamRecord(afterFirstCampaignMatch, campaignHomeTeam.Id);
+var campaignAwayRecord = leagueService.GetTeamRecord(afterFirstCampaignMatch, campaignAwayTeam.Id);
+Assert(campaignHomeRecord == new TeamRecord(1, 0, 0), "the winning team's record should include its completed fixture");
+Assert(campaignAwayRecord == new TeamRecord(0, 0, 1), "the losing team's record should include its completed fixture");
+
 // BB2020 end-of-season redraft. The home team played one fixture and won it.
 var redraftBudget = leagueService.CalculateRedraftBudget(afterFirstCampaignMatch, campaignHomeTeam.Id);
 Assert(redraftBudget.FixturesPlayed == 1 && redraftBudget.FixturesWon == 1 && redraftBudget.FixturesDrawn == 0, "redraft budget should reflect the team's season record");
@@ -590,6 +595,25 @@ var selectedAdvancedPlayer = selectedAdvancementLeague.Teams.Single(team => team
 Assert(selectedAdvancedPlayer.Skills.Contains("block"), "selected advancement should add the purchased skill");
 Assert(selectedAdvancedPlayer.StarPlayerPoints == 1, "chosen primary advancement should spend 6 SPP (BB2020)");
 Assert(selectedAdvancementLeague.Teams.Single(team => team.Id == campaignHomeTeam.Id).TeamValue == updatedCampaignHome.TeamValue + 20_000, "primary skill advancement should increase team value");
+
+var chosenSecondaryReadyLeague = afterFirstCampaignMatch with
+{
+    Teams = afterFirstCampaignMatch.Teams
+        .Select(team => team.Id == campaignHomeTeam.Id
+            ? team with
+            {
+                Players = team.Players
+                    .Select(player => player.Id == returningPlayer.Id ? player with { StarPlayerPoints = 12 } : player)
+                    .ToArray()
+            }
+            : team)
+        .ToArray()
+};
+var chosenSecondaryLeague = leagueService.PurchaseSelectedSkillAdvancement(chosenSecondaryReadyLeague, ruleset, humanRoster, campaignHomeTeam.Id, returningPlayer.Id, "accurate");
+var chosenSecondaryTeam = chosenSecondaryLeague.Teams.Single(team => team.Id == campaignHomeTeam.Id);
+var chosenSecondaryPlayer = chosenSecondaryTeam.Players.Single(player => player.Id == returningPlayer.Id);
+Assert(chosenSecondaryPlayer.Skills.Contains("accurate") && chosenSecondaryPlayer.StarPlayerPoints == 0, "chosen secondary advancement should add the selected skill and spend 12 SPP (BB2020)");
+Assert(chosenSecondaryTeam.TeamValue == updatedCampaignHome.TeamValue + 40_000, "chosen secondary advancement should add 40k value");
 
 var randomReadyLeague = afterFirstCampaignMatch with
 {

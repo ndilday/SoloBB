@@ -20,21 +20,21 @@ public sealed partial class LeagueService
         var team = league.Teams.FirstOrDefault(current => current.Id == teamId)
             ?? throw new InvalidOperationException("Team is not part of this league.");
 
-        var (played, won, drawn) = SeasonRecord(league, teamId);
+        var record = GetTeamRecord(league, teamId);
         var subtotal = RedraftBaseBudget
             + team.Treasury
-            + (played * RedraftFixtureGold)
-            + (won * RedraftWinGold)
-            + (drawn * RedraftDrawGold);
+            + (record.Played * RedraftFixtureGold)
+            + (record.Wins * RedraftWinGold)
+            + (record.Draws * RedraftDrawGold);
 
         return new RedraftBudget
         {
             TeamId = teamId,
             Base = RedraftBaseBudget,
             Treasury = team.Treasury,
-            FixturesPlayed = played,
-            FixturesWon = won,
-            FixturesDrawn = drawn,
+            FixturesPlayed = record.Played,
+            FixturesWon = record.Wins,
+            FixturesDrawn = record.Draws,
             Subtotal = subtotal,
             Cap = RedraftBudgetCap,
             Total = Math.Min(subtotal, RedraftBudgetCap)
@@ -168,17 +168,17 @@ public sealed partial class LeagueService
         return league with { Seasons = [.. league.Seasons, season] };
     }
 
-    private static (int Played, int Won, int Drawn) SeasonRecord(League league, Guid teamId)
+    public TeamRecord GetTeamRecord(League league, Guid teamId)
     {
         var season = league.Seasons.LastOrDefault();
         if (season is null)
         {
-            return (0, 0, 0);
+            return new TeamRecord(0, 0, 0);
         }
 
-        var played = 0;
-        var won = 0;
-        var drawn = 0;
+        var wins = 0;
+        var draws = 0;
+        var losses = 0;
         foreach (var scheduled in season.Schedule)
         {
             if (scheduled.Result is not MatchResult result)
@@ -193,20 +193,23 @@ public sealed partial class LeagueService
                 continue;
             }
 
-            played++;
             var scoreFor = isHome ? result.HomeScore : result.AwayScore;
             var scoreAgainst = isHome ? result.AwayScore : result.HomeScore;
             if (scoreFor > scoreAgainst)
             {
-                won++;
+                wins++;
             }
             else if (scoreFor == scoreAgainst)
             {
-                drawn++;
+                draws++;
+            }
+            else
+            {
+                losses++;
             }
         }
 
-        return (played, won, drawn);
+        return new TeamRecord(wins, draws, losses);
     }
 }
 

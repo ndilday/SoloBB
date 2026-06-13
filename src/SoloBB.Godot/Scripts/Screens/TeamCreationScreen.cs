@@ -73,6 +73,7 @@ public partial class TeamCreationScreen : VBoxContainer
         Func<TeamDraftRequest, Task> saveTeam,
         Action back,
         LeagueTeam? editingTeam = null,
+        TeamRecord? record = null,
         Func<TeamManagementRequest, Task>? saveManagement = null,
         Action<Guid>? openRoster = null)
     {
@@ -93,7 +94,7 @@ public partial class TeamCreationScreen : VBoxContainer
         }
         else
         {
-            BuildEditLayout(editingTeam, back);
+            BuildEditLayout(editingTeam, record ?? new TeamRecord(0, 0, 0), back);
         }
     }
 
@@ -141,7 +142,7 @@ public partial class TeamCreationScreen : VBoxContainer
         PopulateRosterOptions();
     }
 
-    private void BuildEditLayout(LeagueTeam team, Action back)
+    private void BuildEditLayout(LeagueTeam team, TeamRecord record, Action back)
     {
         AddScreenHeader($"Edit {team.Name}", "Save Changes", async () => await SaveManagementAsync(), back);
 
@@ -168,7 +169,7 @@ public partial class TeamCreationScreen : VBoxContainer
         sideColumn.AddThemeConstantOverride("separation", 8);
         body.AddChild(sideColumn);
 
-        mainColumn.AddChild(ScreenStyles.Panel("Team Snapshot", BuildTeamSnapshotPanel(team), _selectedRoster?.Name ?? team.RosterId));
+        mainColumn.AddChild(ScreenStyles.Panel("Team Snapshot", BuildTeamSnapshotPanel(team, record), _selectedRoster?.Name ?? team.RosterId));
         mainColumn.AddChild(ScreenStyles.Panel("Team Assets", BuildAssetPanel(), "Staff and sideline"));
         mainColumn.AddChild(ScreenStyles.Panel("Team Actions", BuildTeamActionsPanel(team), RosterAttentionBadge(team), ScreenStyles.Warning));
 
@@ -256,7 +257,7 @@ public partial class TeamCreationScreen : VBoxContainer
         return grid;
     }
 
-    private Control BuildTeamSnapshotPanel(LeagueTeam team)
+    private Control BuildTeamSnapshotPanel(LeagueTeam team, TeamRecord record)
     {
         var stack = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
         stack.AddThemeConstantOverride("separation", 10);
@@ -268,7 +269,7 @@ public partial class TeamCreationScreen : VBoxContainer
         stats.AddChild(Metric("TV", FormatGold(team.TeamValue)));
         stats.AddChild(Metric("Treasury", FormatGold(team.Treasury)));
         stats.AddChild(Metric("Players", team.Players.Count.ToString()));
-        stats.AddChild(Metric("Record", "0-0-0"));
+        stats.AddChild(Metric("Record", $"{record.Wins}-{record.Losses}-{record.Draws}"));
         stack.AddChild(stats);
 
         return stack;
