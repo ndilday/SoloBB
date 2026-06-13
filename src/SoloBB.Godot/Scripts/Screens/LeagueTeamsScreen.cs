@@ -32,18 +32,37 @@ public partial class LeagueTeamsScreen : VBoxContainer
         Action back)
     {
         Clear();
+        AddThemeConstantOverride("separation", 12);
+        AddThemeStyleboxOverride("panel", ScreenStyles.FlatStyle(ScreenStyles.ScreenBackground));
 
         _league = league;
         _commit = commit;
         _editTeam = editTeam;
         _deleteTeam = deleteTeam;
 
-        AddTitle("New League");
+        var headerActions = new HBoxContainer();
+        headerActions.AddThemeConstantOverride("separation", 8);
+        var backButton = ScreenStyles.StyledButton("Back");
+        backButton.Pressed += back;
+        headerActions.AddChild(backButton);
+        _createLeagueButton = ScreenStyles.StyledButton("Create League", primary: true, disabled: true);
+        _createLeagueButton.Pressed += () =>
+        {
+            CommitAndRefresh();
+            startLeague();
+        };
+        headerActions.AddChild(_createLeagueButton);
+        AddChild(ScreenStyles.ScreenHeader(
+            "League Setup",
+            "Create League",
+            "Name the competition, choose its size, and draft every team before generating the schedule.",
+            headerActions));
 
-        var setupGrid = new GridContainer { Columns = 2 };
-        AddChild(setupGrid);
+        var setupGrid = new GridContainer { Columns = 2, SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        setupGrid.AddThemeConstantOverride("h_separation", 14);
+        setupGrid.AddThemeConstantOverride("v_separation", 10);
 
-        setupGrid.AddChild(new Label { Text = "League Name" });
+        setupGrid.AddChild(ScreenStyles.MutedLabel("League Name"));
         _leagueNameEdit = new LineEdit
         {
             PlaceholderText = "League name",
@@ -53,7 +72,7 @@ public partial class LeagueTeamsScreen : VBoxContainer
         _leagueNameEdit.TextChanged += _ => CommitAndRefresh();
         setupGrid.AddChild(_leagueNameEdit);
 
-        setupGrid.AddChild(new Label { Text = "Teams" });
+        setupGrid.AddChild(ScreenStyles.MutedLabel("Team Slots"));
         _teamCountSpin = new SpinBox
         {
             MinValue = TeamCountFloor(league.Teams.Count),
@@ -65,47 +84,67 @@ public partial class LeagueTeamsScreen : VBoxContainer
         _teamCountSpin.Value = Math.Max(league.TargetTeamCount, _teamCountSpin.MinValue);
         _teamCountSpin.ValueChanged += _ => CommitAndRefresh();
         setupGrid.AddChild(_teamCountSpin);
+        AddChild(ScreenStyles.Panel("Competition", setupGrid, "Even teams", ScreenStyles.Brass));
 
-        var body = new HBoxContainer();
+        var body = new HBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        body.AddThemeConstantOverride("separation", 12);
         AddChild(body);
 
-        var listColumn = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
-        body.AddChild(listColumn);
-        listColumn.AddChild(new Label { Text = "League Teams" });
+        var listColumn = new VBoxContainer
+        {
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            SizeFlagsStretchRatio = 1.7f
+        };
+        listColumn.AddThemeConstantOverride("separation", 8);
 
         _teamList = new ItemList
         {
-            CustomMinimumSize = new Vector2(280, 220),
-            SizeFlagsHorizontal = SizeFlags.ExpandFill
+            CustomMinimumSize = new Vector2(420, 280),
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            SizeFlagsVertical = SizeFlags.ExpandFill
         };
         _teamList.ItemSelected += _ => UpdateActions();
         listColumn.AddChild(_teamList);
+        body.AddChild(ScreenStyles.Panel("League Teams", listColumn, "Draft roster"));
 
-        _teamCountLabel = new Label();
-        listColumn.AddChild(_teamCountLabel);
+        var sideColumn = new VBoxContainer
+        {
+            CustomMinimumSize = new Vector2(300, 0),
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            SizeFlagsStretchRatio = 0.8f
+        };
+        sideColumn.AddThemeConstantOverride("separation", 12);
+        body.AddChild(sideColumn);
+
+        var progress = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        progress.AddThemeConstantOverride("separation", 6);
+        _teamCountLabel = new Label { HorizontalAlignment = HorizontalAlignment.Center };
+        _teamCountLabel.AddThemeColorOverride("font_color", ScreenStyles.Brass);
+        _teamCountLabel.AddThemeFontSizeOverride("font_size", 30);
+        progress.AddChild(_teamCountLabel);
+        var progressDetail = ScreenStyles.MutedLabel("teams drafted");
+        progressDetail.HorizontalAlignment = HorizontalAlignment.Center;
+        progress.AddChild(progressDetail);
+        sideColumn.AddChild(ScreenStyles.Panel("Draft Progress", progress, "Required"));
 
         var actionColumn = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
-        body.AddChild(actionColumn);
+        actionColumn.AddThemeConstantOverride("separation", 8);
         _editTeamButton = AddButtonTo(actionColumn, "Edit Team", EditSelectedTeam, disabled: true);
-        _deleteTeamButton = AddButtonTo(actionColumn, "Delete Team", async () => await DeleteSelectedTeamAsync(), disabled: true);
-        _createTeamButton = AddButtonTo(actionColumn, "Create New Team", () =>
+        _deleteTeamButton = AddButtonTo(actionColumn, "Delete Team", async () => await DeleteSelectedTeamAsync(), disabled: true, danger: true);
+        _createTeamButton = AddButtonTo(actionColumn, "Draft New Team", () =>
         {
             CommitAndRefresh();
             createTeam();
-        });
-        _createLeagueButton = AddButtonTo(actionColumn, "Create League", () =>
-        {
-            CommitAndRefresh();
-            startLeague();
-        }, disabled: true);
-        AddButtonTo(actionColumn, "Back", back);
+        }, primary: true);
+        sideColumn.AddChild(ScreenStyles.Panel("Team Actions", actionColumn));
 
         _statusLabel = new Label
         {
             Text = "Name the league and choose how many teams it will contain. Scheduling currently uses even team counts.",
             AutowrapMode = TextServer.AutowrapMode.WordSmart
         };
-        AddChild(_statusLabel);
+        _statusLabel.AddThemeColorOverride("font_color", ScreenStyles.MutedText);
+        AddChild(ScreenStyles.Panel("Setup Status", _statusLabel));
 
         Refresh();
     }
@@ -133,7 +172,7 @@ public partial class LeagueTeamsScreen : VBoxContainer
         }
 
         var targetTeamCount = (int)_teamCountSpin.Value;
-        _teamCountLabel.Text = $"{_league.Teams.Count}/{targetTeamCount}";
+        _teamCountLabel.Text = $"{_league.Teams.Count} / {targetTeamCount}";
         _createTeamButton.Disabled = _league.Teams.Count >= targetTeamCount;
         _createLeagueButton.Disabled = _league.Teams.Count != targetTeamCount;
         UpdateActions();
@@ -179,28 +218,17 @@ public partial class LeagueTeamsScreen : VBoxContainer
         return Math.Max(2, teamCount + (teamCount % 2));
     }
 
-    private void AddTitle(string text)
+    private Button AddButtonTo(Container parent, string text, Action pressed, bool disabled = false, bool primary = false, bool danger = false)
     {
-        var title = new Label
-        {
-            Text = text,
-            HorizontalAlignment = HorizontalAlignment.Center
-        };
-        title.AddThemeFontSizeOverride("font_size", 32);
-        AddChild(title);
-    }
-
-    private Button AddButtonTo(Container parent, string text, Action pressed, bool disabled = false)
-    {
-        var button = new Button { Text = text, Disabled = disabled };
+        var button = ScreenStyles.StyledButton(text, primary, danger, disabled);
         button.Pressed += pressed;
         parent.AddChild(button);
         return button;
     }
 
-    private Button AddButtonTo(Container parent, string text, Func<Task> pressed, bool disabled = false)
+    private Button AddButtonTo(Container parent, string text, Func<Task> pressed, bool disabled = false, bool primary = false, bool danger = false)
     {
-        var button = new Button { Text = text, Disabled = disabled };
+        var button = ScreenStyles.StyledButton(text, primary, danger, disabled);
         button.Pressed += async () => await pressed();
         parent.AddChild(button);
         return button;

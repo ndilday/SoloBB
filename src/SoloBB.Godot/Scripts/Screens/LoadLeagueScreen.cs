@@ -12,60 +12,104 @@ public partial class LoadLeagueScreen : VBoxContainer
     public void Setup(IReadOnlyList<League> leagues, Action<League> loadLeague, Action<League> deleteLeague, Action back)
     {
         Clear();
-        AddTitle("Load League");
+        AddThemeConstantOverride("separation", 12);
+        AddThemeStyleboxOverride("panel", ScreenStyles.FlatStyle(ScreenStyles.ScreenBackground));
+
+        var headerActions = new HBoxContainer();
+        var backButton = ScreenStyles.StyledButton("Back");
+        backButton.CustomMinimumSize = new Vector2(110, 34);
+        backButton.Pressed += back;
+        headerActions.AddChild(backButton);
+        AddChild(ScreenStyles.ScreenHeader(
+            "League Archive",
+            "Load League",
+            "Choose a saved competition to continue, or remove one you no longer need.",
+            headerActions));
+
+        var list = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        list.AddThemeConstantOverride("separation", 8);
 
         if (leagues.Count == 0)
         {
-            AddChild(new Label { Text = "No saved leagues found." });
+            var empty = new VBoxContainer { Alignment = BoxContainer.AlignmentMode.Center };
+            empty.CustomMinimumSize = new Vector2(0, 210);
+            var emptyTitle = new Label
+            {
+                Text = "No saved leagues found",
+                HorizontalAlignment = HorizontalAlignment.Center
+            };
+            emptyTitle.AddThemeColorOverride("font_color", ScreenStyles.Text);
+            emptyTitle.AddThemeFontSizeOverride("font_size", 20);
+            empty.AddChild(emptyTitle);
+            var emptyDetail = ScreenStyles.MutedLabel("Return to the start screen and create a league to begin a season.");
+            emptyDetail.HorizontalAlignment = HorizontalAlignment.Center;
+            empty.AddChild(emptyDetail);
+            list.AddChild(empty);
         }
         else
         {
             var scroll = new ScrollContainer
             {
                 SizeFlagsVertical = SizeFlags.ExpandFill,
-                CustomMinimumSize = new Vector2(0, 200)
+                SizeFlagsHorizontal = SizeFlags.ExpandFill,
+                CustomMinimumSize = new Vector2(0, 300)
             };
-            AddChild(scroll);
+            list.AddChild(scroll);
 
-            var list = new VBoxContainer();
-            scroll.AddChild(list);
+            var rows = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+            rows.AddThemeConstantOverride("separation", 8);
+            scroll.AddChild(rows);
 
             foreach (var league in leagues)
             {
-                var row = new HBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
-
-                var nameLabel = new Label
-                {
-                    Text = league.Name,
-                    SizeFlagsHorizontal = SizeFlags.ExpandFill
-                };
-                row.AddChild(nameLabel);
-
-                var teamCount = new Label
-                {
-                    Text = $"{league.Teams.Count} teams",
-                    CustomMinimumSize = new Vector2(80, 0),
-                    HorizontalAlignment = HorizontalAlignment.Right
-                };
-                row.AddChild(teamCount);
-
-                var capturedLeague = league;
-                var loadButton = new Button { Text = "Load" };
-                loadButton.Pressed += () => loadLeague(capturedLeague);
-                row.AddChild(loadButton);
-
-                var deleteButton = new Button { Text = "Delete" };
-                deleteButton.Pressed += () => deleteLeague(capturedLeague);
-                row.AddChild(deleteButton);
-
-                list.AddChild(row);
+                rows.AddChild(LeagueRow(league, loadLeague, deleteLeague));
             }
         }
 
-        AddButton("Back", back);
+        AddChild(ScreenStyles.Panel(
+            "Saved Competitions",
+            list,
+            leagues.Count == 1 ? "1 league" : $"{leagues.Count} leagues",
+            leagues.Count > 0 ? ScreenStyles.Good : ScreenStyles.MutedText));
 
-        _statusLabel = new Label { AutowrapMode = TextServer.AutowrapMode.WordSmart };
-        AddChild(_statusLabel);
+        _statusLabel = new Label
+        {
+            Text = leagues.Count == 0 ? "The league archive is empty." : "Select a league to return to its current season.",
+            AutowrapMode = TextServer.AutowrapMode.WordSmart
+        };
+        _statusLabel.AddThemeColorOverride("font_color", ScreenStyles.MutedText);
+        AddChild(ScreenStyles.Panel("Status", _statusLabel));
+    }
+
+    private static Control LeagueRow(League league, Action<League> loadLeague, Action<League> deleteLeague)
+    {
+        var row = new HBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        row.AddThemeConstantOverride("separation", 14);
+
+        var details = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        details.AddThemeConstantOverride("separation", 4);
+        var nameLabel = new Label { Text = league.Name };
+        nameLabel.AddThemeColorOverride("font_color", ScreenStyles.Text);
+        nameLabel.AddThemeFontSizeOverride("font_size", 18);
+        details.AddChild(nameLabel);
+
+        var stage = league.Seasons.Count == 0
+            ? "Setup in progress"
+            : $"Season {league.Seasons.Count}, week {league.Seasons[^1].CurrentWeek}";
+        details.AddChild(ScreenStyles.MutedLabel($"{league.Teams.Count}/{league.TargetTeamCount} teams  |  {stage}"));
+        row.AddChild(details);
+
+        var loadButton = ScreenStyles.StyledButton("Load", primary: true);
+        loadButton.CustomMinimumSize = new Vector2(100, 34);
+        loadButton.Pressed += () => loadLeague(league);
+        row.AddChild(loadButton);
+
+        var deleteButton = ScreenStyles.StyledButton("Delete", danger: true);
+        deleteButton.CustomMinimumSize = new Vector2(100, 34);
+        deleteButton.Pressed += () => deleteLeague(league);
+        row.AddChild(deleteButton);
+
+        return ScreenStyles.Inset(row);
     }
 
     public void SetStatus(string status)
@@ -74,24 +118,6 @@ public partial class LoadLeagueScreen : VBoxContainer
         {
             _statusLabel.Text = status;
         }
-    }
-
-    private void AddTitle(string text)
-    {
-        var title = new Label
-        {
-            Text = text,
-            HorizontalAlignment = HorizontalAlignment.Center
-        };
-        title.AddThemeFontSizeOverride("font_size", 32);
-        AddChild(title);
-    }
-
-    private void AddButton(string text, Action pressed)
-    {
-        var button = new Button { Text = text };
-        button.Pressed += pressed;
-        AddChild(button);
     }
 
     private void Clear()

@@ -18,6 +18,39 @@ internal static class ScreenStyles
     public static readonly Color Danger = new("d66a58");
     public static readonly string TeamManagementTexturePath = "res://assets/ui/team_management_texture.png";
 
+    public static PanelContainer ScreenHeader(string eyebrow, string title, string subtitle, Control? actions = null)
+    {
+        var panel = new PanelContainer { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
+        var headerStyle = FlatStyle(new Color("202720"), PanelBorderSoft);
+        headerStyle.SetContentMarginAll(10);
+        panel.AddThemeStyleboxOverride("panel", headerStyle);
+
+        var row = new HBoxContainer { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
+        row.AddThemeConstantOverride("separation", 16);
+        panel.AddChild(row);
+
+        var copy = new VBoxContainer { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
+        copy.AddThemeConstantOverride("separation", 3);
+        row.AddChild(copy);
+
+        var eyebrowLabel = MutedLabel(eyebrow.ToUpperInvariant());
+        eyebrowLabel.AddThemeColorOverride("font_color", Brass);
+        copy.AddChild(eyebrowLabel);
+        copy.AddChild(Title(title));
+
+        var subtitleLabel = MutedLabel(subtitle);
+        subtitleLabel.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        copy.AddChild(subtitleLabel);
+
+        if (actions is not null)
+        {
+            actions.SizeFlagsVertical = Control.SizeFlags.ShrinkCenter;
+            row.AddChild(actions);
+        }
+
+        return panel;
+    }
+
     public static StyleBoxFlat FlatStyle(Color background, Color? border = null, int borderWidth = 1)
     {
         var style = new StyleBoxFlat
@@ -75,6 +108,14 @@ internal static class ScreenStyles
         margin.AddChild(body);
         stack.AddChild(margin);
 
+        return panel;
+    }
+
+    public static PanelContainer Inset(Control body)
+    {
+        var panel = new PanelContainer { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
+        panel.AddThemeStyleboxOverride("panel", FlatStyle(new Color("181e1a"), PanelBorderSoft));
+        panel.AddChild(body);
         return panel;
     }
 

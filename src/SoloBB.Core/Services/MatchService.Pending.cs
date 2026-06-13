@@ -695,11 +695,7 @@ public sealed partial class MatchService
     }
     private static bool CanUseTeamReroll(MatchState match, Ruleset ruleset, LeagueTeam team)
     {
-        return EffectiveTeamRerollsRemaining(match, ruleset, team) > 0 &&
-            !match.TeamRerollUses.Any(use =>
-                use.TeamId == team.Id &&
-                use.Half == match.Half &&
-                use.Turn == match.Turn);
+        return EffectiveTeamRerollsRemaining(match, ruleset, team) > 0;
     }
 
     private static int EffectiveTeamRerollsRemaining(MatchState match, Ruleset ruleset, LeagueTeam team)

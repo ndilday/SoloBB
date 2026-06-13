@@ -3237,6 +3237,33 @@ Assert(failedGoForItPlayer.State == PlayerPitchState.Casualty, "failed go-for-it
 Assert(failedGoForItMatch.Ball.CarrierPlayerId is null, "failed ball carrier go-for-it should drop the ball");
 Assert(failedGoForItMatch.Ball.Square == new PitchSquare(8, 0), "failed ball carrier go-for-it should scatter the ball");
 
+// BB2020 permits multiple team rerolls in one team turn, provided the team has rerolls remaining
+// and no individual dice roll is rerolled more than once.
+var usedRerollGoForItService = new MatchService(new FixedDiceRoller(d6: [1, 6, 6, 6, 6], d8: [5]));
+var usedRerollGoForItMatch = usedRerollGoForItService.MovePlayer(
+    offensiveTurnMatch with
+    {
+        HomeRerollsRemaining = 2,
+        TeamRerollUses =
+        [
+            new TeamRerollUse
+            {
+                TeamId = loadedLeague.Teams[0].Id,
+                Half = offensiveTurnMatch.Half,
+                Turn = offensiveTurnMatch.Turn
+            }
+        ]
+    },
+    ruleset,
+    loadedLeague.Teams[0],
+    playerToPlace.Id,
+    new(7, 0));
+Assert(usedRerollGoForItMatch.PendingReroll is { Kind: PendingRerollKind.GoForIt, TeamRerollAvailable: true }, "BB2020 should offer another team reroll after earlier same-turn usage when rerolls remain");
+usedRerollGoForItMatch = usedRerollGoForItService.ResolvePendingReroll(usedRerollGoForItMatch, ruleset, loadedLeague.Teams[0], useTeamReroll: true);
+Assert(usedRerollGoForItMatch.PendingReroll is null, "a successful same-turn team reroll should resolve the failed go-for-it");
+Assert(usedRerollGoForItMatch.HomeRerollsRemaining == 1, "using another team reroll in the same turn should spend one remaining reroll");
+Assert(usedRerollGoForItMatch.Placements.Single(placement => placement.PlayerId == playerToPlace.Id).Square == new PitchSquare(7, 0), "the successful rerolled go-for-it should complete movement");
+
 // A loose ball that scatters onto a Standing opponent must force a catch attempt rather than
 // silently resting on top of the player (which previously hid the catcher under the ball).
 var bounceCatcher = awayLeague.Teams[0].Players[1];
