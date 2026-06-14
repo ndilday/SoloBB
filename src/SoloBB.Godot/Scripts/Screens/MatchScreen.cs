@@ -59,6 +59,8 @@ public partial class MatchScreen : VBoxContainer
     private Texture2D? _lizardmenKroxigorSpriteSheet;
     private Texture2D? _norseSpriteSheet;
     private Texture2D? _norseYheteeSpriteSheet;
+    private Texture2D? _skavenSpriteSheet;
+    private Texture2D? _skavenRatOgreSpriteSheet;
     private Texture2D? _pitchObjectSheet;
     private Texture2D? _blockDiceSheet;
     private Texture2D? _pitchTileSheet;

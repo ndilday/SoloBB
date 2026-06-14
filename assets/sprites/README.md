@@ -12,6 +12,7 @@ Large players use separate `_64.png` sheets. Each sheet is `64x128`, with a `64x
 | `chaos_chosen_minotaur_64.png` | Chaos Chosen Minotaur | Chaos Chosen Minotaur prone |
 | `lizardmen_kroxigor_64.png` | Lizardmen Kroxigor | Lizardmen Kroxigor prone |
 | `norse_yhetee_64.png` | Norse Yhetee | Norse Yhetee prone |
+| `skaven_rat_ogre_64.png` | Skaven Rat Ogre | Skaven Rat Ogre prone |
 
 ## `human_team_32.png`
 
@@ -140,6 +141,19 @@ Layout: `4 columns x 2 rows`
 | 1 | Beer Boar Runner | Beer Boar Runner prone |
 | 2 | Berserker | Berserker prone |
 | 3 | Ulfwerener | Ulfwerener prone |
+
+## `skaven_team_32.png`
+
+Size: `128x64`
+Cell size: `32x32`
+Layout: `4 columns x 2 rows`
+
+| Cell | Standing Row | Prone Row |
+| --- | --- | --- |
+| 0 | Clanrat Lineman | Clanrat Lineman prone |
+| 1 | Thrower | Thrower prone |
+| 2 | Gutter Runner | Gutter Runner prone |
+| 3 | Blitzer | Blitzer prone |
 
 ## `pitch_objects_32.png`
 
