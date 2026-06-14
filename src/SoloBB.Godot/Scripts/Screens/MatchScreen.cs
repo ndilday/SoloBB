@@ -53,6 +53,8 @@ public partial class MatchScreen : VBoxContainer
     private Texture2D? _highElfSpriteSheet;
     private Texture2D? _amazonSpriteSheet;
     private Texture2D? _darkElfSpriteSheet;
+    private Texture2D? _chaosChosenSpriteSheet;
+    private Texture2D? _chaosChosenMinotaurSpriteSheet;
     private Texture2D? _pitchObjectSheet;
     private Texture2D? _blockDiceSheet;
     private Texture2D? _pitchTileSheet;
