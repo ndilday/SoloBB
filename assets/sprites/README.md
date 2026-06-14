@@ -10,6 +10,7 @@ Large players use separate `_64.png` sheets. Each sheet is `64x128`, with a `64x
 | `orc_untrained_troll_64.png` | Orc Untrained Troll | Orc Untrained Troll prone |
 | `dwarf_deathroller_64.png` | Dwarf Deathroller | Dwarf Deathroller disabled/prone |
 | `chaos_chosen_minotaur_64.png` | Chaos Chosen Minotaur | Chaos Chosen Minotaur prone |
+| `lizardmen_kroxigor_64.png` | Lizardmen Kroxigor | Lizardmen Kroxigor prone |
 
 ## `human_team_32.png`
 
@@ -113,6 +114,18 @@ Layout: `2 columns x 2 rows`
 | --- | --- | --- |
 | 0 | Beastman Runner | Beastman Runner prone |
 | 1 | Chosen Blocker | Chosen Blocker prone |
+
+## `lizardmen_team_32.png`
+
+Size: `96x64`
+Cell size: `32x32`
+Layout: `3 columns x 2 rows`
+
+| Cell | Standing Row | Prone Row |
+| --- | --- | --- |
+| 0 | Skink Runner | Skink Runner prone |
+| 1 | Chameleon Skink | Chameleon Skink prone |
+| 2 | Saurus Blocker | Saurus Blocker prone |
 
 ## `pitch_objects_32.png`
 

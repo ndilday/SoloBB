@@ -26,6 +26,8 @@ public partial class MatchScreen : VBoxContainer
         _darkElfSpriteSheet = GD.Load<Texture2D>("res://assets/sprites/dark_elf_team_32.png");
         _chaosChosenSpriteSheet = GD.Load<Texture2D>("res://assets/sprites/chaos_chosen_team_32.png");
         _chaosChosenMinotaurSpriteSheet = GD.Load<Texture2D>("res://assets/sprites/chaos_chosen_minotaur_64.png");
+        _lizardmenSpriteSheet = GD.Load<Texture2D>("res://assets/sprites/lizardmen_team_32.png");
+        _lizardmenKroxigorSpriteSheet = GD.Load<Texture2D>("res://assets/sprites/lizardmen_kroxigor_64.png");
         _pitchObjectSheet = GD.Load<Texture2D>("res://assets/sprites/pitch_objects_32.png");
         _blockDiceSheet = GD.Load<Texture2D>("res://assets/sprites/block_dice_32.png");
         _pitchTileSheet = GD.Load<Texture2D>("res://assets/sprites/pitch_tiles_32.png");
@@ -71,6 +73,7 @@ public partial class MatchScreen : VBoxContainer
                 "orc" => _orcUntrainedTrollSpriteSheet,
                 "dwarf" => _dwarfDeathrollerSpriteSheet,
                 "chaos-chosen" => _chaosChosenMinotaurSpriteSheet,
+                "lizardmen" => _lizardmenKroxigorSpriteSheet,
                 _ => null
             };
             return AtlasRegion(sheet, $"large:{team.RosterId}:{player.PositionId}:{row}", 0, row * 64, 64, 64);
@@ -157,6 +160,17 @@ public partial class MatchScreen : VBoxContainer
             return AtlasCell(_chaosChosenSpriteSheet, $"chaos-chosen:{column}:{row}", column, row);
         }
 
+        if (string.Equals(team.RosterId, "lizardmen", StringComparison.OrdinalIgnoreCase))
+        {
+            var column = player.PositionId switch
+            {
+                "chameleon" => 1,
+                "saurus" => 2,
+                _ => 0
+            };
+            return AtlasCell(_lizardmenSpriteSheet, $"lizardmen:{column}:{row}", column, row);
+        }
+
         var humanColumn = player.PositionId switch
         {
             "catcher" => 0,
@@ -176,7 +190,9 @@ public partial class MatchScreen : VBoxContainer
             (string.Equals(team.RosterId, "dwarf", StringComparison.OrdinalIgnoreCase) &&
                 string.Equals(player.PositionId, "deathroller", StringComparison.OrdinalIgnoreCase)) ||
             (string.Equals(team.RosterId, "chaos-chosen", StringComparison.OrdinalIgnoreCase) &&
-                string.Equals(player.PositionId, "minotaur", StringComparison.OrdinalIgnoreCase));
+                string.Equals(player.PositionId, "minotaur", StringComparison.OrdinalIgnoreCase)) ||
+            (string.Equals(team.RosterId, "lizardmen", StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(player.PositionId, "kroxigor", StringComparison.OrdinalIgnoreCase));
     }
 
     private Texture2D? BallSprite(int frame)
