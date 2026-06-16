@@ -20,6 +20,11 @@ Assert(rosterSet.Rosters.Single(roster => roster.Id == "dwarf").Positions.Any(po
 var untrainedTroll = rosterSet.Rosters.Single(roster => roster.Id == "orc").Positions.Single(position => position.Id == "troll");
 Assert(untrainedTroll.Name == "Untrained Troll" && untrainedTroll.Max == 1 && untrainedTroll.Stats.Strength == 5, "Orc roster should include one strength 5 Untrained Troll");
 Assert(untrainedTroll.StartingSkills.Contains("projectile-vomit") && untrainedTroll.StartingSkills.Contains("really-stupid"), "Untrained Troll should load its defining traits");
+var halflingPositions = rosterSet.Rosters.Single(roster => roster.Id == "halfling").Positions;
+Assert(halflingPositions.Single(position => position.Id == "lineman").Max == 16, "Halfling roster should allow sixteen Linemen");
+Assert(halflingPositions.Single(position => position.Id == "hefty").Max == 2, "Halfling roster should allow two Hefties");
+Assert(halflingPositions.Single(position => position.Id == "catcher").Max == 2, "Halfling roster should allow two Catchers");
+Assert(halflingPositions.Single(position => position.Id == "treeman").Max == 2, "Halfling roster should allow two Treemen");
 Assert(ruleset.Skills.Single(skill => skill.Id == "animosity").DataOnly, "unimplemented roster traits should be explicitly marked data-only");
 AssertThrowsInvalidData(
     () => new RulesetValidator().Validate(ruleset with

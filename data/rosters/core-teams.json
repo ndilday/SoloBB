@@ -144,7 +144,8 @@
       "specialRules": ["halfling-thimble-cup", "old-world-classic"],
       "positions": [
         { "id": "lineman", "name": "Hopeful Lineman", "min": 0, "max": 16, "cost": 30000, "stats": { "movement": 5, "strength": 2, "agility": 3, "passing": 5, "armor": 7 }, "startingSkills": ["dodge", "right-stuff", "stunty"], "primarySkillCategories": ["agility"], "secondarySkillCategories": ["general", "passing", "strength"] },
-        { "id": "catcher", "name": "Hefty", "min": 0, "max": 2, "cost": 50000, "stats": { "movement": 5, "strength": 2, "agility": 3, "passing": 4, "armor": 8 }, "startingSkills": ["dodge", "fend", "stunty"], "primarySkillCategories": ["agility", "passing"], "secondarySkillCategories": ["general", "strength"] },
+        { "id": "hefty", "name": "Hefty", "min": 0, "max": 2, "cost": 50000, "stats": { "movement": 5, "strength": 2, "agility": 3, "passing": 4, "armor": 8 }, "startingSkills": ["dodge", "fend", "stunty"], "primarySkillCategories": ["agility", "passing"], "secondarySkillCategories": ["general", "strength"] },
+        { "id": "catcher", "name": "Catcher", "min": 0, "max": 2, "cost": 55000, "stats": { "movement": 5, "strength": 2, "agility": 3, "passing": 4, "armor": 7 }, "startingSkills": ["catch", "dodge", "right-stuff", "sprint", "stunty"], "primarySkillCategories": ["agility"], "secondarySkillCategories": ["general", "passing", "strength"] },
         { "id": "treeman", "name": "Treeman", "min": 0, "max": 2, "cost": 120000, "stats": { "movement": 2, "strength": 6, "agility": 5, "passing": 5, "armor": 11 }, "startingSkills": ["loner", "mighty-blow", "stand-firm", "strong-arm", "take-root", "thick-skull", "throw-team-mate"], "primarySkillCategories": ["strength"], "secondarySkillCategories": ["general"] }
       ]
     },

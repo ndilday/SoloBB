@@ -34,6 +34,8 @@ public partial class MatchScreen : VBoxContainer
         _skavenRatOgreSpriteSheet = GD.Load<Texture2D>("res://assets/sprites/skaven_rat_ogre_64.png");
         _woodElfSpriteSheet = GD.Load<Texture2D>("res://assets/sprites/wood_elf_team_32.png");
         _woodElfTreemanSpriteSheet = GD.Load<Texture2D>("res://assets/sprites/wood_elf_treeman_64.png");
+        _halflingSpriteSheet = GD.Load<Texture2D>("res://assets/sprites/halfling_team_32.png");
+        _halflingTreemanSpriteSheet = GD.Load<Texture2D>("res://assets/sprites/halfling_treeman_64.png");
         _pitchObjectSheet = GD.Load<Texture2D>("res://assets/sprites/pitch_objects_32.png");
         _blockDiceSheet = GD.Load<Texture2D>("res://assets/sprites/block_dice_32.png");
         _pitchTileSheet = GD.Load<Texture2D>("res://assets/sprites/pitch_tiles_32.png");
@@ -83,6 +85,7 @@ public partial class MatchScreen : VBoxContainer
                 "norse" => _norseYheteeSpriteSheet,
                 "skaven" => _skavenRatOgreSpriteSheet,
                 "wood-elf" => _woodElfTreemanSpriteSheet,
+                "halfling" => _halflingTreemanSpriteSheet,
                 _ => null
             };
             return AtlasRegion(sheet, $"large:{team.RosterId}:{player.PositionId}:{row}", 0, row * 64, 64, 64);
@@ -216,6 +219,17 @@ public partial class MatchScreen : VBoxContainer
             return AtlasCell(_woodElfSpriteSheet, $"wood-elf:{column}:{row}", column, row);
         }
 
+        if (string.Equals(team.RosterId, "halfling", StringComparison.OrdinalIgnoreCase))
+        {
+            var column = player.PositionId switch
+            {
+                "hefty" => 1,
+                "catcher" => 2,
+                _ => 0
+            };
+            return AtlasCell(_halflingSpriteSheet, $"halfling:{column}:{row}", column, row);
+        }
+
         var humanColumn = player.PositionId switch
         {
             "catcher" => 0,
@@ -243,6 +257,8 @@ public partial class MatchScreen : VBoxContainer
             (string.Equals(team.RosterId, "skaven", StringComparison.OrdinalIgnoreCase) &&
                 string.Equals(player.PositionId, "rat-ogre", StringComparison.OrdinalIgnoreCase)) ||
             (string.Equals(team.RosterId, "wood-elf", StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(player.PositionId, "treeman", StringComparison.OrdinalIgnoreCase)) ||
+            (string.Equals(team.RosterId, "halfling", StringComparison.OrdinalIgnoreCase) &&
                 string.Equals(player.PositionId, "treeman", StringComparison.OrdinalIgnoreCase));
     }
 
