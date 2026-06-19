@@ -2701,6 +2701,27 @@ var crowdedPlayer = crowdPushResult.Placements.Single(placement => placement.Pla
 Assert(crowdedPlayer.Square is null, "sideline push with no legal on-pitch destination should push the player off the pitch");
 Assert(crowdedPlayer.State == PlayerPitchState.Reserve, "crowd push with no lasting injury should put the player in reserve");
 
+var crowdThrowInCatchService = new MatchService(new FixedDiceRoller(d6: [3, 1, 2, 1], d8: [5, 5]));
+crowdThrowInCatchService.RegisterTeams(loadedLeague.Teams[0], awayLeague.Teams[0]);
+var crowdThrowInCatchPending = crowdThrowInCatchService.BlockPlayer(
+    crowdPushMatch with { Ball = new BallState { CarrierPlayerId = awayPlayerToPlace.Id } },
+    ruleset,
+    loadedLeague.Teams[0],
+    playerToPlace.Id,
+    awayLeague.Teams[0],
+    awayPlayerToPlace.Id);
+crowdThrowInCatchPending = ConfirmBlockDie(crowdThrowInCatchService, crowdThrowInCatchPending, ruleset, loadedLeague.Teams[0], awayLeague.Teams[0]);
+
+Assert(crowdThrowInCatchPending.PendingReroll?.Kind == PendingRerollKind.Catch, "a throw-in that lands on an active-team player should preserve the dropped-catch reroll choice");
+Assert(crowdThrowInCatchPending.PendingReroll?.PlayerId == playerToPlace.Id, "the throw-in catch reroll should belong to the player under the ball");
+Assert(crowdThrowInCatchPending.Ball.Square == new PitchSquare(1, 1), "the ball should remain visible on the failed catch square while the reroll choice is pending");
+Assert(crowdThrowInCatchPending.Ball.CarrierPlayerId is null, "a failed throw-in catch must not leave the ball carried before the reroll resolves");
+Assert(crowdThrowInCatchPending.Placements.Single(placement => placement.PlayerId == awayPlayerToPlace.Id).Square is null, "the pending catch reroll should remember that the surfed carrier is off the pitch");
+
+var crowdThrowInDeclined = crowdThrowInCatchService.ResolvePendingReroll(crowdThrowInCatchPending, ruleset, loadedLeague.Teams[0], useTeamReroll: false, opposingTeam: awayLeague.Teams[0]);
+Assert(crowdThrowInDeclined.Placements.Single(placement => placement.PlayerId == awayPlayerToPlace.Id).Square is null, "declining the throw-in catch reroll must not restore the surfed carrier to the pitch");
+Assert(crowdThrowInDeclined.Ball.Square == new PitchSquare(2, 1), "declining the throw-in catch reroll should continue the bounce from the visible catch square");
+
 var bothDownService = new MatchService(new FixedDiceRoller(d6: [2, 1, 1, 1, 1], d8: [5]));
 var bothDownPending = bothDownService.BlockPlayer(blockReadyMatch, ruleset, loadedLeague.Teams[0], playerToPlace.Id, awayLeague.Teams[0], awayPlayerToPlace.Id);
 bothDownPending = ConfirmBlockDie(bothDownService, bothDownPending, ruleset, loadedLeague.Teams[0], awayLeague.Teams[0]);

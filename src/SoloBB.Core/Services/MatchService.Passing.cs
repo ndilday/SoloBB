@@ -124,6 +124,11 @@ public sealed partial class MatchService
             ]
         };
 
+        if (failedMatch.PendingReroll is not null)
+        {
+            return failedMatch;
+        }
+
         return failedMatch.Ball.CarrierPlayerId is Guid carrierId && FindPlacement(failedMatch, carrierId)?.TeamId == team.Id
             ? failedMatch
             : ApplyTurnover(failedMatch, ruleset, team.Id);
@@ -430,6 +435,11 @@ public sealed partial class MatchService
                 ]
             };
 
+            if (fumbledMatch.PendingReroll is not null)
+            {
+                return fumbledMatch;
+            }
+
             return fumbledMatch.Ball.CarrierPlayerId is Guid fumbleCarrierId && FindPlacement(fumbledMatch, fumbleCarrierId)?.TeamId == team.Id
                 ? fumbledMatch
                 : isDumpOff
@@ -508,7 +518,7 @@ public sealed partial class MatchService
             ]
         };
 
-        return isDumpOff || failedMatch.Ball.CarrierPlayerId is Guid recoveredCarrierId && FindPlacement(failedMatch, recoveredCarrierId)?.TeamId == team.Id
+        return isDumpOff || failedMatch.PendingReroll is not null || failedMatch.Ball.CarrierPlayerId is Guid recoveredCarrierId && FindPlacement(failedMatch, recoveredCarrierId)?.TeamId == team.Id
             ? failedMatch
             : ApplyTurnover(failedMatch, ruleset, team.Id);
     }
@@ -736,6 +746,11 @@ public sealed partial class MatchService
                 allowDivingCatch: false,
                 opposingTeam: defendingTeam);
 
+            if (bouncedMatch.PendingReroll is not null)
+            {
+                return bouncedMatch;
+            }
+
             return bouncedMatch.Ball.CarrierPlayerId is Guid deflectionCarrierId && FindPlacement(bouncedMatch, deflectionCarrierId)?.TeamId == passingTeam.Id
                 ? bouncedMatch
                 : ApplyTurnover(bouncedMatch, ruleset, passingTeam.Id);
@@ -773,6 +788,11 @@ public sealed partial class MatchService
         if (receiverPlacement is null)
         {
             var landedMatch = ResolveBallLanding(match, ruleset, team, targetSquare, allowDivingCatch: false, opposingTeam: opposingTeam);
+            if (landedMatch.PendingReroll is not null)
+            {
+                return landedMatch;
+            }
+
             return landedMatch.Ball.CarrierPlayerId is Guid recoveredCarrierId && FindPlacement(landedMatch, recoveredCarrierId)?.TeamId == team.Id
                 ? landedMatch
                 : ApplyTurnover(landedMatch with
@@ -838,6 +858,11 @@ public sealed partial class MatchService
                 new MatchLogEntry { Message = $"Ball bounces to {scatterSquare.X},{scatterSquare.Y}." }
             ]
         };
+
+        if (droppedMatch.PendingReroll is not null)
+        {
+            return droppedMatch;
+        }
 
         return droppedMatch.Ball.CarrierPlayerId is Guid carrierId && FindPlacement(droppedMatch, carrierId)?.TeamId == team.Id
             ? droppedMatch
@@ -1026,6 +1051,7 @@ public sealed partial class MatchService
     {
         return preCatchMatch with
         {
+            Ball = new BallState { Square = catchSquare },
             PendingReroll = new PendingRerollChoice
             {
                 TeamId = catcherTeam.Id,
@@ -1081,14 +1107,20 @@ public sealed partial class MatchService
             if (!IsOnPitch(ruleset, square))
             {
                 var throwIn = ResolveThrowIn(ruleset, square);
-                return new LooseBallResolution(new BallState { Square = throwIn.Square }, throwIn.Log);
+                return new LooseBallResolution(
+                    match with
+                    {
+                        Ball = new BallState { Square = throwIn.Square },
+                        Log = [.. match.Log, .. throwIn.Log]
+                    },
+                    throwIn.Log);
             }
 
-            return new LooseBallResolution(new BallState { Square = square }, []);
+            return new LooseBallResolution(match with { Ball = new BallState { Square = square } }, []);
         }
 
         var resolved = BounceBall(match, ruleset, homeTeam, square, allowDivingCatch: false, opposingTeam: awayTeam);
-        return new LooseBallResolution(resolved.Ball, [.. resolved.Log.Skip(match.Log.Count)]);
+        return new LooseBallResolution(resolved, [.. resolved.Log.Skip(match.Log.Count)]);
     }
 
     private LeagueTeam? RegisteredTeam(Guid teamId) => _teamsById.GetValueOrDefault(teamId);

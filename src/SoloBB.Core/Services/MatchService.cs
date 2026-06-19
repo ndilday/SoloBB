@@ -34,10 +34,9 @@ public sealed record DiceRoll2D6(int First, int Second)
 public sealed record BallLanding(PitchSquare Square, IReadOnlyList<MatchLogEntry> Log);
 
 /// <summary>
-/// Outcome of a loose ball coming to rest: either a resting <see cref="Ball"/> square or a
-/// player who caught it as it bounced, plus the bounce/catch log to append at the call site.
+/// Outcome of a loose ball resolution, plus the bounce/catch log to append at the call site.
 /// </summary>
-sealed record LooseBallResolution(BallState Ball, IReadOnlyList<MatchLogEntry> Log);
+sealed record LooseBallResolution(MatchState Match, IReadOnlyList<MatchLogEntry> Log);
 
 sealed record InjuryResolution(
     PlayerPitchState State,

@@ -1003,24 +1003,26 @@ public sealed partial class MatchService
             if (attackerHasWrestle || defenderHasWrestle)
             {
                 var ball = match.Ball;
+                var looseBallMatch = match;
                 var wrestleLog = new List<MatchLogEntry>();
                 if (ball.CarrierPlayerId == attacker.Id || ball.CarrierPlayerId == defender.Id)
                 {
                     var dropSquare = ball.CarrierPlayerId == attacker.Id ? attackerPlacement.Square! : defenderPlacement.Square!;
                     var scatterSquare = ScatterFrom(ruleset, dropSquare);
                     var landing = ResolveLooseBall(match, ruleset, scatterSquare);
-                    ball = landing.Ball;
+                    looseBallMatch = landing.Match with { Log = match.Log };
+                    ball = looseBallMatch.Ball;
                     wrestleLog.Add(new MatchLogEntry { Message = $"Ball scatters to {scatterSquare.X},{scatterSquare.Y}." });
                     wrestleLog.AddRange(landing.Log);
                 }
 
-                var wrestledMatch = match with
+                var wrestledMatch = looseBallMatch with
                 {
                     Ball = ball,
-                    Placements = match.Placements
+                    Placements = looseBallMatch.Placements
                         .Select(placement =>
                             placement.PlayerId == attacker.Id || placement.PlayerId == defender.Id
-                                ? ApplyPitchState(match, placement, PlayerPitchState.Prone, placement.Square)
+                                ? ApplyPitchState(looseBallMatch, placement, PlayerPitchState.Prone, placement.Square)
                                 : placement)
                         .ToArray(),
                     Log =
@@ -1653,8 +1655,9 @@ public sealed partial class MatchService
             else
             {
                 var scatterSquare = ScatterFrom(ruleset, square);
+                var preLandingLog = nextMatch.Log;
                 var landing = ResolveLooseBall(nextMatch, ruleset, scatterSquare);
-                nextMatch = nextMatch with { Ball = landing.Ball };
+                nextMatch = landing.Match with { Log = preLandingLog };
                 log.AddRange(landing.Log.Prepend(new MatchLogEntry { Message = $"Ball scatters to {scatterSquare.X},{scatterSquare.Y}." }));
             }
         }
@@ -1740,8 +1743,10 @@ public sealed partial class MatchService
             else
             {
                 var scatterSquare = ScatterFrom(ruleset, destination);
+                var preLandingLog = match.Log;
                 var landing = ResolveLooseBall(match, ruleset, scatterSquare);
-                ball = landing.Ball;
+                match = landing.Match with { Log = preLandingLog };
+                ball = match.Ball;
                 log.Add(new MatchLogEntry { Message = stripBall && !knockDown ? $"Strip Ball knocks the ball loose to {scatterSquare.X},{scatterSquare.Y}." : $"Ball scatters to {scatterSquare.X},{scatterSquare.Y}." });
                 log.AddRange(landing.Log);
             }
@@ -1749,8 +1754,10 @@ public sealed partial class MatchService
         else if (ball.CarrierPlayerId is null && ball.Square == destination)
         {
             var scatterSquare = ScatterFrom(ruleset, destination);
+            var preLandingLog = match.Log;
             var landing = ResolveLooseBall(match, ruleset, scatterSquare);
-            ball = landing.Ball;
+            match = landing.Match with { Log = preLandingLog };
+            ball = match.Ball;
             log.Add(new MatchLogEntry { Message = $"Ball is pushed from {destination.X},{destination.Y} to {scatterSquare.X},{scatterSquare.Y}." });
             log.AddRange(landing.Log);
         }
@@ -1858,13 +1865,30 @@ public sealed partial class MatchService
         var crowdState = injuryState.State is PlayerPitchState.KnockedOut or PlayerPitchState.Casualty or PlayerPitchState.Dead
             ? injuryState.State
             : PlayerPitchState.Reserve;
-        var ball = match.Ball;
         var log = new List<MatchLogEntry>();
-        if (ball.CarrierPlayerId == placement.PlayerId && placement.Square is PitchSquare square)
+        var carriedBallIntoCrowd = match.Ball.CarrierPlayerId == placement.PlayerId && placement.Square is PitchSquare;
+        var crowdMatch = match with
+        {
+            Ball = carriedBallIntoCrowd ? new BallState() : match.Ball,
+            Placements = match.Placements
+                .Select(current => current.PlayerId == placement.PlayerId
+                    ? current with
+                    {
+                        Square = null,
+                        State = crowdState,
+                        StunnedRecoveryHalf = null,
+                        StunnedRecoveryTurn = null,
+                        Casualty = crowdState is PlayerPitchState.Casualty or PlayerPitchState.Dead ? injuryState.Casualty : null
+                    }
+                    : current)
+                .ToArray()
+        };
+
+        if (carriedBallIntoCrowd && placement.Square is PitchSquare square)
         {
             var scatterSquare = ScatterFrom(ruleset, square);
-            var landing = ResolveLooseBall(match, ruleset, scatterSquare);
-            ball = landing.Ball;
+            var landing = ResolveLooseBall(crowdMatch, ruleset, scatterSquare);
+            crowdMatch = landing.Match with { Log = match.Log };
             log.Add(new MatchLogEntry { Message = $"Ball scatters in from the crowd to {scatterSquare.X},{scatterSquare.Y}." });
             log.AddRange(landing.Log);
         }
@@ -1880,21 +1904,8 @@ public sealed partial class MatchService
         crowdLog.AddRange(apothecary.Log);
         crowdLog.AddRange(log);
 
-        return match with
+        return crowdMatch with
         {
-            Ball = ball,
-            Placements = match.Placements
-                .Select(current => current.PlayerId == placement.PlayerId
-                    ? current with
-                    {
-                        Square = null,
-                        State = crowdState,
-                        StunnedRecoveryHalf = null,
-                        StunnedRecoveryTurn = null,
-                        Casualty = crowdState is PlayerPitchState.Casualty or PlayerPitchState.Dead ? injuryState.Casualty : null
-                    }
-                    : current)
-                .ToArray(),
             Log =
             [
                 .. match.Log,

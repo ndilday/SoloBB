@@ -660,7 +660,7 @@ public sealed partial class MatchService
         var apothecary = CreatePendingApothecaryIfAvailable(match, placement, player.Name, injury);
         var injuryMatch = apothecary.Match;
         injury = apothecary.Injury;
-        var ball = match.Ball;
+        var ball = injuryMatch.Ball;
         var log = new List<MatchLogEntry>
         {
             new() { Message = $"{player.Name} go-for-it {goForItNumber}: rolled {roll}, failed." }
@@ -672,8 +672,10 @@ public sealed partial class MatchService
         if (ball.CarrierPlayerId == player.Id)
         {
             var scatterSquare = ScatterFrom(ruleset, destination);
-            var landing = ResolveLooseBall(match, ruleset, scatterSquare);
-            ball = landing.Ball;
+            var preLandingLog = injuryMatch.Log;
+            var landing = ResolveLooseBall(injuryMatch, ruleset, scatterSquare);
+            injuryMatch = landing.Match with { Log = preLandingLog };
+            ball = injuryMatch.Ball;
             log.Add(new MatchLogEntry { Message = $"Ball scatters to {scatterSquare.X},{scatterSquare.Y}." });
             log.AddRange(landing.Log);
         }
@@ -708,7 +710,7 @@ public sealed partial class MatchService
         var apothecary = CreatePendingApothecaryIfAvailable(match, placement, player.Name, injury);
         var injuryMatch = apothecary.Match;
         injury = apothecary.Injury;
-        var ball = match.Ball;
+        var ball = injuryMatch.Ball;
         var log = new List<MatchLogEntry>
         {
             new() { Message = $"{player.Name} dodges to {destination.X},{destination.Y}: rolled {roll} vs {target}+, failed." }
@@ -720,8 +722,10 @@ public sealed partial class MatchService
         if (ball.CarrierPlayerId == player.Id)
         {
             var scatterSquare = ScatterFrom(ruleset, destination);
-            var landing = ResolveLooseBall(match, ruleset, scatterSquare);
-            ball = landing.Ball;
+            var preLandingLog = injuryMatch.Log;
+            var landing = ResolveLooseBall(injuryMatch, ruleset, scatterSquare);
+            injuryMatch = landing.Match with { Log = preLandingLog };
+            ball = injuryMatch.Ball;
             log.Add(new MatchLogEntry { Message = $"Ball scatters to {scatterSquare.X},{scatterSquare.Y}." });
             log.AddRange(landing.Log);
         }
