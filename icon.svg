@@ -1,5 +1,41 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
-  <rect width="128" height="128" rx="16" fill="#20242a"/>
-  <path d="M28 68c0-23 16-40 36-40s36 17 36 40c0 18-10 31-27 35l-9 15-9-15c-17-4-27-17-27-35Z" fill="#b8423f"/>
-  <path d="M43 65h42M50 48l28 34M78 48 50 82" stroke="#f2e6ce" stroke-width="8" stroke-linecap="round"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+  <title id="title">SoloBB pitch and ball icon, crest version</title>
+  <desc id="desc">A shield-shaped pitch with a large football superimposed over the field.</desc>
+  <defs>
+    <linearGradient id="bg" x1="18" y1="9" x2="110" y2="119" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#27241e"/>
+      <stop offset="1" stop-color="#10100e"/>
+    </linearGradient>
+    <linearGradient id="pitch" x1="31" y1="18" x2="97" y2="111" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#377c46"/>
+      <stop offset="1" stop-color="#183d2c"/>
+    </linearGradient>
+    <linearGradient id="ball" x1="41" y1="47" x2="88" y2="86" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#bd6b3d"/>
+      <stop offset="1" stop-color="#6d2c22"/>
+    </linearGradient>
+  </defs>
+  <rect width="128" height="128" rx="18" fill="url(#bg)"/>
+  <path d="M64 13 105 27v35c0 27-16 44-41 53-25-9-41-26-41-53V27l41-14Z" fill="#141816" stroke="#e0bd72" stroke-width="5" stroke-linejoin="round"/>
+  <path d="M64 23 95 34v28c0 20-10 34-31 42-21-8-31-22-31-42V34l31-11Z" fill="url(#pitch)"/>
+  <clipPath id="crestClip">
+    <path d="M64 23 95 34v28c0 20-10 34-31 42-21-8-31-22-31-42V34l31-11Z"/>
+  </clipPath>
+  <g clip-path="url(#crestClip)">
+    <path d="M33 48h62M33 76h62M64 23v82" stroke="#eef0da" stroke-width="4" stroke-linecap="round" opacity=".82"/>
+    <path d="M43 40h16v45H43M85 40H69v45h16" fill="none" stroke="#eef0da" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" opacity=".7"/>
+    <circle cx="64" cy="63" r="13" fill="none" stroke="#eef0da" stroke-width="3" opacity=".65"/>
+  </g>
+  <ellipse cx="64" cy="69" rx="31" ry="22" fill="#0b100d" opacity=".45"/>
+  <g fill="#d8b66d" stroke="#f1d28b" stroke-width="3" stroke-linejoin="round">
+    <path d="M33 60 20 55l13-6Z"/>
+    <path d="M95 60 108 55l-13-6Z"/>
+    <path d="M45 45 38 32l15 6Z"/>
+    <path d="M83 45 90 32l-15 6Z"/>
+    <path d="M45 81 38 94l15-6Z"/>
+    <path d="M83 81 90 94l-15-6Z"/>
+  </g>
+  <ellipse cx="64" cy="63" rx="31" ry="22" fill="url(#ball)" stroke="#f1d28b" stroke-width="5"/>
+  <path d="M64 47v32" stroke="#f9edcf" stroke-width="5" stroke-linecap="round"/>
+  <path d="M56 54h16M55 63h18M56 72h16" stroke="#f9edcf" stroke-width="4" stroke-linecap="round"/>
 </svg>
