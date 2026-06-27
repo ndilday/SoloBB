@@ -247,6 +247,15 @@ public sealed record PendingFollowUpChoice
     public required Guid AttackerPlayerId { get; init; }
     public required Guid DefenderPlayerId { get; init; }
     public required PitchSquare FollowUpSquare { get; init; }
+    public PendingBlockPushResolution? DeferredBlockPush { get; init; }
+}
+
+public sealed record PendingBlockPushResolution
+{
+    public required PitchSquare Source { get; init; }
+    public required PitchSquare Destination { get; init; }
+    public bool KnockDefenderDown { get; init; }
+    public bool StripBall { get; init; }
 }
 
 public sealed record PendingBallPlacementChoice

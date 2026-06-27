@@ -600,7 +600,7 @@ public partial class MatchScreen : VBoxContainer
         var beforeMatch = _match;
         var logStart = _match.Log.Count;
         var service = CreateMatchService();
-        _match = service.ResolvePendingFollowUp(_match, TeamById(pending.AttackerTeamId), TeamById(pending.DefenderTeamId), useFollowUp);
+        _match = service.ResolvePendingFollowUp(_match, _ruleset, TeamById(pending.AttackerTeamId), TeamById(pending.DefenderTeamId), useFollowUp);
 
         ClearPreview();
         // A Block follow-up ends the activation (done for the turn); a Blitz follow-up leaves the

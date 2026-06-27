@@ -668,6 +668,7 @@ public sealed partial class MatchService
         log.AddRange(injury.Log ?? []);
         log.Add(new MatchLogEntry { Message = $"{player.Name} falls at {destination.X},{destination.Y} and is {FormatPitchState(injury.State)}." });
         log.AddRange(apothecary.Log);
+        injuryMatch = ApplyPlayerPitchState(injuryMatch, player.Id, injury.State, OccupiesPitch(injury.State) ? destination : null, injury.Casualty);
 
         if (ball.CarrierPlayerId == player.Id)
         {
@@ -683,11 +684,6 @@ public sealed partial class MatchService
         var fallenMatch = injuryMatch with
         {
             Ball = ball,
-            Placements = injuryMatch.Placements
-                .Select(current => current.PlayerId == player.Id
-                    ? ApplyPitchState(injuryMatch, current, injury.State, OccupiesPitch(injury.State) ? destination : null, injury.Casualty)
-                    : current)
-                .ToArray(),
             Log = [.. injuryMatch.Log, .. log]
         };
 
@@ -718,6 +714,7 @@ public sealed partial class MatchService
         log.AddRange(injury.Log ?? []);
         log.Add(new MatchLogEntry { Message = $"{player.Name} falls at {destination.X},{destination.Y} and is {FormatPitchState(injury.State)}{(armBarApplies ? " after Arm Bar" : "")}." });
         log.AddRange(apothecary.Log);
+        injuryMatch = ApplyPlayerPitchState(injuryMatch, player.Id, injury.State, OccupiesPitch(injury.State) ? destination : null, injury.Casualty);
 
         if (ball.CarrierPlayerId == player.Id)
         {
@@ -733,11 +730,6 @@ public sealed partial class MatchService
         var fallenMatch = injuryMatch with
         {
             Ball = ball,
-            Placements = injuryMatch.Placements
-                .Select(current => current.PlayerId == player.Id
-                    ? ApplyPitchState(injuryMatch, current, injury.State, OccupiesPitch(injury.State) ? destination : null, injury.Casualty)
-                    : current)
-                .ToArray(),
             Log = [.. injuryMatch.Log, .. log]
         };
 

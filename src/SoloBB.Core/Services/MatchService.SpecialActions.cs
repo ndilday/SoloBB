@@ -1187,6 +1187,8 @@ public sealed partial class MatchService
         var ball = nextMatch.Ball;
         var log = new List<MatchLogEntry> { new() { Message = message } };
         log.AddRange(injury.Log ?? []);
+        nextMatch = ApplyPlayerPitchState(nextMatch, launchedPlayer.Id, injury.State, OccupiesPitch(injury.State) ? landingSquare : null, injury.Casualty);
+
         if (ball.CarrierPlayerId == launchedPlayer.Id)
         {
             var scatterSquare = ScatterFrom(ruleset, landingSquare);
@@ -1203,11 +1205,6 @@ public sealed partial class MatchService
         return nextMatch with
         {
             Ball = ball,
-            Placements = nextMatch.Placements
-                .Select(current => current.PlayerId == launchedPlayer.Id
-                    ? ApplyPitchState(nextMatch, current, injury.State, OccupiesPitch(injury.State) ? landingSquare : null, injury.Casualty)
-                    : current)
-                .ToArray(),
             Log = [.. nextMatch.Log, .. log]
         };
     }

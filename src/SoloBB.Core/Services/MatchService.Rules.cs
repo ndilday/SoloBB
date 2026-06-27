@@ -37,6 +37,23 @@ public sealed partial class MatchService
         };
     }
 
+    private static MatchState ApplyPlayerPitchState(
+        MatchState match,
+        Guid playerId,
+        PlayerPitchState state,
+        PitchSquare? square,
+        CasualtyRoll? casualty = null)
+    {
+        return match with
+        {
+            Placements = match.Placements
+                .Select(current => current.PlayerId == playerId
+                    ? ApplyPitchState(match, current, state, square, casualty)
+                    : current)
+                .ToArray()
+        };
+    }
+
     private PitchSquare[] LegalPushSquares(
         MatchState match,
         Ruleset ruleset,

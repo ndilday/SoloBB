@@ -100,13 +100,19 @@ public partial class MatchScreen : VBoxContainer
             tile.SetTile(PitchTileTexture(square, canPlace || canTargetKickoff || canTargetWizard || canMove || canPassSquare || canPush || canFollowUp || canPlaceBall || canThrowBomb || canDumpOff || canOnTheBall || canLaunchTarget, pathMarker));
             var isGfi = pathMarker?.StartsWith('!') == true ||
                 (canMove && _selectedPlayerId is Guid gfiPlayerId && IsGoForItMovementTarget(gfiPlayerId, square));
+            var requiresDodge = canMove &&
+                _selectedPlayerId is Guid dodgePlayerId &&
+                MovementTargetRequiresDodge(dodgePlayerId, square);
             var passLineActive = isOnPassLine || _previewPassTargetSquare == square;
             var passRangeHighlightColor = passLineActive && passPreviewRangeName is not null
                 ? (Color?)PassRangeHighlightColor(passPreviewRangeName)
                 : null;
+            var movementHighlightColor = requiresDodge
+                ? (Color?)DodgePathColor
+                : isGfi ? GoForItPathColor : null;
             // Pass range squares stay clickable but are not highlighted until a target is right-clicked.
             var highlightCanUse = canPlace || canTargetKickoff || canTargetWizard || canMove || canPush || canFollowUp || canPlaceBall || canThrowBomb || canDumpOff || canOnTheBall || canLaunchTarget || passLineActive;
-            tile.SetHighlight(PitchHighlightTexture(highlightCanUse, pathMarker), passRangeHighlightColor ?? (isGfi ? GoForItPathColor : null));
+            tile.SetHighlight(PitchHighlightTexture(highlightCanUse, pathMarker), passRangeHighlightColor ?? movementHighlightColor);
             tile.SetMarking(PitchMarkingTexture(square));
             tile.SetPiece(null);
             tile.SetOverlay(null);

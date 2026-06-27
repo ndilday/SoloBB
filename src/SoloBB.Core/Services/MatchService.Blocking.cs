@@ -488,18 +488,29 @@ public sealed partial class MatchService
             var continuedDefender = FindTeamPlayer(defenderTeam, continuation.PlayerId);
             var continuedAttacker = FindTeamPlayer(attackerTeam, pending.AttackerPlayerId);
             var continuedStripBall = ShouldStripBall(ruleset, continuedAttacker, continuedDefender, chainPushedMatch.Ball.CarrierPlayerId == continuedDefender.Id, continuation.KnockDown);
-            var continuedPushedMatch = PushPlayer(chainPushedMatch, ruleset, continuedDefender, continuation.Source, continuation.Destination, continuation.KnockDown, () => ResolveBlockInjury(ruleset, continuedAttacker, continuedDefender), continuedStripBall);
-            var continuedLoggedMatch = continuedPushedMatch with
+            var continuedMovedMatch = MovePushedPlayer(chainPushedMatch, continuation.PlayerId, continuation.Destination);
+            var continuedLoggedMatch = continuedMovedMatch with
             {
                 Log =
                 [
-                    .. continuedPushedMatch.Log,
+                    .. continuedMovedMatch.Log,
                     new MatchLogEntry { Message = $"{pending.ResultMessage} {PlayerName(pending.DefenderPlayerId)} is chain-pushed to {square.X},{square.Y}." },
                     new MatchLogEntry { Message = $"{continuation.ResultMessage} {continuedDefender.Name} is pushed to {continuation.Destination.X},{continuation.Destination.Y}." }
                 ]
             };
 
-            return CompleteBlockPush(continuedLoggedMatch, ruleset, attackerTeam, continuedAttacker, defenderTeam, continuedDefender, continuation.Source, continuation.KnockDown, pending.PreventFollowUp);
+            return CompleteBlockPush(
+                continuedLoggedMatch,
+                ruleset,
+                attackerTeam,
+                continuedAttacker,
+                defenderTeam,
+                continuedDefender,
+                continuation.Source,
+                continuation.Destination,
+                continuation.KnockDown,
+                continuedStripBall,
+                pending.PreventFollowUp);
         }
 
         var defender = FindTeamPlayer(defenderTeam, pending.DefenderPlayerId);
@@ -536,8 +547,11 @@ public sealed partial class MatchService
                 };
             }
         }
-        var stripBall = ShouldStripBall(ruleset, attacker, defender, match.Ball.CarrierPlayerId == defender.Id, pending.KnockDefenderDown);
-        var pushedMatch = PushPlayer(match with { PendingPush = null }, ruleset, defender, pending.DefenderSquare, square, pending.KnockDefenderDown, () => ResolveBlockInjury(ruleset, attacker, defender), stripBall);
+        var baseMatch = match with { PendingPush = null };
+        var stripBall = ShouldStripBall(ruleset, attacker, defender, baseMatch.Ball.CarrierPlayerId == defender.Id, pending.KnockDefenderDown);
+        var pushedMatch = IsOnPitch(ruleset, square)
+            ? MovePushedPlayer(baseMatch, defender.Id, square)
+            : baseMatch;
         var pushMessage = IsOnPitch(ruleset, square)
             ? $"{pending.ResultMessage} {defender.Name} is pushed to {square.X},{square.Y}."
             : $"{pending.ResultMessage} {defender.Name} is pushed off the pitch into the crowd.";
@@ -550,11 +564,23 @@ public sealed partial class MatchService
             ]
         };
 
-        return CompleteBlockPush(loggedMatch, ruleset, attackerTeam, attacker, defenderTeam, defender, pending.DefenderSquare, pending.KnockDefenderDown, pending.PreventFollowUp);
+        return CompleteBlockPush(
+            loggedMatch,
+            ruleset,
+            attackerTeam,
+            attacker,
+            defenderTeam,
+            defender,
+            pending.DefenderSquare,
+            square,
+            pending.KnockDefenderDown,
+            stripBall,
+            pending.PreventFollowUp);
     }
 
     public MatchState ResolvePendingFollowUp(
         MatchState match,
+        Ruleset ruleset,
         LeagueTeam attackerTeam,
         LeagueTeam defenderTeam,
         bool useFollowUp)
@@ -568,23 +594,38 @@ public sealed partial class MatchService
         }
 
         var attacker = FindTeamPlayer(attackerTeam, pending.AttackerPlayerId);
+        var defender = FindTeamPlayer(defenderTeam, pending.DefenderPlayerId);
         var baseMatch = match with { PendingFollowUp = null };
         if (!useFollowUp)
         {
-            return CompleteBlockActivationIfDone(baseMatch with
+            var declinedMatch = baseMatch with
             {
                 Log =
                 [
                     .. baseMatch.Log,
                     new MatchLogEntry { Message = $"{attacker.Name} does not follow up." }
                 ]
-            }, attacker.Id, attackerTeam.Id);
+            };
+
+            return pending.DeferredBlockPush is PendingBlockPushResolution declinedPush
+                ? CompleteBlockPushAfterConsequences(
+                    ResolveBlockPushConsequences(declinedMatch, ruleset, attackerTeam, attacker, defenderTeam, defender, declinedPush),
+                    attackerTeam,
+                    attacker,
+                    defenderTeam,
+                    defender)
+                : CompleteBlockActivationIfDone(declinedMatch, attacker.Id, attackerTeam.Id);
         }
 
-        return CompleteBlockActivationIfDone(
-            MoveAttackerToFollowUpSquare(baseMatch, attacker, pending.FollowUpSquare),
-            attacker.Id,
-            attackerTeam.Id);
+        var followedMatch = MoveAttackerToFollowUpSquare(baseMatch, attacker, pending.FollowUpSquare);
+        return pending.DeferredBlockPush is PendingBlockPushResolution followedPush
+            ? CompleteBlockPushAfterConsequences(
+                ResolveBlockPushConsequences(followedMatch, ruleset, attackerTeam, attacker, defenderTeam, defender, followedPush),
+                attackerTeam,
+                attacker,
+                defenderTeam,
+                defender)
+            : CompleteBlockActivationIfDone(followedMatch, attacker.Id, attackerTeam.Id);
     }
 
     public MatchState ChooseBallPlacement(MatchState match, LeagueTeam team, PitchSquare square)
@@ -678,23 +719,37 @@ public sealed partial class MatchService
 
         if (pending.LegalSquares.Count == 0)
         {
-            var crowdMatch = PushPlayerIntoCrowd(baseMatch, ruleset, defenderPlacement);
-            var loggedMatch = crowdMatch with
+            var stripBall = ShouldStripBall(ruleset, attacker, defender, baseMatch.Ball.CarrierPlayerId == defender.Id, pending.KnockDefenderDown);
+            var crowdSquare = CrowdPushDestination(pending.DefenderSquare);
+            var loggedMatch = baseMatch with
             {
                 Log =
                 [
-                    .. crowdMatch.Log,
+                    .. baseMatch.Log,
                     new MatchLogEntry { Message = $"{pending.ResultMessage} {defender.Name} declines Stand Firm. No legal push square is available; {defender.Name} is pushed into the crowd." }
                 ]
             };
 
-            return CompleteBlockPush(loggedMatch, ruleset, attackerTeam, attacker, defenderTeam, defender, pending.DefenderSquare, pending.KnockDefenderDown, pending.PreventFollowUp);
+            return CompleteBlockPush(
+                loggedMatch,
+                ruleset,
+                attackerTeam,
+                attacker,
+                defenderTeam,
+                defender,
+                pending.DefenderSquare,
+                crowdSquare,
+                pending.KnockDefenderDown,
+                stripBall,
+                pending.PreventFollowUp);
         }
 
         if (pending.LegalSquares.Count == 1)
         {
             var stripBall = ShouldStripBall(ruleset, attacker, defender, baseMatch.Ball.CarrierPlayerId == defender.Id, pending.KnockDefenderDown);
-            var pushedMatch = PushPlayer(baseMatch, ruleset, defender, pending.DefenderSquare, pending.LegalSquares[0], pending.KnockDefenderDown, () => ResolveBlockInjury(ruleset, attacker, defender), stripBall);
+            var pushedMatch = IsOnPitch(ruleset, pending.LegalSquares[0])
+                ? MovePushedPlayer(baseMatch, defender.Id, pending.LegalSquares[0])
+                : baseMatch;
             var pushMessage = IsOnPitch(ruleset, pending.LegalSquares[0])
                 ? $"{pending.ResultMessage} {defender.Name} declines Stand Firm and is pushed to {pending.LegalSquares[0].X},{pending.LegalSquares[0].Y}."
                 : $"{pending.ResultMessage} {defender.Name} declines Stand Firm and is pushed off the pitch into the crowd.";
@@ -707,7 +762,18 @@ public sealed partial class MatchService
                 ]
             };
 
-            return CompleteBlockPush(loggedMatch, ruleset, attackerTeam, attacker, defenderTeam, defender, pending.DefenderSquare, pending.KnockDefenderDown, pending.PreventFollowUp);
+            return CompleteBlockPush(
+                loggedMatch,
+                ruleset,
+                attackerTeam,
+                attacker,
+                defenderTeam,
+                defender,
+                pending.DefenderSquare,
+                pending.LegalSquares[0],
+                pending.KnockDefenderDown,
+                stripBall,
+                pending.PreventFollowUp);
         }
 
         return baseMatch with
@@ -1002,15 +1068,17 @@ public sealed partial class MatchService
             var defenderHasWrestle = PlayerHasHookedEffect(ruleset, defender, GameEventKind.BlockRoll, GameEventStage.BeforeResolve, SkillEffect.Wrestle);
             if (attackerHasWrestle || defenderHasWrestle)
             {
-                var ball = match.Ball;
-                var looseBallMatch = match;
+                var proneMatch = ApplyPlayerPitchState(match, attacker.Id, PlayerPitchState.Prone, attackerPlacement.Square);
+                proneMatch = ApplyPlayerPitchState(proneMatch, defender.Id, PlayerPitchState.Prone, defenderPlacement.Square);
+                var ball = proneMatch.Ball;
+                var looseBallMatch = proneMatch;
                 var wrestleLog = new List<MatchLogEntry>();
                 if (ball.CarrierPlayerId == attacker.Id || ball.CarrierPlayerId == defender.Id)
                 {
                     var dropSquare = ball.CarrierPlayerId == attacker.Id ? attackerPlacement.Square! : defenderPlacement.Square!;
                     var scatterSquare = ScatterFrom(ruleset, dropSquare);
-                    var landing = ResolveLooseBall(match, ruleset, scatterSquare);
-                    looseBallMatch = landing.Match with { Log = match.Log };
+                    var landing = ResolveLooseBall(proneMatch, ruleset, scatterSquare);
+                    looseBallMatch = landing.Match with { Log = proneMatch.Log };
                     ball = looseBallMatch.Ball;
                     wrestleLog.Add(new MatchLogEntry { Message = $"Ball scatters to {scatterSquare.X},{scatterSquare.Y}." });
                     wrestleLog.AddRange(landing.Log);
@@ -1019,15 +1087,9 @@ public sealed partial class MatchService
                 var wrestledMatch = looseBallMatch with
                 {
                     Ball = ball,
-                    Placements = looseBallMatch.Placements
-                        .Select(placement =>
-                            placement.PlayerId == attacker.Id || placement.PlayerId == defender.Id
-                                ? ApplyPitchState(looseBallMatch, placement, PlayerPitchState.Prone, placement.Square)
-                                : placement)
-                        .ToArray(),
                     Log =
                     [
-                        .. match.Log,
+                        .. looseBallMatch.Log,
                         new MatchLogEntry { Message = $"{attacker.Name} blocks {defender.Name}: {strengthText}, rolled {rollText}, chose {roll}, Wrestle places both players prone." },
                         .. wrestleLog
                     ]
@@ -1291,23 +1353,37 @@ public sealed partial class MatchService
 
         if (legalSquares.Length == 0)
         {
-            var resolvedMatch = PushPlayerIntoCrowd(match, ruleset, defenderPlacement);
-            var loggedMatch = resolvedMatch with
+            var stripBall = ShouldStripBall(ruleset, attacker, defender, match.Ball.CarrierPlayerId == defender.Id, knockDefenderDown);
+            var crowdSquare = CrowdPushDestination(defenderPlacement.Square!);
+            var loggedMatch = match with
             {
                 Log =
                 [
-                    .. resolvedMatch.Log,
+                    .. match.Log,
                     new MatchLogEntry { Message = $"{resultMessage} No legal push square is available; {defender.Name} is pushed into the crowd." }
                 ]
             };
 
-            return CompleteBlockPush(loggedMatch, ruleset, attackerTeam, attacker, defenderTeam, defender, defenderPlacement.Square!, knockDefenderDown, preventFollowUp);
+            return CompleteBlockPush(
+                loggedMatch,
+                ruleset,
+                attackerTeam,
+                attacker,
+                defenderTeam,
+                defender,
+                defenderPlacement.Square!,
+                crowdSquare,
+                knockDefenderDown,
+                stripBall,
+                preventFollowUp);
         }
 
         if (legalSquares.Length == 1)
         {
             var stripBall = ShouldStripBall(ruleset, attacker, defender, match.Ball.CarrierPlayerId == defender.Id, knockDefenderDown);
-            var pushedMatch = PushPlayer(match, ruleset, defender, defenderPlacement.Square!, legalSquares[0], knockDefenderDown, () => ResolveBlockInjury(ruleset, attacker, defender), stripBall);
+            var pushedMatch = IsOnPitch(ruleset, legalSquares[0])
+                ? MovePushedPlayer(match, defender.Id, legalSquares[0])
+                : match;
             var pushMessage = IsOnPitch(ruleset, legalSquares[0])
                 ? $"{resultMessage} {defender.Name} is pushed to {legalSquares[0].X},{legalSquares[0].Y}."
                 : $"{resultMessage} {defender.Name} is pushed off the pitch into the crowd.";
@@ -1320,7 +1396,18 @@ public sealed partial class MatchService
                 ]
             };
 
-            return CompleteBlockPush(loggedMatch, ruleset, attackerTeam, attacker, defenderTeam, defender, defenderPlacement.Square!, knockDefenderDown, preventFollowUp);
+            return CompleteBlockPush(
+                loggedMatch,
+                ruleset,
+                attackerTeam,
+                attacker,
+                defenderTeam,
+                defender,
+                defenderPlacement.Square!,
+                legalSquares[0],
+                knockDefenderDown,
+                stripBall,
+                preventFollowUp);
         }
 
         return match with
@@ -1353,15 +1440,24 @@ public sealed partial class MatchService
         LeagueTeam defenderTeam,
         Player defender,
         PitchSquare followUpSquare,
+        PitchSquare defenderDestination,
         bool knockDefenderDown,
+        bool stripBall,
         bool preventFollowUp = false)
     {
         var blocksMadeBeforePush = GetBlocksMade(match, attacker.Id, attackerTeam.Id);
-        var awardedMatch = AwardCasualtyIfCaused(match, attackerTeam, attacker, defenderTeam, defender.Id);
-        var countedMatch = IncrementActivationBlocksMade(awardedMatch, attacker.Id, attackerTeam.Id);
+        var countedMatch = IncrementActivationBlocksMade(match, attacker.Id, attackerTeam.Id);
+        var deferredPush = new PendingBlockPushResolution
+        {
+            Source = followUpSquare,
+            Destination = defenderDestination,
+            KnockDefenderDown = knockDefenderDown,
+            StripBall = stripBall
+        };
+
         if (preventFollowUp)
         {
-            var multipleBlockMatch = countedMatch with
+            var blockedFollowUpMatch = countedMatch with
             {
                 Log =
                 [
@@ -1369,6 +1465,12 @@ public sealed partial class MatchService
                     new MatchLogEntry { Message = $"{attacker.Name} cannot follow up while using Multiple Block." }
                 ]
             };
+            var multipleBlockMatch = AwardCasualtyIfCaused(
+                ResolveBlockPushConsequences(blockedFollowUpMatch, ruleset, attackerTeam, attacker, defenderTeam, defender, deferredPush),
+                attackerTeam,
+                attacker,
+                defenderTeam,
+                defender.Id);
 
             // Only end the activation once the second Multiple Block has resolved; while a
             // continuation is still pending the attacker has another block to make.
@@ -1377,21 +1479,32 @@ public sealed partial class MatchService
                 : multipleBlockMatch;
         }
 
-        if (!CanFollowUp(countedMatch, attacker.Id, attackerTeam.Id, followUpSquare))
+        if (!CanFollowUp(countedMatch, attacker.Id, attackerTeam.Id, followUpSquare, defender.Id))
         {
-            return CompleteBlockActivationIfDone(countedMatch, attacker.Id, attackerTeam.Id);
+            return CompleteBlockPushAfterConsequences(
+                ResolveBlockPushConsequences(countedMatch, ruleset, attackerTeam, attacker, defenderTeam, defender, deferredPush),
+                attackerTeam,
+                attacker,
+                defenderTeam,
+                defender);
         }
 
         if (PlayerHasHookedEffect(ruleset, defender, GameEventKind.Push, GameEventStage.AfterEvent, SkillEffect.Fend))
         {
-            return CompleteBlockActivationIfDone(countedMatch with
+            var fendMatch = countedMatch with
             {
                 Log =
                 [
                     .. countedMatch.Log,
                     new MatchLogEntry { Message = $"{defender.Name} uses Fend; {attacker.Name} cannot follow up." }
                 ]
-            }, attacker.Id, attackerTeam.Id);
+            };
+            return CompleteBlockPushAfterConsequences(
+                ResolveBlockPushConsequences(fendMatch, ruleset, attackerTeam, attacker, defenderTeam, defender, deferredPush),
+                attackerTeam,
+                attacker,
+                defenderTeam,
+                defender);
         }
 
         // Frenzy makes the follow-up mandatory on any push, regardless of whether the defender was
@@ -1408,6 +1521,12 @@ public sealed partial class MatchService
                     new MatchLogEntry { Message = $"{attacker.Name} must follow up with Frenzy." }
                 ]
             };
+            followedMatch = ResolveBlockPushConsequences(followedMatch, ruleset, attackerTeam, attacker, defenderTeam, defender, deferredPush);
+            followedMatch = AwardCasualtyIfCaused(followedMatch, attackerTeam, attacker, defenderTeam, defender.Id);
+            if (HasPostPushPendingChoice(followedMatch))
+            {
+                return followedMatch;
+            }
 
             // Frenzy grants a second block only when the first block left the defender standing and
             // adjacent. If the defender was knocked down, or this is already the second block, the
@@ -1440,7 +1559,8 @@ public sealed partial class MatchService
                 DefenderTeamId = defenderTeam.Id,
                 AttackerPlayerId = attacker.Id,
                 DefenderPlayerId = defender.Id,
-                FollowUpSquare = followUpSquare
+                FollowUpSquare = followUpSquare,
+                DeferredBlockPush = deferredPush
             },
             Log =
             [
@@ -1450,13 +1570,14 @@ public sealed partial class MatchService
         };
     }
 
-    private static bool CanFollowUp(MatchState match, Guid attackerPlayerId, Guid attackerTeamId, PitchSquare followUpSquare)
+    private static bool CanFollowUp(MatchState match, Guid attackerPlayerId, Guid attackerTeamId, PitchSquare followUpSquare, Guid? ignoredPlayerId = null)
     {
         var attackerPlacement = match.Placements.FirstOrDefault(placement => placement.PlayerId == attackerPlayerId);
         return attackerPlacement is { TeamId: var teamId, State: PlayerPitchState.Standing, Square: not null } &&
             teamId == attackerTeamId &&
             match.Placements.All(placement =>
                 placement.PlayerId == attackerPlayerId ||
+                placement.PlayerId == ignoredPlayerId ||
                 !PlacementOccupiesSquare(placement, followUpSquare) ||
                 !OccupiesPitch(placement.State));
     }
@@ -1633,6 +1754,7 @@ public sealed partial class MatchService
         injury = apothecary.Injury;
         log.AddRange(injury.Log ?? []);
         log.AddRange(apothecary.Log);
+        nextMatch = ApplyPlayerPitchState(nextMatch, player.Id, injury.State, OccupiesPitch(injury.State) ? square : null, injury.Casualty);
 
         if (match.Ball.CarrierPlayerId == player.Id)
         {
@@ -1664,13 +1786,61 @@ public sealed partial class MatchService
 
         return nextMatch with
         {
-            Placements = nextMatch.Placements
-                .Select(current => current.PlayerId == player.Id
-                    ? ApplyPitchState(nextMatch, current, injury.State, OccupiesPitch(injury.State) ? square : null, injury.Casualty)
-                    : current)
-                .ToArray(),
             Log = [.. nextMatch.Log, .. log]
         };
+    }
+
+    private MatchState CompleteBlockPushAfterConsequences(
+        MatchState match,
+        LeagueTeam attackerTeam,
+        Player attacker,
+        LeagueTeam defenderTeam,
+        Player defender)
+    {
+        var awardedMatch = AwardCasualtyIfCaused(match, attackerTeam, attacker, defenderTeam, defender.Id);
+        return CompleteBlockActivationIfDone(awardedMatch, attacker.Id, attackerTeam.Id);
+    }
+
+    private MatchState ResolveBlockPushConsequences(
+        MatchState match,
+        Ruleset ruleset,
+        LeagueTeam attackerTeam,
+        Player attacker,
+        LeagueTeam defenderTeam,
+        Player defender,
+        PendingBlockPushResolution push)
+    {
+        var resolvedMatch = PushPlayer(
+            match,
+            ruleset,
+            defender,
+            push.Source,
+            push.Destination,
+            push.KnockDefenderDown,
+            () => ResolveBlockInjury(ruleset, attacker, defender),
+            push.StripBall);
+
+        return resolvedMatch;
+    }
+
+    private static bool HasPostPushPendingChoice(MatchState match)
+    {
+        return match.PendingApothecary is not null ||
+            match.PendingBallPlacement is not null ||
+            match.PendingReroll is not null;
+    }
+
+    private static MatchState MovePushedPlayer(MatchState match, Guid playerId, PitchSquare destination)
+    {
+        var placement = FindPlacement(match, playerId)
+            ?? throw new InvalidOperationException("Pushed player is not part of this match.");
+
+        return ApplyPlayerPitchState(match, playerId, placement.State, destination, placement.Casualty);
+    }
+
+    private static PitchSquare CrowdPushDestination(PitchSquare source)
+    {
+        return new PitchSquare(source.X, -1);
     }
 
     private MatchState PushPlayer(MatchState match, Ruleset ruleset, Player player, PitchSquare source, PitchSquare destination, bool knockDown, Func<InjuryResolution>? resolveKnockdownState = null, bool stripBall = false)
@@ -1720,6 +1890,16 @@ public sealed partial class MatchService
                 ?? throw new InvalidOperationException("Pushed player is not part of this match.");
         }
 
+        var injury = knockDown ? resolveKnockdownState() : new InjuryResolution(PlayerPitchState.Standing);
+        var nextState = injury.State;
+        if (!knockDown)
+        {
+            nextState = placement.State;
+            injury = new InjuryResolution(nextState);
+        }
+
+        match = ApplyPlayerPitchState(match, playerId, nextState, OccupiesPitch(nextState) ? destination : null, injury.Casualty);
+
         var ball = match.Ball;
         var log = new List<MatchLogEntry>();
         if (ball.CarrierPlayerId == playerId && (knockDown || stripBall))
@@ -1762,24 +1942,11 @@ public sealed partial class MatchService
             log.AddRange(landing.Log);
         }
 
-        var injury = knockDown ? resolveKnockdownState() : new InjuryResolution(PlayerPitchState.Standing);
-        var nextState = injury.State;
-        if (!knockDown)
-        {
-            nextState = placement.State;
-            injury = new InjuryResolution(nextState);
-        }
-
         log.AddRange(injury.Log ?? []);
 
         return match with
         {
             Ball = ball,
-            Placements = match.Placements
-                .Select(current => current.PlayerId == playerId
-                    ? ApplyPitchState(match, current, nextState, OccupiesPitch(nextState) ? destination : null, injury.Casualty)
-                    : current)
-                .ToArray(),
             Log = [.. match.Log, .. log]
         };
     }

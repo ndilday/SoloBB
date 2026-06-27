@@ -1333,6 +1333,90 @@ public partial class MatchScreen : VBoxContainer
         return path.Count > RemainingRegularMovement(player, placement, activation);
     }
 
+    private bool MovementTargetRequiresDodge(Guid playerId, PitchSquare destination)
+    {
+        var player = FindPlayer(playerId);
+        var placement = _match.Placements.FirstOrDefault(current => current.PlayerId == playerId);
+        if (player is null || placement?.Square is not PitchSquare start)
+        {
+            return false;
+        }
+
+        if (destination == start)
+        {
+            return false;
+        }
+
+        var activation = CurrentTurnActivation(playerId);
+        var remainingMovement = RemainingTotalMovement(player, placement, activation);
+        return !CanReachWithoutDodge(playerId, start, destination, remainingMovement);
+    }
+
+    private bool CanReachWithoutDodge(Guid playerId, PitchSquare start, PitchSquare destination, int maxSteps)
+    {
+        if (maxSteps <= 0)
+        {
+            return false;
+        }
+
+        var queue = new Queue<(PitchSquare Square, int Steps)>();
+        var bestSteps = new Dictionary<PitchSquare, int> { [start] = 0 };
+        queue.Enqueue((start, 0));
+
+        while (queue.Count > 0)
+        {
+            var (current, steps) = queue.Dequeue();
+            if (current == destination)
+            {
+                return true;
+            }
+
+            if (steps >= maxSteps || IsMarkedByOpponent(_match, _match.ActiveTeamId, playerId, current))
+            {
+                continue;
+            }
+
+            foreach (var next in AdjacentPitchSquares(current))
+            {
+                if (_match.Placements.Any(placement => placement.PlayerId != playerId && placement.Square == next))
+                {
+                    continue;
+                }
+
+                var nextSteps = steps + 1;
+                if (bestSteps.TryGetValue(next, out var seenSteps) && seenSteps <= nextSteps)
+                {
+                    continue;
+                }
+
+                bestSteps[next] = nextSteps;
+                queue.Enqueue((next, nextSteps));
+            }
+        }
+
+        return false;
+    }
+
+    private IEnumerable<PitchSquare> AdjacentPitchSquares(PitchSquare square)
+    {
+        for (var dx = -1; dx <= 1; dx++)
+        {
+            for (var dy = -1; dy <= 1; dy++)
+            {
+                if (dx == 0 && dy == 0)
+                {
+                    continue;
+                }
+
+                var next = new PitchSquare(square.X + dx, square.Y + dy);
+                if (IsOnPitch(next))
+                {
+                    yield return next;
+                }
+            }
+        }
+    }
+
     private static IReadOnlyList<PitchSquare> BuildMovementPath(PitchSquare start, PitchSquare destination)
     {
         var path = new List<PitchSquare>();
@@ -1354,9 +1438,8 @@ public partial class MatchScreen : VBoxContainer
         return match.Placements.Any(placement =>
             placement.TeamId != teamId &&
             placement.PlayerId != playerId &&
-            placement.State == PlayerPitchState.Standing &&
-            placement.Square is PitchSquare opponentSquare &&
-            Math.Max(Math.Abs(opponentSquare.X - square.X), Math.Abs(opponentSquare.Y - square.Y)) == 1);
+            MatchGeometry.HasActiveTackleZone(placement) &&
+            MatchGeometry.IsAdjacentToPlacement(placement, square));
     }
 
     private static bool IsMarkedByOpponent(MatchState match, Guid teamId, Guid playerId, PitchSquare square, Guid ignoredOpponentId)
@@ -1365,9 +1448,8 @@ public partial class MatchScreen : VBoxContainer
             placement.TeamId != teamId &&
             placement.PlayerId != playerId &&
             placement.PlayerId != ignoredOpponentId &&
-            placement.State == PlayerPitchState.Standing &&
-            placement.Square is PitchSquare opponentSquare &&
-            Math.Max(Math.Abs(opponentSquare.X - square.X), Math.Abs(opponentSquare.Y - square.Y)) == 1);
+            MatchGeometry.HasActiveTackleZone(placement) &&
+            MatchGeometry.IsAdjacentToPlacement(placement, square));
     }
 
     private static int CountOpposingTackleZones(MatchState match, Guid teamId, Guid playerId, PitchSquare square)
