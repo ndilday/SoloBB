@@ -1,7 +1,0 @@
-[gd_scene load_steps=2 format=3]
-
-[ext_resource type="Script" path="res://src/SoloBB.Godot/Scripts/Screens/TeamRosterScreen.cs" id="1_team_roster"]
-
-[node name="TeamRosterScreen" type="VBoxContainer"]
-theme_override_constants/separation = 12
-script = ExtResource("1_team_roster")

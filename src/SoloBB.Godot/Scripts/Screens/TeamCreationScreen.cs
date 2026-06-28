@@ -42,11 +42,20 @@ public partial class TeamCreationScreen : VBoxContainer
 
     private Ruleset _ruleset = null!;
     private RosterSet _rosterSet = null!;
+    private League? _league;
     private TeamRoster? _selectedRoster;
     private LeagueTeam? _editingTeam;
+    private string _latestSeasonName = "";
     private Func<TeamDraftRequest, Task> _saveTeam = _ => Task.CompletedTask;
     private Func<TeamManagementRequest, Task> _saveManagement = _ => Task.CompletedTask;
-    private Action<Guid> _openRoster = _ => { };
+    private Func<Guid, string, Task> _renamePlayer = (_, _) => Task.CompletedTask;
+    private Func<Guid, string, Task> _purchaseSelectedSkill = (_, _) => Task.CompletedTask;
+    private Func<Guid, bool, Task> _purchaseRandomSkill = (_, _) => Task.CompletedTask;
+    private Func<Guid, Task<CharacteristicAdvancementRoll>> _rollCharacteristic =
+        _ => Task.FromResult(new CharacteristicAdvancementRoll(0, 0, Array.Empty<PlayerCharacteristic>()));
+    private Func<Guid, int, PlayerCharacteristic, Task> _applyCharacteristic = (_, _, _) => Task.CompletedTask;
+    private Func<Guid, string, Task> _applyCharacteristicSkill = (_, _) => Task.CompletedTask;
+    private Func<Guid, bool, Task> _movePlayer = (_, _) => Task.CompletedTask;
 
     private LineEdit _teamNameEdit = null!;
     private LineEdit _coachNameEdit = null!;
@@ -65,6 +74,33 @@ public partial class TeamCreationScreen : VBoxContainer
     private Label _statusLabel = null!;
     private Label _rosterPreviewLabel = null!;
     private Button _saveButton = null!;
+    private Tree _playerTree = null!;
+    private Label _playerDetailTitle = null!;
+    private Label _playerDetailMeta = null!;
+    private Label _playerStatsLabel = null!;
+    private Label _playerSppLabel = null!;
+    private Label _playerSkillsLabel = null!;
+    private LineEdit _playerNameEdit = null!;
+    private Button _playerNameButton = null!;
+    private Guid? _playerDetailPlayerId;
+    private Button _spendSppButton = null!;
+    private Button _moveUpButton = null!;
+    private Button _moveDownButton = null!;
+    private Button _playerHistoryButton = null!;
+    private AcceptDialog _developmentDialog = null!;
+    private AcceptDialog _previousPlayersDialog = null!;
+    private AcceptDialog _playerHistoryDialog = null!;
+    private MarginContainer _playerHistoryContent = null!;
+    private Label _developmentDialogLabel = null!;
+    private OptionButton _skillOption = null!;
+    private OptionButton _secondarySkillOption = null!;
+    private Button _selectedSkillButton = null!;
+    private Button _selectedSecondarySkillButton = null!;
+    private Button _randomSkillButton = null!;
+    private Button _randomSecondaryButton = null!;
+    private Button _characteristicButton = null!;
+    private RichTextLabel _primarySkillsLabel = null!;
+    private RichTextLabel _secondarySkillsLabel = null!;
 
     public void Setup(
         Ruleset ruleset,
@@ -72,10 +108,18 @@ public partial class TeamCreationScreen : VBoxContainer
         string defaultTeamName,
         Func<TeamDraftRequest, Task> saveTeam,
         Action back,
+        League? league = null,
+        string latestSeasonName = "",
         LeagueTeam? editingTeam = null,
         TeamRecord? record = null,
         Func<TeamManagementRequest, Task>? saveManagement = null,
-        Action<Guid>? openRoster = null)
+        Func<Guid, string, Task>? renamePlayer = null,
+        Func<Guid, string, Task>? purchaseSelectedSkill = null,
+        Func<Guid, bool, Task>? purchaseRandomSkill = null,
+        Func<Guid, Task<CharacteristicAdvancementRoll>>? rollCharacteristic = null,
+        Func<Guid, int, PlayerCharacteristic, Task>? applyCharacteristic = null,
+        Func<Guid, string, Task>? applyCharacteristicSkill = null,
+        Func<Guid, bool, Task>? movePlayer = null)
     {
         Clear();
         AddThemeConstantOverride("separation", 8);
@@ -83,10 +127,19 @@ public partial class TeamCreationScreen : VBoxContainer
 
         _ruleset = ruleset;
         _rosterSet = rosterSet;
+        _league = league;
         _editingTeam = editingTeam;
+        _latestSeasonName = latestSeasonName;
         _saveTeam = saveTeam;
         _saveManagement = saveManagement ?? (_ => Task.CompletedTask);
-        _openRoster = openRoster ?? (_ => { });
+        _renamePlayer = renamePlayer ?? ((_, _) => Task.CompletedTask);
+        _purchaseSelectedSkill = purchaseSelectedSkill ?? ((_, _) => Task.CompletedTask);
+        _purchaseRandomSkill = purchaseRandomSkill ?? ((_, _) => Task.CompletedTask);
+        _rollCharacteristic = rollCharacteristic ??
+            (_ => Task.FromResult(new CharacteristicAdvancementRoll(0, 0, Array.Empty<PlayerCharacteristic>())));
+        _applyCharacteristic = applyCharacteristic ?? ((_, _, _) => Task.CompletedTask);
+        _applyCharacteristicSkill = applyCharacteristicSkill ?? ((_, _) => Task.CompletedTask);
+        _movePlayer = movePlayer ?? ((_, _) => Task.CompletedTask);
 
         if (editingTeam is null)
         {
@@ -144,17 +197,23 @@ public partial class TeamCreationScreen : VBoxContainer
 
     private void BuildEditLayout(LeagueTeam team, TeamRecord record, Action back)
     {
-        AddScreenHeader($"Edit {team.Name}", "Save Changes", async () => await SaveManagementAsync(), back);
+        AddScreenHeader(
+            $"{team.Name} ({FormatRecord(record)})",
+            "Save Changes",
+            async () => await SaveManagementAsync(),
+            back,
+            OpenPreviousPlayers);
 
         _selectedRoster = FindRoster(team.RosterId);
 
-        var body = new HBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        var body = new HBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill, SizeFlagsVertical = SizeFlags.ExpandFill };
         body.AddThemeConstantOverride("separation", 10);
         AddChild(body);
 
         var mainColumn = new VBoxContainer
         {
             SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            SizeFlagsVertical = SizeFlags.ExpandFill,
             SizeFlagsStretchRatio = 1.8f
         };
         mainColumn.AddThemeConstantOverride("separation", 8);
@@ -164,18 +223,20 @@ public partial class TeamCreationScreen : VBoxContainer
         {
             CustomMinimumSize = new Vector2(260, 0),
             SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            SizeFlagsVertical = SizeFlags.ExpandFill,
             SizeFlagsStretchRatio = 0.7f
         };
         sideColumn.AddThemeConstantOverride("separation", 8);
         body.AddChild(sideColumn);
 
-        mainColumn.AddChild(ScreenStyles.Panel("Team Snapshot", BuildTeamSnapshotPanel(team, record), _selectedRoster?.Name ?? team.RosterId));
-        mainColumn.AddChild(ScreenStyles.Panel("Team Assets", BuildAssetPanel(), "Staff and sideline"));
-        mainColumn.AddChild(ScreenStyles.Panel("Team Actions", BuildTeamActionsPanel(team), RosterAttentionBadge(team), ScreenStyles.Warning));
+        mainColumn.AddChild(ScreenStyles.Panel("Team Details", BuildTeamDetailsPanel(team), _selectedRoster?.Name ?? team.RosterId));
+        var rosterPanel = ScreenStyles.Panel("Player Roster", BuildTeamRosterPanel(team), RosterAttentionBadge(team), ScreenStyles.Warning);
+        rosterPanel.SizeFlagsVertical = SizeFlags.ExpandFill;
+        mainColumn.AddChild(rosterPanel);
 
-        sideColumn.AddChild(ScreenStyles.Panel("Team Value", BuildEditValuePanel(team), "Preview"));
+        sideColumn.AddChild(ScreenStyles.Panel("Team Value", BuildEditValuePanel(team)));
         sideColumn.AddChild(ScreenStyles.Panel("Roster Summary", BuildRosterSummaryPanel(team)));
-        sideColumn.AddChild(ScreenStyles.Panel("Save Status", BuildStatusPanel(), "Changed", ScreenStyles.Warning));
+        sideColumn.AddChild(ScreenStyles.Panel("Player Detail", BuildPlayerDetailPanel()));
 
         _rerollsSpin.Value = team.Rerolls;
         _dedicatedFansSpin.Value = team.DedicatedFans;
@@ -183,9 +244,22 @@ public partial class TeamCreationScreen : VBoxContainer
         _assistantCoachesSpin.Value = team.AssistantCoaches;
         _apothecariesSpin.Value = team.Apothecaries;
         UpdateDraftSummary();
+
+        _developmentDialog = BuildDevelopmentDialog();
+        AddChild(_developmentDialog);
+        _previousPlayersDialog = BuildPreviousPlayersDialog();
+        AddChild(_previousPlayersDialog);
+        _playerHistoryDialog = BuildPlayerHistoryDialog();
+        AddChild(_playerHistoryDialog);
+        SelectFirstPlayer();
     }
 
-    private void AddScreenHeader(string title, string primaryAction, Func<Task> save, Action back)
+    private void AddScreenHeader(
+        string title,
+        string primaryAction,
+        Func<Task> save,
+        Action back,
+        Action? previousPlayers = null)
     {
         var panel = new PanelContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
         var headerStyle = ScreenStyles.FlatStyle(new Color("202720"), ScreenStyles.PanelBorderSoft);
@@ -229,6 +303,13 @@ public partial class TeamCreationScreen : VBoxContainer
         backButton.Pressed += back;
         actions.AddChild(backButton);
 
+        if (previousPlayers is not null)
+        {
+            var previousButton = ScreenStyles.StyledButton("Previous Players");
+            previousButton.Pressed += previousPlayers;
+            actions.AddChild(previousButton);
+        }
+
         _saveButton = ScreenStyles.StyledButton(primaryAction, primary: true, disabled: true);
         _saveButton.Pressed += async () => await save();
         actions.AddChild(_saveButton);
@@ -257,22 +338,13 @@ public partial class TeamCreationScreen : VBoxContainer
         return grid;
     }
 
-    private Control BuildTeamSnapshotPanel(LeagueTeam team, TeamRecord record)
+    private Control BuildTeamDetailsPanel(LeagueTeam team)
     {
-        var stack = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
-        stack.AddThemeConstantOverride("separation", 10);
-        stack.AddChild(BuildIdentityPanel(team.Name, team.CoachName, showRosterPicker: false));
-
-        var stats = new GridContainer { Columns = 4, SizeFlagsHorizontal = SizeFlags.ExpandFill };
-        stats.AddThemeConstantOverride("h_separation", 8);
-        stats.AddThemeConstantOverride("v_separation", 8);
-        stats.AddChild(Metric("TV", FormatGold(team.TeamValue)));
-        stats.AddChild(Metric("Treasury", FormatGold(team.Treasury)));
-        stats.AddChild(Metric("Players", team.Players.Count.ToString()));
-        stats.AddChild(Metric("Record", $"{record.Wins}-{record.Losses}-{record.Draws}"));
-        stack.AddChild(stats);
-
-        return stack;
+        var row = new HBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        row.AddThemeConstantOverride("separation", 8);
+        row.AddChild(BuildTeamIdentityColumn(team));
+        AddAssetControls(row, compact: true);
+        return row;
     }
 
     private Control BuildPositionDraftPanel()
@@ -288,24 +360,27 @@ public partial class TeamCreationScreen : VBoxContainer
         var grid = new GridContainer { Columns = 5, SizeFlagsHorizontal = SizeFlags.ExpandFill };
         grid.AddThemeConstantOverride("h_separation", 10);
         grid.AddThemeConstantOverride("v_separation", 10);
+        AddAssetControls(grid, compact: false);
+        return grid;
+    }
 
-        _rerollCostLabel = ScreenStyles.MutedLabel("Select a roster");
+    private void AddAssetControls(Container parent, bool compact)
+    {
+        _rerollCostLabel = ScreenStyles.MutedLabel(_selectedRoster is null ? "Select a roster" : FormatGold(_selectedRoster.RerollCost));
         _rerollsSpin = CreateSpinBox(0, _ruleset.RerollCap, _editingTeam?.Rerolls ?? 2);
-        grid.AddChild(AssetControl("Rerolls", _rerollCostLabel, _rerollsSpin));
+        parent.AddChild(AssetControl("Rerolls", _rerollCostLabel, _rerollsSpin, compact));
 
         _dedicatedFansSpin = CreateSpinBox(1, 9, _editingTeam?.DedicatedFans ?? 1);
-        grid.AddChild(AssetControl("Dedicated Fans", ScreenStyles.MutedLabel(FormatGold(DedicatedFanCost)), _dedicatedFansSpin));
+        parent.AddChild(AssetControl("Dedicated Fans", ScreenStyles.MutedLabel(FormatGold(DedicatedFanCost)), _dedicatedFansSpin, compact));
 
         _assistantCoachesSpin = CreateSpinBox(0, 12, _editingTeam?.AssistantCoaches ?? 0);
-        grid.AddChild(AssetControl("Assistants", ScreenStyles.MutedLabel(FormatGold(AssistantCoachCost)), _assistantCoachesSpin));
+        parent.AddChild(AssetControl("Assistants", ScreenStyles.MutedLabel(FormatGold(AssistantCoachCost)), _assistantCoachesSpin, compact));
 
         _cheerleadersSpin = CreateSpinBox(0, 12, _editingTeam?.Cheerleaders ?? 0);
-        grid.AddChild(AssetControl("Cheerleaders", ScreenStyles.MutedLabel(FormatGold(CheerleaderCost)), _cheerleadersSpin));
+        parent.AddChild(AssetControl("Cheerleaders", ScreenStyles.MutedLabel(FormatGold(CheerleaderCost)), _cheerleadersSpin, compact));
 
         _apothecariesSpin = CreateSpinBox(0, 1, _editingTeam?.Apothecaries ?? 0);
-        grid.AddChild(AssetControl("Apothecary", ScreenStyles.MutedLabel(FormatGold(ApothecaryCost)), _apothecariesSpin));
-
-        return grid;
+        parent.AddChild(AssetControl("Apothecary", ScreenStyles.MutedLabel(FormatGold(ApothecaryCost)), _apothecariesSpin, compact));
     }
 
     private Control BuildBudgetPanel()
@@ -361,47 +436,201 @@ public partial class TeamCreationScreen : VBoxContainer
         stack.AddChild(BudgetRow("Ready players", team.Players.Count(player => player.Status == PlayerStatus.Available).ToString()));
         stack.AddChild(BudgetRow("Missing next game", team.Players.Count(player => player.Status == PlayerStatus.MissNextGame).ToString()));
         stack.AddChild(BudgetRow("Can level up", team.Players.Count(CanLevelUp).ToString()));
-        var openButton = ScreenStyles.StyledButton("Open Roster", primary: true);
-        openButton.Pressed += () => _openRoster(team.Id);
-        stack.AddChild(openButton);
         return stack;
     }
 
-    private Control BuildTeamActionsPanel(LeagueTeam team)
+    private Control BuildTeamRosterPanel(LeagueTeam team)
+    {
+        var stack = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill, SizeFlagsVertical = SizeFlags.ExpandFill };
+        stack.AddThemeConstantOverride("separation", 8);
+
+        _playerTree = new Tree
+        {
+            Columns = 7,
+            HideRoot = true,
+            ColumnTitlesVisible = true,
+            SelectMode = Tree.SelectModeEnum.Row,
+            CustomMinimumSize = new Vector2(680, 240),
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            SizeFlagsVertical = SizeFlags.ExpandFill
+        };
+        _playerTree.SetColumnTitle(0, "#");
+        _playerTree.SetColumnTitle(1, "Player");
+        _playerTree.SetColumnTitle(2, "Position");
+        _playerTree.SetColumnTitle(3, "Title");
+        _playerTree.SetColumnTitle(4, "Status");
+        _playerTree.SetColumnTitle(5, "SPP");
+        _playerTree.SetColumnTitle(6, "Skills");
+
+        int[] columnExpandRatios = [0, 4, 3, 2, 0, 0, 5];
+        for (var column = 0; column < _playerTree.Columns; column++)
+        {
+            var ratio = columnExpandRatios[column];
+            var expands = ratio > 0;
+            _playerTree.SetColumnExpand(column, expands);
+            if (expands)
+            {
+                _playerTree.SetColumnExpandRatio(column, ratio);
+            }
+
+            _playerTree.SetColumnTitleAlignment(
+                column,
+                column is 0 or 5 ? HorizontalAlignment.Right : HorizontalAlignment.Left);
+        }
+
+        _playerTree.SetColumnCustomMinimumWidth(0, 42);
+        _playerTree.SetColumnCustomMinimumWidth(1, 160);
+        _playerTree.SetColumnCustomMinimumWidth(2, 120);
+        _playerTree.SetColumnCustomMinimumWidth(3, 92);
+        _playerTree.SetColumnCustomMinimumWidth(4, 82);
+        _playerTree.SetColumnCustomMinimumWidth(5, 48);
+        _playerTree.SetColumnCustomMinimumWidth(6, 220);
+        _playerTree.AddThemeConstantOverride("h_separation", 10);
+        _playerTree.AddThemeConstantOverride("v_separation", 5);
+        _playerTree.ItemSelected += UpdatePlayerDetail;
+
+        var root = _playerTree.CreateItem();
+        foreach (var player in team.Players.Where(IsCurrentPlayer).OrderBy(player => player.Number))
+        {
+            var item = _playerTree.CreateItem(root);
+            item.SetText(0, player.Number.ToString());
+            item.SetText(1, player.Name);
+            item.SetText(2, PositionName(player.PositionId));
+            item.SetText(3, LeagueService.PlayerTitle(_selectedRoster!, player));
+            item.SetText(4, FormatStatus(player.Status));
+            item.SetText(5, player.StarPlayerPoints.ToString());
+            item.SetText(6, FormatSkills(player));
+            item.SetMetadata(0, Variant.From(player.Id.ToString()));
+            if (CanLevelUp(player))
+            {
+                item.SetCustomColor(5, ScreenStyles.Brass);
+                item.SetTooltipText(5, "This player can spend SPP.");
+            }
+
+            for (var column = 0; column < _playerTree.Columns; column++)
+            {
+                item.SetTextAlignment(
+                    column,
+                    column is 0 or 5 ? HorizontalAlignment.Right : HorizontalAlignment.Left);
+            }
+
+            item.SetCustomMinimumHeight(28);
+        }
+
+        stack.AddChild(_playerTree);
+        return stack;
+    }
+
+    private Control BuildPlayerDetailPanel()
     {
         var stack = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
-        stack.AddThemeConstantOverride("separation", 10);
-        stack.AddChild(ActionRow("Open Roster", "Manage player names, numbers, SPP spending, level-ups, injuries, and retirements.", () => _openRoster(team.Id), primary: true));
-        stack.AddChild(ActionRow("Transactions", "Hire and fire player flow will live here once treasury purchases are split from setup drafting.", () => SetStatus("Transactions are planned as a dedicated follow-up flow.")));
+        stack.AddThemeConstantOverride("separation", 8);
+
+        _playerDetailTitle = new Label { Text = "Select a player" };
+        _playerDetailTitle.AddThemeFontSizeOverride("font_size", 18);
+        _playerDetailTitle.AddThemeColorOverride("font_color", ScreenStyles.Text);
+        stack.AddChild(_playerDetailTitle);
+
+        _playerDetailMeta = ScreenStyles.MutedLabel("");
+        stack.AddChild(_playerDetailMeta);
+
+        var nameRow = new HBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        nameRow.AddThemeConstantOverride("separation", 8);
+        nameRow.AddChild(ScreenStyles.MutedLabel("Name"));
+        _playerNameEdit = new LineEdit
+        {
+            Editable = false,
+            SizeFlagsHorizontal = SizeFlags.ExpandFill
+        };
+        nameRow.AddChild(_playerNameEdit);
+        _playerNameButton = ScreenStyles.StyledButton("Edit");
+        _playerNameButton.Pressed += async () => await TogglePlayerNameEditAsync();
+        nameRow.AddChild(_playerNameButton);
+        stack.AddChild(nameRow);
+
+        _playerStatsLabel = new Label { Text = "MA -   ST -   AG -   PA -   AV -" };
+        _playerStatsLabel.AddThemeColorOverride("font_color", ScreenStyles.Text);
+        stack.AddChild(_playerStatsLabel);
+
+        _playerSkillsLabel = new Label
+        {
+            Text = "Skills: -",
+            AutowrapMode = TextServer.AutowrapMode.WordSmart
+        };
+        _playerSkillsLabel.AddThemeColorOverride("font_color", ScreenStyles.MutedText);
+        stack.AddChild(_playerSkillsLabel);
+
+        _playerSppLabel = ScreenStyles.MutedLabel("");
+        stack.AddChild(_playerSppLabel);
+
+        _spendSppButton = ScreenStyles.StyledButton("Spend SPP", primary: true, disabled: true);
+        _spendSppButton.Pressed += OpenDevelopmentForSelectedPlayer;
+        stack.AddChild(_spendSppButton);
+
+        var moveRow = new HBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        moveRow.AddThemeConstantOverride("separation", 8);
+        _moveUpButton = ScreenStyles.StyledButton("Move Up", disabled: true);
+        _moveUpButton.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+        _moveUpButton.Pressed += async () => await MoveSelectedAsync(up: true);
+        moveRow.AddChild(_moveUpButton);
+        _moveDownButton = ScreenStyles.StyledButton("Move Down", disabled: true);
+        _moveDownButton.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+        _moveDownButton.Pressed += async () => await MoveSelectedAsync(up: false);
+        moveRow.AddChild(_moveDownButton);
+        stack.AddChild(moveRow);
+
+        _playerHistoryButton = ScreenStyles.StyledButton("Player History", disabled: true);
+        _playerHistoryButton.Pressed += OpenPlayerHistory;
+        stack.AddChild(_playerHistoryButton);
+
         return stack;
     }
 
-    private Control ActionRow(string title, string detail, Action pressed, bool primary = false)
+    private Control BuildTeamIdentityColumn(LeagueTeam team)
     {
-        var row = new HBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
-        row.AddThemeConstantOverride("separation", 10);
+        var panel = new PanelContainer
+        {
+            CustomMinimumSize = new Vector2(230, 0),
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            SizeFlagsStretchRatio = 1.7f
+        };
+        panel.AddThemeStyleboxOverride("panel", ScreenStyles.FlatStyle(new Color("181e1a"), ScreenStyles.PanelBorderSoft));
 
-        var copy = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
-        copy.AddChild(new Label { Text = title });
-        copy.AddChild(ScreenStyles.MutedLabel(detail));
-        row.AddChild(copy);
+        var grid = new GridContainer { Columns = 2, SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        grid.AddThemeConstantOverride("h_separation", 8);
+        grid.AddThemeConstantOverride("v_separation", 4);
+        panel.AddChild(grid);
 
-        var button = ScreenStyles.StyledButton(title, primary);
-        button.Pressed += pressed;
-        row.AddChild(button);
-        return row;
+        grid.AddChild(CompactDetailLabel("Team Name"));
+        _teamNameEdit = AddLineEdit(grid, "Team name", team.Name);
+        _teamNameEdit.CustomMinimumSize = new Vector2(130, 28);
+        grid.AddChild(CompactDetailLabel("Coach"));
+        _coachNameEdit = AddLineEdit(grid, "Coach name", team.CoachName);
+        _coachNameEdit.CustomMinimumSize = new Vector2(130, 28);
+        grid.AddChild(CompactDetailLabel("Treasury"));
+        grid.AddChild(DetailValue(FormatGold(team.Treasury)));
+        return panel;
     }
 
-    private Control AssetControl(string title, Label costLabel, SpinBox spinBox)
+    private Control AssetControl(string title, Label costLabel, SpinBox spinBox, bool compact = false)
     {
-        var panel = new PanelContainer { CustomMinimumSize = new Vector2(120, 0), SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        var panel = new PanelContainer
+        {
+            CustomMinimumSize = new Vector2(compact ? 112 : 120, 0),
+            SizeFlagsHorizontal = compact ? SizeFlags.Fill : SizeFlags.ExpandFill
+        };
         panel.AddThemeStyleboxOverride("panel", ScreenStyles.FlatStyle(new Color("181e1a"), ScreenStyles.PanelBorderSoft));
 
         var stack = new VBoxContainer();
-        stack.AddThemeConstantOverride("separation", 6);
+        stack.AddThemeConstantOverride("separation", compact ? 3 : 6);
         panel.AddChild(stack);
         stack.AddChild(ScreenStyles.MutedLabel(title));
         stack.AddChild(costLabel);
+        if (compact)
+        {
+            spinBox.CustomMinimumSize = new Vector2(78, 28);
+        }
+
         stack.AddChild(spinBox);
         return panel;
     }
@@ -451,6 +680,327 @@ public partial class TeamCreationScreen : VBoxContainer
         value.AddThemeColorOverride("font_color", ScreenStyles.Text);
         row.AddChild(value);
         return row;
+    }
+
+    private static Label DetailValue(string text)
+    {
+        var label = new Label
+        {
+            Text = text,
+            VerticalAlignment = VerticalAlignment.Center,
+            SizeFlagsHorizontal = SizeFlags.ExpandFill
+        };
+        label.AddThemeColorOverride("font_color", ScreenStyles.Text);
+        return label;
+    }
+
+    private static Label CompactDetailLabel(string text)
+    {
+        var label = ScreenStyles.MutedLabel(text);
+        label.VerticalAlignment = VerticalAlignment.Center;
+        label.CustomMinimumSize = new Vector2(72, 28);
+        return label;
+    }
+
+    private AcceptDialog BuildDevelopmentDialog()
+    {
+        var popup = new AcceptDialog
+        {
+            Title = "Player Development",
+            Unresizable = false,
+            MinSize = new Vector2I(720, 620)
+        };
+        popup.GetOkButton().Text = "Close";
+
+        var margin = new MarginContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        margin.AddThemeConstantOverride("margin_left", 8);
+        margin.AddThemeConstantOverride("margin_top", 8);
+        margin.AddThemeConstantOverride("margin_right", 8);
+        margin.AddThemeConstantOverride("margin_bottom", 8);
+        popup.AddChild(margin);
+
+        var stack = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        stack.AddThemeConstantOverride("separation", 10);
+        margin.AddChild(stack);
+
+        _developmentDialogLabel = new Label { AutowrapMode = TextServer.AutowrapMode.WordSmart };
+        _developmentDialogLabel.AddThemeColorOverride("font_color", ScreenStyles.MutedText);
+        stack.AddChild(_developmentDialogLabel);
+
+        stack.AddChild(DevelopmentHeading("Random skill"));
+        stack.AddChild(DevelopmentHelp("Roll from a Primary or Secondary category. The result is chosen for you."));
+
+        var randomRow = new HBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        randomRow.AddThemeConstantOverride("separation", 8);
+        _randomSkillButton = ScreenStyles.StyledButton("Random Primary", primary: true);
+        _randomSkillButton.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+        _randomSkillButton.Pressed += async () => await PurchaseRandomSkillAsync(secondary: false);
+        randomRow.AddChild(_randomSkillButton);
+
+        _randomSecondaryButton = ScreenStyles.StyledButton("Random Secondary");
+        _randomSecondaryButton.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+        _randomSecondaryButton.Pressed += async () => await PurchaseRandomSkillAsync(secondary: true);
+        randomRow.AddChild(_randomSecondaryButton);
+        stack.AddChild(randomRow);
+
+        stack.AddChild(new HSeparator());
+        stack.AddChild(DevelopmentHeading("Choose a skill"));
+        stack.AddChild(DevelopmentHelp("Select the exact skill to add. Secondary skills cost more SPP."));
+
+        var chosenSkillRow = new HBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        chosenSkillRow.AddThemeConstantOverride("separation", 8);
+        chosenSkillRow.AddChild(DevelopmentChoiceLabel("Primary"));
+        _skillOption = new OptionButton { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        chosenSkillRow.AddChild(_skillOption);
+
+        _selectedSkillButton = ScreenStyles.StyledButton("Buy");
+        _selectedSkillButton.Pressed += async () => await PurchaseSelectedSkillAsync(_skillOption);
+        chosenSkillRow.AddChild(_selectedSkillButton);
+        stack.AddChild(chosenSkillRow);
+
+        var chosenSecondaryRow = new HBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        chosenSecondaryRow.AddThemeConstantOverride("separation", 8);
+        chosenSecondaryRow.AddChild(DevelopmentChoiceLabel("Secondary"));
+        _secondarySkillOption = new OptionButton { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        chosenSecondaryRow.AddChild(_secondarySkillOption);
+
+        _selectedSecondarySkillButton = ScreenStyles.StyledButton("Buy");
+        _selectedSecondarySkillButton.Pressed += async () => await PurchaseSelectedSkillAsync(_secondarySkillOption);
+        chosenSecondaryRow.AddChild(_selectedSecondarySkillButton);
+        stack.AddChild(chosenSecondaryRow);
+
+        stack.AddChild(new HSeparator());
+        stack.AddChild(DevelopmentHeading("Characteristic"));
+        stack.AddChild(DevelopmentHelp("Roll on the Characteristic Improvement table, then choose an available result."));
+        _characteristicButton = ScreenStyles.StyledButton("Improve Characteristic");
+        _characteristicButton.Pressed += async () => await ImproveCharacteristicAsync();
+        stack.AddChild(_characteristicButton);
+
+        stack.AddChild(new HSeparator());
+        stack.AddChild(DevelopmentHeading("Available skills"));
+
+        var availableSkills = new HBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        availableSkills.AddThemeConstantOverride("separation", 10);
+        _primarySkillsLabel = new RichTextLabel();
+        _secondarySkillsLabel = new RichTextLabel();
+        availableSkills.AddChild(DevelopmentSkillColumn("Primary", _primarySkillsLabel));
+        availableSkills.AddChild(DevelopmentSkillColumn("Secondary", _secondarySkillsLabel));
+        stack.AddChild(availableSkills);
+
+        return popup;
+    }
+
+    private static Label DevelopmentHeading(string text)
+    {
+        var label = new Label { Text = text };
+        label.AddThemeColorOverride("font_color", ScreenStyles.Text);
+        label.AddThemeFontSizeOverride("font_size", 14);
+        return label;
+    }
+
+    private static Label DevelopmentHelp(string text)
+    {
+        var label = ScreenStyles.MutedLabel(text);
+        label.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        return label;
+    }
+
+    private static Label DevelopmentChoiceLabel(string text)
+    {
+        var label = ScreenStyles.MutedLabel(text);
+        label.CustomMinimumSize = new Vector2(78, 0);
+        label.VerticalAlignment = VerticalAlignment.Center;
+        return label;
+    }
+
+    private static Control DevelopmentSkillColumn(string heading, RichTextLabel skillsLabel)
+    {
+        var stack = new VBoxContainer
+        {
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            SizeFlagsStretchRatio = 1f
+        };
+        stack.AddThemeConstantOverride("separation", 5);
+        stack.AddChild(DevelopmentHeading(heading));
+
+        skillsLabel.BbcodeEnabled = true;
+        skillsLabel.FitContent = true;
+        skillsLabel.ScrollActive = false;
+        skillsLabel.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        skillsLabel.AddThemeColorOverride("font_color", ScreenStyles.MutedText);
+        skillsLabel.AddThemeFontSizeOverride("font_size", 12);
+        stack.AddChild(skillsLabel);
+
+        var margin = new MarginContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        margin.AddThemeConstantOverride("margin_left", 10);
+        margin.AddThemeConstantOverride("margin_top", 8);
+        margin.AddThemeConstantOverride("margin_right", 10);
+        margin.AddThemeConstantOverride("margin_bottom", 8);
+        margin.AddChild(stack);
+
+        var panel = new PanelContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        panel.AddThemeStyleboxOverride("panel", ScreenStyles.FlatStyle(new Color("181e1a"), ScreenStyles.PanelBorderSoft));
+        panel.AddChild(margin);
+        return panel;
+    }
+
+    private AcceptDialog BuildPreviousPlayersDialog()
+    {
+        var popup = new AcceptDialog
+        {
+            Title = "Previous Players",
+            Unresizable = false,
+            MinSize = new Vector2I(780, 460)
+        };
+        popup.GetOkButton().Text = "Close";
+
+        var tree = new Tree
+        {
+            Columns = 5,
+            HideRoot = true,
+            ColumnTitlesVisible = true,
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            SizeFlagsVertical = SizeFlags.ExpandFill
+        };
+        tree.SetColumnTitle(0, "Player");
+        tree.SetColumnTitle(1, "Position");
+        tree.SetColumnTitle(2, "Title");
+        tree.SetColumnTitle(3, "Status");
+        tree.SetColumnTitle(4, "SPP");
+        tree.SetColumnCustomMinimumWidth(0, 220);
+        tree.SetColumnCustomMinimumWidth(1, 140);
+        tree.SetColumnCustomMinimumWidth(2, 120);
+        tree.SetColumnCustomMinimumWidth(3, 180);
+        tree.SetColumnCustomMinimumWidth(4, 52);
+
+        var root = tree.CreateItem();
+        var previousPlayers = PreviousPlayers();
+        foreach (var player in previousPlayers.OrderBy(player => player.Number))
+        {
+            var item = tree.CreateItem(root);
+            item.SetText(0, $"#{player.Number} {player.Name}");
+            item.SetText(1, PositionName(player.PositionId));
+            item.SetText(2, _selectedRoster is null ? "" : LeagueService.PlayerTitle(_selectedRoster, player));
+            item.SetText(3, FormatPreviousStatus(player));
+            item.SetText(4, player.StarPlayerPoints.ToString());
+            for (var column = 0; column < tree.Columns; column++)
+            {
+                item.SetTextAlignment(column, column == 4 ? HorizontalAlignment.Right : HorizontalAlignment.Left);
+            }
+
+            item.SetCustomMinimumHeight(28);
+        }
+
+        if (previousPlayers.Length == 0)
+        {
+            var item = tree.CreateItem(root);
+            item.SetText(0, "No previous players yet.");
+            item.SetCustomColor(0, ScreenStyles.MutedText);
+        }
+
+        popup.AddChild(tree);
+        return popup;
+    }
+
+    private AcceptDialog BuildPlayerHistoryDialog()
+    {
+        var popup = new AcceptDialog
+        {
+            Title = "Player History",
+            Unresizable = false,
+            MinSize = new Vector2I(860, 500)
+        };
+        popup.GetOkButton().Text = "Close";
+
+        _playerHistoryContent = new MarginContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        _playerHistoryContent.AddThemeConstantOverride("margin_left", 8);
+        _playerHistoryContent.AddThemeConstantOverride("margin_top", 8);
+        _playerHistoryContent.AddThemeConstantOverride("margin_right", 8);
+        _playerHistoryContent.AddThemeConstantOverride("margin_bottom", 8);
+        popup.AddChild(_playerHistoryContent);
+        return popup;
+    }
+
+    private void OpenPreviousPlayers()
+    {
+        _previousPlayersDialog.PopupCentered(new Vector2I(780, 500));
+    }
+
+    private void OpenPlayerHistory()
+    {
+        var player = SelectedPlayer();
+        if (player is null)
+        {
+            return;
+        }
+
+        foreach (var child in _playerHistoryContent.GetChildren())
+        {
+            _playerHistoryContent.RemoveChild(child);
+            child.QueueFree();
+        }
+
+        _playerHistoryDialog.Title = $"{player.Name} History";
+        _playerHistoryContent.AddChild(BuildPlayerHistoryTable(player));
+        _playerHistoryDialog.PopupCentered(new Vector2I(860, 500));
+    }
+
+    private Control BuildPlayerHistoryTable(Player player)
+    {
+        var history = PlayerHistory(player);
+        var tree = new Tree
+        {
+            Columns = 6,
+            HideRoot = true,
+            ColumnTitlesVisible = true,
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            SizeFlagsVertical = SizeFlags.ExpandFill
+        };
+        tree.SetColumnTitle(0, "Game");
+        tree.SetColumnTitle(1, "Opponent");
+        tree.SetColumnTitle(2, "Result");
+        tree.SetColumnTitle(3, "TD");
+        tree.SetColumnTitle(4, "Cas");
+        tree.SetColumnTitle(5, "SPP");
+        tree.SetColumnCustomMinimumWidth(0, 110);
+        tree.SetColumnCustomMinimumWidth(1, 180);
+        tree.SetColumnCustomMinimumWidth(2, 100);
+        tree.SetColumnCustomMinimumWidth(3, 48);
+        tree.SetColumnCustomMinimumWidth(4, 48);
+        tree.SetColumnCustomMinimumWidth(5, 52);
+
+        var root = tree.CreateItem();
+        if (history.Length == 0)
+        {
+            var empty = tree.CreateItem(root);
+            empty.SetText(0, "No completed match history yet.");
+            empty.SetCustomColor(0, ScreenStyles.MutedText);
+            return tree;
+        }
+
+        foreach (var row in history)
+        {
+            var item = tree.CreateItem(root);
+            item.SetText(0, row.Game);
+            item.SetText(1, row.Opponent);
+            item.SetText(2, row.Result);
+            item.SetText(3, row.Touchdowns.ToString());
+            item.SetText(4, row.Casualties.ToString());
+            item.SetText(5, row.StarPlayerPoints.ToString());
+            for (var column = 0; column < tree.Columns; column++)
+            {
+                item.SetTextAlignment(column, column >= 3 ? HorizontalAlignment.Right : HorizontalAlignment.Left);
+            }
+
+            if (row.StarPlayerPoints > 0)
+            {
+                item.SetCustomColor(5, ScreenStyles.Brass);
+            }
+
+            item.SetCustomMinimumHeight(28);
+        }
+
+        return tree;
     }
 
     private void PopulateRosterOptions()
@@ -749,6 +1299,357 @@ public partial class TeamCreationScreen : VBoxContainer
         return _rosterSet.Rosters.FirstOrDefault(roster => string.Equals(roster.Id, rosterId, StringComparison.OrdinalIgnoreCase));
     }
 
+    public void SelectPlayerById(Guid playerId) => SelectPlayer(playerId);
+
+    private void SelectFirstPlayer()
+    {
+        var root = _playerTree.GetRoot();
+        var first = root?.GetFirstChild();
+        if (first is not null)
+        {
+            first.Select(0);
+            UpdatePlayerDetail();
+        }
+    }
+
+    private void SelectPlayer(Guid playerId)
+    {
+        var root = _playerTree.GetRoot();
+        var item = root?.GetFirstChild();
+        while (item is not null)
+        {
+            if (Guid.TryParse(item.GetMetadata(0).AsString(), out var currentId) && currentId == playerId)
+            {
+                item.Select(0);
+                UpdatePlayerDetail();
+                return;
+            }
+
+            item = item.GetNext();
+        }
+    }
+
+    private Player? SelectedPlayer()
+    {
+        var selected = _playerTree.GetSelected();
+        if (selected is null || !Guid.TryParse(selected.GetMetadata(0).AsString(), out var playerId))
+        {
+            return null;
+        }
+
+        return _editingTeam?.Players.FirstOrDefault(player => player.Id == playerId);
+    }
+
+    private void UpdatePlayerDetail()
+    {
+        var player = SelectedPlayer();
+        if (player is null)
+        {
+            _playerDetailTitle.Text = "Select a player";
+            _playerDetailMeta.Text = "";
+            _playerDetailPlayerId = null;
+            _playerNameEdit.Text = "";
+            _playerNameEdit.Editable = false;
+            _playerNameButton.Text = "Edit";
+            _playerNameButton.Disabled = true;
+            _playerStatsLabel.Text = "MA -   ST -   AG -   PA -   AV -";
+            _playerSppLabel.Text = "";
+            _playerSkillsLabel.Text = "Skills: -";
+            _spendSppButton.Disabled = true;
+            _moveUpButton.Disabled = true;
+            _moveDownButton.Disabled = true;
+            _playerHistoryButton.Disabled = true;
+            return;
+        }
+
+        var position = FindPositionTemplate(player.PositionId);
+        var currentPlayers = CurrentPlayers();
+        var selectionChanged = _playerDetailPlayerId != player.Id;
+        _playerDetailPlayerId = player.Id;
+        _playerDetailTitle.Text = $"#{player.Number} {player.Name}";
+        _playerDetailMeta.Text = $"{position.Name} - {LeagueService.PlayerTitle(_selectedRoster!, player)} - {FormatStatus(player.Status)}";
+        if (selectionChanged || !_playerNameEdit.Editable)
+        {
+            _playerNameEdit.Text = player.Name;
+            _playerNameEdit.Editable = false;
+            _playerNameButton.Text = "Edit";
+        }
+
+        _playerNameButton.Disabled = false;
+        _playerStatsLabel.Text = $"MA {player.Stats.Movement}   ST {player.Stats.Strength}   AG {player.Stats.Agility}+   PA {player.Stats.Passing}+   AV {player.Stats.Armor}+";
+        _playerSppLabel.Text = $"{player.StarPlayerPoints} SPP available";
+        _playerSkillsLabel.Text = $"Skills: {FormatSkills(player)}";
+        _developmentDialogLabel.Text = $"{player.Name} has {player.StarPlayerPoints} SPP available.\nCurrent skills: {FormatSkills(player)}";
+        PopulateSkillOptions(player, position);
+
+        var canLevel = CanLevelUp(player);
+        _spendSppButton.Disabled = !canLevel;
+        _spendSppButton.TooltipText = canLevel
+            ? "Open this player's advancement choices."
+            : AdvancementTooltip(player, AdvancementCost(player), "an advancement");
+        _moveUpButton.Disabled = player.Number <= currentPlayers.Min(current => current.Number);
+        _moveDownButton.Disabled = player.Number >= currentPlayers.Max(current => current.Number);
+        _playerHistoryButton.Disabled = false;
+    }
+
+    private async Task TogglePlayerNameEditAsync()
+    {
+        var player = SelectedPlayer();
+        if (player is null)
+        {
+            return;
+        }
+
+        if (!_playerNameEdit.Editable)
+        {
+            _playerNameEdit.Editable = true;
+            _playerNameEdit.GrabFocus();
+            _playerNameButton.Text = "Save";
+            return;
+        }
+
+        _playerNameEdit.Editable = false;
+        _playerNameButton.Text = "Edit";
+        await _renamePlayer(player.Id, _playerNameEdit.Text);
+    }
+
+    private async Task MoveSelectedAsync(bool up)
+    {
+        var player = SelectedPlayer();
+        if (player is null)
+        {
+            return;
+        }
+
+        await _movePlayer(player.Id, up);
+    }
+
+    private void OpenDevelopmentForSelectedPlayer()
+    {
+        var player = SelectedPlayer();
+        if (player is null || !CanLevelUp(player))
+        {
+            return;
+        }
+
+        UpdatePlayerDetail();
+        _developmentDialog.Title = $"{player.Name} Development";
+        _developmentDialog.PopupCentered(new Vector2I(760, 660));
+    }
+
+    private void PopulateSkillOptions(Player player, PositionTemplate position)
+    {
+        var primarySkills = _ruleset.Skills
+            .Where(skill => position.PrimarySkillCategories.Contains(skill.Category, StringComparer.OrdinalIgnoreCase))
+            .Where(skill => !skill.DataOnly && !skill.Compulsory)
+            .Where(skill => !player.Skills.Contains(skill.Id, StringComparer.OrdinalIgnoreCase))
+            .OrderBy(skill => skill.Name, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var secondarySkills = EligibleSecondarySkills(player.Id);
+
+        PopulateSkillOption(_skillOption, primarySkills);
+        PopulateSkillOption(_secondarySkillOption, secondarySkills);
+        _primarySkillsLabel.Text = FormatAvailableSkills(primarySkills);
+        _secondarySkillsLabel.Text = FormatAvailableSkills(secondarySkills);
+
+        var randomPrimaryCost = AdvancementCost("randomPrimary");
+        var randomSecondaryCost = AdvancementCost("randomSecondary");
+        var chosenPrimaryCost = AdvancementCost("chosenPrimary");
+        var chosenSecondaryCost = AdvancementCost("chosenSecondary");
+
+        _randomSkillButton.Text = $"Random Primary ({randomPrimaryCost} SPP)";
+        _randomSkillButton.Disabled = player.StarPlayerPoints < randomPrimaryCost;
+        _randomSkillButton.TooltipText = AdvancementTooltip(player, randomPrimaryCost, "a Random Primary skill");
+
+        _randomSecondaryButton.Text = $"Random Secondary ({randomSecondaryCost} SPP)";
+        _randomSecondaryButton.Disabled = player.StarPlayerPoints < randomSecondaryCost || position.SecondarySkillCategories.Count == 0;
+        _randomSecondaryButton.TooltipText = position.SecondarySkillCategories.Count == 0
+            ? "This position has no Secondary skill categories."
+            : AdvancementTooltip(player, randomSecondaryCost, "a Random Secondary skill");
+
+        _selectedSkillButton.Text = $"Buy ({chosenPrimaryCost} SPP)";
+        _selectedSkillButton.Disabled = player.StarPlayerPoints < chosenPrimaryCost || _skillOption.ItemCount == 0;
+        _selectedSkillButton.TooltipText = _skillOption.ItemCount == 0
+            ? "No eligible Primary skills remain."
+            : AdvancementTooltip(player, chosenPrimaryCost, "the selected Primary skill");
+        _skillOption.Disabled = _selectedSkillButton.Disabled;
+        _skillOption.TooltipText = _selectedSkillButton.TooltipText;
+
+        _selectedSecondarySkillButton.Text = $"Buy ({chosenSecondaryCost} SPP)";
+        _selectedSecondarySkillButton.Disabled = player.StarPlayerPoints < chosenSecondaryCost || _secondarySkillOption.ItemCount == 0;
+        _selectedSecondarySkillButton.TooltipText = _secondarySkillOption.ItemCount == 0
+            ? "No eligible Secondary skills remain."
+            : AdvancementTooltip(player, chosenSecondaryCost, "the selected Secondary skill");
+        _secondarySkillOption.Disabled = _selectedSecondarySkillButton.Disabled;
+        _secondarySkillOption.TooltipText = _selectedSecondarySkillButton.TooltipText;
+
+        var characteristicCost = CharacteristicCost();
+        _characteristicButton.Disabled = player.StarPlayerPoints < characteristicCost;
+        _characteristicButton.Text = $"Improve Characteristic ({characteristicCost} SPP)";
+        _characteristicButton.TooltipText = AdvancementTooltip(player, characteristicCost, "a Characteristic Improvement");
+    }
+
+    private static void PopulateSkillOption(OptionButton option, SkillDefinition[] eligible)
+    {
+        option.Clear();
+        for (var index = 0; index < eligible.Length; index++)
+        {
+            option.AddItem(eligible[index].Name);
+            option.SetItemMetadata(index, Variant.From(eligible[index].Id));
+        }
+    }
+
+    private static string FormatAvailableSkills(SkillDefinition[] skills)
+    {
+        if (skills.Length == 0)
+        {
+            return "No eligible skills remain.";
+        }
+
+        return string.Join(
+            "\n----------------\n",
+            skills
+                .GroupBy(skill => skill.Category, StringComparer.OrdinalIgnoreCase)
+                .OrderBy(group => group.Key, StringComparer.OrdinalIgnoreCase)
+                .Select(group => $"[b]{group.Key.ToUpperInvariant()}[/b]\n{string.Join(", ", group.Select(skill => skill.Name))}"));
+    }
+
+    private SkillDefinition[] EligibleSecondarySkills(Guid playerId)
+    {
+        var player = _editingTeam?.Players.FirstOrDefault(current => current.Id == playerId);
+        if (player is null)
+        {
+            return Array.Empty<SkillDefinition>();
+        }
+
+        var position = FindPositionTemplate(player.PositionId);
+        return _ruleset.Skills
+            .Where(skill => position.SecondarySkillCategories.Contains(skill.Category, StringComparer.OrdinalIgnoreCase))
+            .Where(skill => !skill.DataOnly && !skill.Compulsory)
+            .Where(skill => !player.Skills.Contains(skill.Id, StringComparer.OrdinalIgnoreCase))
+            .OrderBy(skill => skill.Name, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    private async Task PurchaseSelectedSkillAsync(OptionButton option)
+    {
+        var player = SelectedPlayer();
+        if (player is null || option.Selected < 0)
+        {
+            return;
+        }
+
+        _developmentDialog.Hide();
+        await _purchaseSelectedSkill(player.Id, option.GetItemMetadata(option.Selected).AsString());
+    }
+
+    private async Task PurchaseRandomSkillAsync(bool secondary)
+    {
+        var player = SelectedPlayer();
+        if (player is null)
+        {
+            return;
+        }
+
+        _developmentDialog.Hide();
+        await _purchaseRandomSkill(player.Id, secondary);
+    }
+
+    private async Task ImproveCharacteristicAsync()
+    {
+        var player = SelectedPlayer();
+        if (player is null)
+        {
+            return;
+        }
+
+        var roll = await _rollCharacteristic(player.Id);
+        ShowCharacteristicChoice(player.Id, roll);
+    }
+
+    private void ShowCharacteristicChoice(Guid playerId, CharacteristicAdvancementRoll roll)
+    {
+        var popup = new AcceptDialog
+        {
+            Title = "Characteristic Improvement",
+            Unresizable = false,
+            MinSize = new Vector2I(320, 0)
+        };
+
+        var content = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        content.AddThemeConstantOverride("separation", 8);
+        content.AddChild(new Label { Text = $"Rolled {roll.Roll} on the D16 table. Spends {roll.Cost} SPP." });
+
+        if (roll.Options.Count == 0)
+        {
+            content.AddChild(new Label
+            {
+                Text = "This roll unlocks no characteristic this player can improve.",
+                AutowrapMode = TextServer.AutowrapMode.WordSmart
+            });
+        }
+        else
+        {
+            content.AddChild(ScreenStyles.MutedLabel("Raise a characteristic:"));
+            foreach (var option in roll.Options)
+            {
+                var button = ScreenStyles.StyledButton(CharacteristicLabel(option), primary: true);
+                button.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+                var characteristic = option;
+                button.Pressed += async () =>
+                {
+                    popup.Hide();
+                    _developmentDialog.Hide();
+                    await _applyCharacteristic(playerId, roll.Roll, characteristic);
+                };
+                content.AddChild(button);
+            }
+        }
+
+        var secondarySkills = EligibleSecondarySkills(playerId);
+        if (secondarySkills.Length > 0)
+        {
+            content.AddChild(new HSeparator());
+            content.AddChild(ScreenStyles.MutedLabel("Or take a Chosen Secondary skill instead:"));
+            var skillOption = new OptionButton { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+            for (var index = 0; index < secondarySkills.Length; index++)
+            {
+                skillOption.AddItem(secondarySkills[index].Name);
+                skillOption.SetItemMetadata(index, Variant.From(secondarySkills[index].Id));
+            }
+            content.AddChild(skillOption);
+
+            var skillButton = ScreenStyles.StyledButton("Take Secondary Skill");
+            skillButton.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+            skillButton.Pressed += async () =>
+            {
+                if (skillOption.Selected < 0)
+                {
+                    return;
+                }
+
+                var skillId = skillOption.GetItemMetadata(skillOption.Selected).AsString();
+                popup.Hide();
+                _developmentDialog.Hide();
+                await _applyCharacteristicSkill(playerId, skillId);
+            };
+            content.AddChild(skillButton);
+        }
+
+        popup.AddChild(content);
+        popup.Confirmed += popup.QueueFree;
+        popup.Canceled += popup.QueueFree;
+        AddChild(popup);
+        popup.PopupCentered();
+    }
+
+    private PositionTemplate FindPositionTemplate(string positionId)
+    {
+        return _selectedRoster?.Positions.FirstOrDefault(position => string.Equals(position.Id, positionId, StringComparison.OrdinalIgnoreCase))
+            ?? _selectedRoster?.Positions.First()
+            ?? new PositionTemplate { Id = positionId, Name = positionId, Stats = new PlayerStats() };
+    }
+
     private bool CanLevelUp(Player player)
     {
         if (_selectedRoster is null)
@@ -767,10 +1668,115 @@ public partial class TeamCreationScreen : VBoxContainer
         return _ruleset.AdvancementThresholds.TryGetValue("randomPrimary", out var cost) && player.StarPlayerPoints >= cost;
     }
 
+    private int AdvancementCost(Player player)
+    {
+        return AdvancementCost("randomPrimary");
+    }
+
+    private int AdvancementCost(string advancementType)
+    {
+        return _ruleset.AdvancementThresholds.TryGetValue(advancementType, out var cost) ? cost : int.MaxValue;
+    }
+
+    private int CharacteristicCost()
+    {
+        return AdvancementCost("characteristic");
+    }
+
+    private static string AdvancementTooltip(Player player, int cost, string advancement)
+    {
+        var shortfall = cost - player.StarPlayerPoints;
+        return shortfall <= 0
+            ? $"Spend {cost} SPP to gain {advancement}."
+            : $"Needs {shortfall} more SPP to gain {advancement}.";
+    }
+
+    private static string CharacteristicLabel(PlayerCharacteristic characteristic) => characteristic switch
+    {
+        PlayerCharacteristic.Movement => "Movement Allowance (+1 MA)",
+        PlayerCharacteristic.Strength => "Strength (+1 ST)",
+        PlayerCharacteristic.Agility => "Agility (improve AG)",
+        PlayerCharacteristic.Passing => "Passing Ability (improve PA)",
+        PlayerCharacteristic.Armor => "Armour Value (+1 AV)",
+        _ => characteristic.ToString()
+    };
+
     private string RosterAttentionBadge(LeagueTeam team)
     {
         var canLevel = team.Players.Count(CanLevelUp);
-        return canLevel > 0 ? $"{canLevel} can level" : "Open roster";
+        return canLevel > 0 ? $"{canLevel} can level" : "Roster";
+    }
+
+    private string PositionName(string positionId)
+    {
+        return _selectedRoster?.Positions.FirstOrDefault(position => string.Equals(position.Id, positionId, StringComparison.OrdinalIgnoreCase))?.Name
+            ?? positionId;
+    }
+
+    private Player[] CurrentPlayers()
+    {
+        return _editingTeam?.Players.Where(IsCurrentPlayer).ToArray() ?? Array.Empty<Player>();
+    }
+
+    private Player[] PreviousPlayers()
+    {
+        return _editingTeam?.Players.Where(player => !IsCurrentPlayer(player)).ToArray() ?? Array.Empty<Player>();
+    }
+
+    private PlayerHistoryRow[] PlayerHistory(Player player)
+    {
+        if (_league is null || _editingTeam is null)
+        {
+            return Array.Empty<PlayerHistoryRow>();
+        }
+
+        return _league.Seasons
+            .SelectMany(season => season.Schedule
+                .Where(match => match.Result is not null && (match.HomeTeamId == _editingTeam.Id || match.AwayTeamId == _editingTeam.Id))
+                .Select(match => CreatePlayerHistoryRow(season.Name, match, player)))
+            .ToArray();
+    }
+
+    private PlayerHistoryRow CreatePlayerHistoryRow(string seasonName, ScheduledMatch match, Player player)
+    {
+        var result = match.Result!;
+        var isHome = match.HomeTeamId == _editingTeam!.Id;
+        var opponentId = isHome ? match.AwayTeamId : match.HomeTeamId;
+        var opponent = _league?.Teams.FirstOrDefault(team => team.Id == opponentId);
+        var teamScore = isHome ? result.HomeScore : result.AwayScore;
+        var opponentScore = isHome ? result.AwayScore : result.HomeScore;
+        var outcome = teamScore > opponentScore
+            ? "W"
+            : teamScore < opponentScore
+                ? "L"
+                : "D";
+        var awards = result.PlayerAwards
+            .Where(award => award.TeamId == _editingTeam.Id && award.PlayerId == player.Id)
+            .ToArray();
+
+        return new PlayerHistoryRow(
+            $"{seasonName} W{match.Week}",
+            opponent?.Name ?? "Unknown Team",
+            $"{outcome} {teamScore}-{opponentScore}",
+            CountAwards(awards, MatchPlayerAwardKind.Casualty),
+            CountAwards(awards, MatchPlayerAwardKind.Touchdown),
+            awards.Sum(award => award.StarPlayerPoints));
+    }
+
+    private static int CountAwards(MatchPlayerAward[] awards, MatchPlayerAwardKind kind)
+    {
+        return awards.Count(award => award.Kind == kind);
+    }
+
+    private string FormatPreviousStatus(Player player)
+    {
+        return player.Status switch
+        {
+            PlayerStatus.Dead => "Dead",
+            PlayerStatus.Retired when !string.IsNullOrWhiteSpace(_latestSeasonName) => $"Not Resigned After {_latestSeasonName}",
+            PlayerStatus.Retired => "Not Resigned",
+            _ => FormatStatus(player.Status)
+        };
     }
 
     private void Clear()
@@ -785,6 +1791,39 @@ public partial class TeamCreationScreen : VBoxContainer
     {
         return $"{stats.Movement} {stats.Strength} {stats.Agility}+ {stats.Passing}+ {stats.Armor}+";
     }
+
+    private static string FormatRecord(TeamRecord record)
+    {
+        return $"{record.Wins}-{record.Draws}-{record.Losses}";
+    }
+
+    private static string FormatStatus(PlayerStatus status)
+    {
+        return status switch
+        {
+            PlayerStatus.Available => "Ready",
+            PlayerStatus.MissNextGame => "MNG",
+            _ => status.ToString()
+        };
+    }
+
+    private static string FormatSkills(Player player)
+    {
+        return player.Skills.Count == 0 ? "-" : string.Join(", ", player.Skills);
+    }
+
+    private static bool IsCurrentPlayer(Player player)
+    {
+        return player.Status is not PlayerStatus.Dead and not PlayerStatus.Retired;
+    }
+
+    private sealed record PlayerHistoryRow(
+        string Game,
+        string Opponent,
+        string Result,
+        int Casualties,
+        int Touchdowns,
+        int StarPlayerPoints);
 
     private static string FormatGold(int value)
     {

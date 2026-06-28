@@ -89,6 +89,7 @@ public partial class LeagueHomeScreen : VBoxContainer
             Columns = 10,
             HideRoot = true,
             ColumnTitlesVisible = true,
+            SelectMode = Tree.SelectModeEnum.Row,
             CustomMinimumSize = new Vector2(680, 330),
             SizeFlagsHorizontal = SizeFlags.ExpandFill,
             SizeFlagsVertical = SizeFlags.ExpandFill

@@ -4547,6 +4547,7 @@ var humanOrcPassService = new MatchService(new FixedDiceRoller(d6: [4, 4]));
 var humanOrcPassResult = humanOrcPassService.PassBall(humanOrcPassMatch, ruleset, loadedLeague.Teams[0], humanThrower.Id, humanCatcher.Id, awayLeague.Teams[0]);
 Assert(humanOrcPassResult.Ball.CarrierPlayerId == humanCatcher.Id, "Human thrower to catcher pattern should complete against Orc opposition");
 Assert(humanOrcPassResult.PlayerAwards.Any(award => award.Kind == MatchPlayerAwardKind.Completion && award.PlayerId == humanThrower.Id), "Human thrower should receive completion SPP in the pass pattern");
+Assert(humanOrcPassResult.PlayerAwards.Any(award => award.Kind == MatchPlayerAwardKind.Catch && award.PlayerId == humanCatcher.Id && award.StarPlayerPoints == 0), "Human catcher should record a zero-SPP catch event in the pass pattern");
 AssertMatchInvariants(humanOrcPassResult, ruleset, "Human vs Orc pass pattern");
 
 for (var seed = 1; seed <= 12; seed++)

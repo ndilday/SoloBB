@@ -68,7 +68,11 @@ internal static class ScreenStyles
         var panel = new PanelContainer { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
         panel.AddThemeStyleboxOverride("panel", FlatStyle(PanelBackground, PanelBorder));
 
-        var stack = new VBoxContainer { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
+        var stack = new VBoxContainer
+        {
+            SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
+            SizeFlagsVertical = Control.SizeFlags.ExpandFill
+        };
         stack.AddThemeConstantOverride("separation", 0);
         panel.AddChild(stack);
 
@@ -100,7 +104,11 @@ internal static class ScreenStyles
         headerWrap.AddChild(header);
         stack.AddChild(headerWrap);
 
-        var margin = new MarginContainer { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
+        var margin = new MarginContainer
+        {
+            SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
+            SizeFlagsVertical = body.SizeFlagsVertical
+        };
         margin.AddThemeConstantOverride("margin_left", 10);
         margin.AddThemeConstantOverride("margin_top", 10);
         margin.AddThemeConstantOverride("margin_right", 10);

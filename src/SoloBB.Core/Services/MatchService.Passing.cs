@@ -834,10 +834,12 @@ public sealed partial class MatchService
 
         if (catchAttempt.Success)
         {
+            var completionAwards = AddPlayerAward(match, team.Id, passer.Id, MatchPlayerAwardKind.Completion, 1, teamName: team.Name, playerName: passer.Name);
+            var catchAwards = AddPlayerAward(match with { PlayerAwards = completionAwards }, team.Id, receiver.Id, MatchPlayerAwardKind.Catch, 0, teamName: team.Name, playerName: receiver.Name);
             var caughtMatch = match with
             {
                 Ball = new BallState { CarrierPlayerId = receiver.Id },
-                PlayerAwards = AddPlayerAward(match, team.Id, passer.Id, MatchPlayerAwardKind.Completion, 1, teamName: team.Name, playerName: passer.Name),
+                PlayerAwards = catchAwards,
                 Log =
                 [
                     .. match.Log,

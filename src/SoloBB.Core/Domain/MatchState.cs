@@ -572,6 +572,7 @@ public enum MatchPlayerAwardKind
     Touchdown,
     Casualty,
     Completion,
+    Catch,
     Interception,
     Deflection,
     MostValuablePlayer

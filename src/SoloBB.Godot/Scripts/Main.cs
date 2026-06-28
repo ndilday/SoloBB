@@ -15,6 +15,7 @@ public partial class Main : Control
     private const int BackgroundMaxFps = 15;
     private const int BackgroundSleepUsec = 50000;
     private const int DefaultShellMargin = 24;
+    private const int CompactShellMargin = 6;
     private const int MatchShellMargin = 6;
     private const int DefaultMatchStackSeparation = 12;
     private const int CompactMatchStackSeparation = 4;
@@ -398,48 +399,28 @@ public partial class Main : Control
 
         _teamEditingBack = back;
 
-        var screen = ShowScreen<TeamCreationScreen>("res://scenes/screens/team_creation_screen.tscn");
+        var screen = ShowScreen<TeamCreationScreen>(
+            "res://scenes/screens/team_creation_screen.tscn",
+            usesCompactShell: true,
+            fillsViewport: true);
         screen.Setup(
             ruleset: _ruleset,
             rosterSet: _rosterSet,
             defaultTeamName: team.Name,
             saveTeam: async request => await SaveTeamAsync(request, screen),
             back: back,
+            league: _activeLeague,
+            latestSeasonName: _activeLeague.Seasons.LastOrDefault()?.Name ?? "",
             editingTeam: team,
             record: _leagueService.GetTeamRecord(_activeLeague, team.Id),
             saveManagement: async request => await SaveTeamManagementAsync(request, screen),
-            openRoster: ShowTeamRosterScreen);
-    }
-
-    private void ShowTeamRosterScreen(Guid teamId)
-    {
-        if (_activeLeague is null || _ruleset is null || _rosterSet is null)
-        {
-            _teamEditingBack();
-            return;
-        }
-
-        var team = _activeLeague.Teams.FirstOrDefault(current => current.Id == teamId);
-        if (team is null)
-        {
-            _teamEditingBack();
-            return;
-        }
-
-        var screen = ShowScreen<TeamRosterScreen>("res://scenes/screens/team_roster_screen.tscn");
-        screen.Setup(
-            ruleset: _ruleset,
-            rosterSet: _rosterSet,
-            team: team,
-            latestSeasonName: _activeLeague.Seasons.LastOrDefault()?.Name ?? "",
             renamePlayer: async (playerId, playerName) => await RenamePlayerAsync(team.Id, playerId, playerName, screen),
             purchaseSelectedSkill: async (playerId, skillId) => await PurchaseSelectedSkillAsync(team.Id, playerId, skillId, screen),
             purchaseRandomSkill: async (playerId, secondary) => await PurchaseRandomSkillAsync(team.Id, playerId, secondary, screen),
             rollCharacteristic: playerId => RollCharacteristicAsync(team.Id, playerId, screen),
             applyCharacteristic: async (playerId, roll, characteristic) => await ApplyCharacteristicAsync(team.Id, playerId, roll, characteristic, screen),
             applyCharacteristicSkill: async (playerId, skillId) => await ApplyCharacteristicSkillAsync(team.Id, playerId, skillId, screen),
-            movePlayer: async (playerId, up) => await MovePlayerAsync(team.Id, playerId, up, screen),
-            back: () => ShowTeamEditingScreen(team.Id, _teamEditingBack));
+            movePlayer: async (playerId, up) => await MovePlayerAsync(team.Id, playerId, up, screen));
     }
 
     private async Task SaveTeamAsync(TeamDraftRequest request, TeamCreationScreen screen)
@@ -519,7 +500,7 @@ public partial class Main : Control
         }
     }
 
-    private async Task RenamePlayerAsync(Guid teamId, Guid playerId, string playerName, TeamRosterScreen screen)
+    private async Task RenamePlayerAsync(Guid teamId, Guid playerId, string playerName, TeamCreationScreen screen)
     {
         try
         {
@@ -530,10 +511,11 @@ public partial class Main : Control
 
             _activeLeague = _leagueService.RenamePlayer(_activeLeague, teamId, playerId, playerName);
             await SaveActiveLeagueAsync();
-            ShowTeamRosterScreen(teamId);
-            if (CurrentScreen is TeamRosterScreen rosterScreen)
+            ShowTeamEditingScreen(teamId, _teamEditingBack);
+            if (CurrentScreen is TeamCreationScreen teamScreen)
             {
-                rosterScreen.SetStatus($"Renamed player to '{playerName.Trim()}'.");
+                teamScreen.SelectPlayerById(playerId);
+                teamScreen.SetStatus($"Renamed player to '{playerName.Trim()}'.");
             }
         }
         catch (Exception ex)
@@ -542,7 +524,7 @@ public partial class Main : Control
         }
     }
 
-    private async Task PurchaseSelectedSkillAsync(Guid teamId, Guid playerId, string skillId, TeamRosterScreen screen)
+    private async Task PurchaseSelectedSkillAsync(Guid teamId, Guid playerId, string skillId, TeamCreationScreen screen)
     {
         try
         {
@@ -555,10 +537,11 @@ public partial class Main : Control
             var roster = _rosterSet.Rosters.First(current => string.Equals(current.Id, team.RosterId, StringComparison.OrdinalIgnoreCase));
             _activeLeague = _leagueService.PurchaseSelectedSkillAdvancement(_activeLeague, _ruleset, roster, teamId, playerId, skillId);
             await SaveActiveLeagueAsync();
-            ShowTeamRosterScreen(teamId);
-            if (CurrentScreen is TeamRosterScreen rosterScreen)
+            ShowTeamEditingScreen(teamId, _teamEditingBack);
+            if (CurrentScreen is TeamCreationScreen teamScreen)
             {
-                rosterScreen.SetStatus("Purchased selected skill advancement.");
+                teamScreen.SelectPlayerById(playerId);
+                teamScreen.SetStatus("Purchased selected skill advancement.");
             }
         }
         catch (Exception ex)
@@ -567,31 +550,7 @@ public partial class Main : Control
         }
     }
 
-    private async Task MovePlayerAsync(Guid teamId, Guid playerId, bool up, TeamRosterScreen screen)
-    {
-        try
-        {
-            if (_activeLeague is null)
-            {
-                throw new InvalidOperationException("League data is not ready.");
-            }
-
-            _activeLeague = _leagueService.MovePlayer(_activeLeague, teamId, playerId, up);
-            await SaveActiveLeagueAsync();
-            ShowTeamRosterScreen(teamId);
-            if (CurrentScreen is TeamRosterScreen rosterScreen)
-            {
-                rosterScreen.SelectPlayerById(playerId);
-                rosterScreen.SetStatus(up ? "Moved player up." : "Moved player down.");
-            }
-        }
-        catch (Exception ex)
-        {
-            screen.SetStatus($"Reordering players failed: {ex.Message}");
-        }
-    }
-
-    private async Task PurchaseRandomSkillAsync(Guid teamId, Guid playerId, bool secondary, TeamRosterScreen screen)
+    private async Task PurchaseRandomSkillAsync(Guid teamId, Guid playerId, bool secondary, TeamCreationScreen screen)
     {
         try
         {
@@ -604,10 +563,11 @@ public partial class Main : Control
             var roster = _rosterSet.Rosters.First(current => string.Equals(current.Id, team.RosterId, StringComparison.OrdinalIgnoreCase));
             _activeLeague = _leagueService.PurchaseRandomSkillAdvancement(_activeLeague, _ruleset, roster, teamId, playerId, secondary);
             await SaveActiveLeagueAsync();
-            ShowTeamRosterScreen(teamId);
-            if (CurrentScreen is TeamRosterScreen rosterScreen)
+            ShowTeamEditingScreen(teamId, _teamEditingBack);
+            if (CurrentScreen is TeamCreationScreen teamScreen)
             {
-                rosterScreen.SetStatus($"Purchased random {(secondary ? "secondary" : "primary")} skill advancement.");
+                teamScreen.SelectPlayerById(playerId);
+                teamScreen.SetStatus($"Purchased random {(secondary ? "secondary" : "primary")} skill advancement.");
             }
         }
         catch (Exception ex)
@@ -616,9 +576,31 @@ public partial class Main : Control
         }
     }
 
-    // BB2020 characteristic flow, step 1: roll the D16 and hand the legal choices back to the screen
-    // so it can present them. The league is not mutated until the coach picks an option.
-    private async Task<CharacteristicAdvancementRoll> RollCharacteristicAsync(Guid teamId, Guid playerId, TeamRosterScreen screen)
+    private async Task MovePlayerAsync(Guid teamId, Guid playerId, bool up, TeamCreationScreen screen)
+    {
+        try
+        {
+            if (_activeLeague is null)
+            {
+                throw new InvalidOperationException("League data is not ready.");
+            }
+
+            _activeLeague = _leagueService.MovePlayer(_activeLeague, teamId, playerId, up);
+            await SaveActiveLeagueAsync();
+            ShowTeamEditingScreen(teamId, _teamEditingBack);
+            if (CurrentScreen is TeamCreationScreen teamScreen)
+            {
+                teamScreen.SelectPlayerById(playerId);
+                teamScreen.SetStatus(up ? "Moved player up." : "Moved player down.");
+            }
+        }
+        catch (Exception ex)
+        {
+            screen.SetStatus($"Reordering players failed: {ex.Message}");
+        }
+    }
+
+    private async Task<CharacteristicAdvancementRoll> RollCharacteristicAsync(Guid teamId, Guid playerId, TeamCreationScreen screen)
     {
         try
         {
@@ -638,8 +620,7 @@ public partial class Main : Control
         }
     }
 
-    // BB2020 characteristic flow, step 2: commit the chosen improvement from the rolled options.
-    private async Task ApplyCharacteristicAsync(Guid teamId, Guid playerId, int roll, PlayerCharacteristic characteristic, TeamRosterScreen screen)
+    private async Task ApplyCharacteristicAsync(Guid teamId, Guid playerId, int roll, PlayerCharacteristic characteristic, TeamCreationScreen screen)
     {
         try
         {
@@ -652,10 +633,11 @@ public partial class Main : Control
             var roster = _rosterSet.Rosters.First(current => string.Equals(current.Id, team.RosterId, StringComparison.OrdinalIgnoreCase));
             _activeLeague = _leagueService.ApplyCharacteristicAdvancement(_activeLeague, _ruleset, roster, teamId, playerId, roll, characteristic);
             await SaveActiveLeagueAsync();
-            ShowTeamRosterScreen(teamId);
-            if (CurrentScreen is TeamRosterScreen rosterScreen)
+            ShowTeamEditingScreen(teamId, _teamEditingBack);
+            if (CurrentScreen is TeamCreationScreen teamScreen)
             {
-                rosterScreen.SetStatus($"Improved {characteristic} via characteristic advancement.");
+                teamScreen.SelectPlayerById(playerId);
+                teamScreen.SetStatus($"Improved {characteristic} via characteristic advancement.");
             }
         }
         catch (Exception ex)
@@ -664,8 +646,7 @@ public partial class Main : Control
         }
     }
 
-    // BB2020 characteristic fallback: take a Chosen Secondary skill in place of a characteristic.
-    private async Task ApplyCharacteristicSkillAsync(Guid teamId, Guid playerId, string skillId, TeamRosterScreen screen)
+    private async Task ApplyCharacteristicSkillAsync(Guid teamId, Guid playerId, string skillId, TeamCreationScreen screen)
     {
         try
         {
@@ -678,10 +659,11 @@ public partial class Main : Control
             var roster = _rosterSet.Rosters.First(current => string.Equals(current.Id, team.RosterId, StringComparison.OrdinalIgnoreCase));
             _activeLeague = _leagueService.ApplyCharacteristicSecondarySkill(_activeLeague, _ruleset, roster, teamId, playerId, skillId);
             await SaveActiveLeagueAsync();
-            ShowTeamRosterScreen(teamId);
-            if (CurrentScreen is TeamRosterScreen rosterScreen)
+            ShowTeamEditingScreen(teamId, _teamEditingBack);
+            if (CurrentScreen is TeamCreationScreen teamScreen)
             {
-                rosterScreen.SetStatus("Took a Chosen Secondary skill in place of a characteristic.");
+                teamScreen.SelectPlayerById(playerId);
+                teamScreen.SetStatus("Took a Chosen Secondary skill in place of a characteristic.");
             }
         }
         catch (Exception ex)
@@ -748,15 +730,18 @@ public partial class Main : Control
         }
     }
 
-    private T ShowScreen<T>(string scenePath) where T : Control
+    private T ShowScreen<T>(
+        string scenePath,
+        bool usesCompactShell = false,
+        bool fillsViewport = false) where T : Control
     {
         var scene = GD.Load<PackedScene>(scenePath);
         var screen = scene.Instantiate<T>();
         var isMatchScreen = screen is MatchScreen;
-        var fillsViewport = isMatchScreen || screen is PreGameScreen;
+        fillsViewport = fillsViewport || isMatchScreen || screen is PreGameScreen;
         ClearScreenHost(_scrollStack);
         ClearScreenHost(_matchStack);
-        ConfigureScreenChrome(isMatchScreen);
+        ConfigureScreenChrome(isMatchScreen, usesCompactShell);
 
         _shellScroll.Visible = !fillsViewport;
         _matchStack.Visible = fillsViewport;
@@ -771,9 +756,13 @@ public partial class Main : Control
         return screen;
     }
 
-    private void ConfigureScreenChrome(bool isMatchScreen)
+    private void ConfigureScreenChrome(bool isMatchScreen, bool usesCompactShell = false)
     {
-        var margin = isMatchScreen ? MatchShellMargin : DefaultShellMargin;
+        var margin = isMatchScreen
+            ? MatchShellMargin
+            : usesCompactShell
+                ? CompactShellMargin
+                : DefaultShellMargin;
         _contentMargin.AddThemeConstantOverride("margin_left", margin);
         _contentMargin.AddThemeConstantOverride("margin_top", margin);
         _contentMargin.AddThemeConstantOverride("margin_right", margin);
