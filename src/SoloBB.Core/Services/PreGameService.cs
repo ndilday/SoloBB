@@ -316,8 +316,10 @@ public sealed partial class PreGameService
         var tacticsStaff = SelectedOptionEffectCount(ruleset, roster, plan, "infamous-coaching-staff", "staff-reroll");
         var recoveryStaff = SelectedOptionEffectCount(ruleset, roster, plan, "infamous-coaching-staff", "staff-recovery");
 
-        // Match-only additions get jersey numbers continuing after the roster so they sort last.
-        var nextNumber = team.Players.Count == 0 ? 1 : team.Players.Max(player => player.Number) + 1;
+        var rosterPlayers = team.Players.Where(IsCurrentRosterPlayer).ToArray();
+
+        // Match-only additions get jersey numbers continuing after the current roster so they sort last.
+        var nextNumber = rosterPlayers.Length == 0 ? 1 : rosterPlayers.Max(player => player.Number) + 1;
         var additions = ((Player[])[.. journeymen, .. riotousRookies, .. mercenaries, .. starPlayers])
             .Select((player, index) => player with { Number = nextNumber + index })
             .ToArray();
@@ -333,7 +335,7 @@ public sealed partial class PreGameService
                 + SelectedInducementCount(plan, "mortuary-assistant")
                 + SelectedInducementCount(plan, "plague-doctor")
                 + recoveryStaff,
-            Players = [.. team.Players, .. additions]
+            Players = [.. rosterPlayers, .. additions]
         };
     }
 
@@ -654,17 +656,44 @@ public sealed partial class PreGameService
 
     private static int JourneymenNeeded(Ruleset ruleset, LeagueTeam team)
     {
-        var availablePlayers = team.Players.Count(player => player.Status == PlayerStatus.Available);
+        var availablePlayers = team.Players.Count(player => IsCurrentRosterPlayer(player) && player.Status == PlayerStatus.Available);
         return Math.Max(0, ruleset.PlayersPerSide - availablePlayers);
     }
 
     public static int CurrentTeamValue(Ruleset ruleset, TeamRoster roster, LeagueTeam team)
     {
+        var teamValue = team.TeamValue;
+        if (team.Players.Any(player => !IsCurrentRosterPlayer(player)))
+        {
+            var activeRosterValue = CurrentRosterTeamValue(ruleset, roster, team);
+            if (teamValue > activeRosterValue)
+            {
+                teamValue = activeRosterValue;
+            }
+        }
+
         var unavailableValue = team.Players
+            .Where(IsCurrentRosterPlayer)
             .Where(player => player.Status != PlayerStatus.Available)
             .Sum(player => PlayerValue(ruleset, roster, player));
         var journeymanValue = JourneymenNeeded(ruleset, team) * FindJourneymanPosition(roster).Cost;
-        return Math.Max(0, team.TeamValue - unavailableValue + journeymanValue);
+        return Math.Max(0, teamValue - unavailableValue + journeymanValue);
+    }
+
+    private static int CurrentRosterTeamValue(Ruleset ruleset, TeamRoster roster, LeagueTeam team)
+    {
+        var playerCost = team.Players
+            .Where(IsCurrentRosterPlayer)
+            .Sum(player => PlayerValue(ruleset, roster, player));
+        var rerollCost = team.Rerolls * roster.RerollCost;
+        var dedicatedFansCost = Math.Max(0, team.DedicatedFans - 1) * 10_000;
+        var staffCost = (team.Cheerleaders * 10_000) + (team.AssistantCoaches * 10_000) + (team.Apothecaries * 50_000);
+        return playerCost + rerollCost + dedicatedFansCost + staffCost;
+    }
+
+    private static bool IsCurrentRosterPlayer(Player player)
+    {
+        return player.Status is not PlayerStatus.Dead and not PlayerStatus.Retired;
     }
 
     internal static int PlayerValue(Ruleset ruleset, TeamRoster roster, Player player)

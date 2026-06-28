@@ -99,6 +99,13 @@ public sealed partial class LeagueService
                 Status = PlayerStatus.Available
             }))
             .ToArray();
+        var retainedLookup = distinctRetained.ToHashSet();
+        var previousPlayers = team.Players
+            .Where(player => !retainedLookup.Contains(player.Id))
+            .Select(player => player.Status is PlayerStatus.Dead or PlayerStatus.Retired
+                ? player
+                : player with { Status = PlayerStatus.Retired })
+            .ToArray();
 
         ValidateDraft(roster, combined);
         if (combined.Length < ruleset.PlayersPerSide)
@@ -135,7 +142,7 @@ public sealed partial class LeagueService
             Cheerleaders = cheerleaders,
             AssistantCoaches = assistantCoaches,
             Apothecaries = apothecaries,
-            Players = combined
+            Players = [.. combined, .. previousPlayers]
         };
 
         return league with

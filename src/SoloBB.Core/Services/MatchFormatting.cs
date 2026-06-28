@@ -51,6 +51,15 @@ public static class MatchFormatting
         return state.ToString().ToLowerInvariant();
     }
 
+    public static string FormatInjuryOutcome(PlayerPitchState state)
+    {
+        return state switch
+        {
+            PlayerPitchState.Casualty or PlayerPitchState.Dead => "Casualty!",
+            _ => FormatPitchState(state)
+        };
+    }
+
     public static string FormatPrayer(PrayerToNuffle prayer)
     {
         return prayer switch

@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.RegularExpressions;
+using System.Text;
 using System.Threading.Tasks;
 using SoloBB.Core.Domain;
 using SoloBB.Core.Services;
@@ -268,8 +269,8 @@ public partial class MatchScreen : VBoxContainer
 
     private void RefreshMatchHud()
     {
-        _homeHudLabel.Text = FormatTeamHud(_homeTeam, _match.HomeScore, _match.HomeRerollsRemaining, _match.HomeApothecariesRemaining);
-        _awayHudLabel.Text = FormatTeamHud(_awayTeam, _match.AwayScore, _match.AwayRerollsRemaining, _match.AwayApothecariesRemaining);
+        _homeHudLabel.Text = FormatTeamHud(_homeTeam, _match.HomeScore, _match.HomeRerollsRemaining, _match.HomeApothecariesRemaining, EndZoneHome);
+        _awayHudLabel.Text = $"[right]{FormatTeamHud(_awayTeam, _match.AwayScore, _match.AwayRerollsRemaining, _match.AwayApothecariesRemaining, EndZoneAway)}[/right]";
         _turnHudLabel.Text = $"Half {_match.Half}  Drive {_match.Drive} ({DriveStateLabel(_match.DriveState)})  {PhaseLabel(_match.Phase)}  Turn {_match.Turn}/{_ruleset.TurnsPerHalf}\nWeather: {WeatherLabel(_match.Weather)}";
         _turnHudLabel.TooltipText = $"{ActiveTeam().Name} active. Home turn {_match.HomeTurn}, away turn {_match.AwayTurn}. {WeatherEffectSummary(_match.Weather)}";
     }
@@ -456,7 +457,9 @@ public partial class MatchScreen : VBoxContainer
 
     private void RefreshEventLog()
     {
-        _lastEventLabel.Text = _match.Log.LastOrDefault()?.Message ?? "No match events yet.";
+        _lastEventLabel.Text = _match.Log.LastOrDefault()?.Message is string lastMessage
+            ? FormatEventLogMessage(lastMessage)
+            : "No match events yet.";
 
         foreach (var child in _eventLogList.GetChildren())
         {
@@ -465,19 +468,59 @@ public partial class MatchScreen : VBoxContainer
 
         foreach (var entry in _match.Log.TakeLast(10).Reverse())
         {
-            var label = new Label
+            var label = new RichTextLabel
             {
-                Text = entry.Message,
+                Text = FormatEventLogMessage(entry.Message),
+                BbcodeEnabled = true,
+                FitContent = true,
+                ScrollActive = false,
+                SizeFlagsHorizontal = SizeFlags.ExpandFill,
                 AutowrapMode = TextServer.AutowrapMode.WordSmart
             };
-            label.AddThemeFontSizeOverride("font_size", 11);
+            label.AddThemeFontSizeOverride("normal_font_size", 11);
             _eventLogList.AddChild(label);
         }
     }
 
-    private static string FormatTeamHud(LeagueTeam team, int score, int rerollsRemaining, int apothecariesRemaining)
+    private static string FormatTeamHud(LeagueTeam team, int score, int rerollsRemaining, int apothecariesRemaining, Color defendedGoalColor)
     {
-        return $"{team.Name}  Score {score}  RR {rerollsRemaining}  Apo {apothecariesRemaining}";
+        return $"[color=#{defendedGoalColor.Lightened(0.35f).ToHtml(false)}][b]{EscapeBbcode(team.Name)}[/b][/color]  Score {score}  RR {rerollsRemaining}  Apo {apothecariesRemaining}";
+    }
+
+    private static string FormatEventLogMessage(string message)
+    {
+        var formatted = EscapeBbcode(message);
+        formatted = HighlightEventText(formatted, @"\b(death|dead)\b", "#ff5a5a", bold: true);
+        formatted = HighlightEventText(formatted, @"\blasting injury\b", "#f2994a");
+        formatted = HighlightEventText(formatted, @"\b(seriously hurt|serious injury)\b", "#f2c94c");
+        return formatted;
+    }
+
+    private static string HighlightEventText(string text, string pattern, string color, bool bold = false)
+    {
+        return Regex.Replace(
+            text,
+            pattern,
+            match => bold
+                ? $"[color={color}][b]{match.Value}[/b][/color]"
+                : $"[color={color}]{match.Value}[/color]",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    }
+
+    private static string EscapeBbcode(string value)
+    {
+        var escaped = new StringBuilder(value.Length);
+        foreach (var character in value)
+        {
+            escaped.Append(character switch
+            {
+                '[' => "[lb]",
+                ']' => "[rb]",
+                _ => character
+            });
+        }
+
+        return escaped.ToString();
     }
 
     private static string WeatherLabel(WeatherCondition weather)

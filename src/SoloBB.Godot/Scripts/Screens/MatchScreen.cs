@@ -14,13 +14,13 @@ public partial class MatchScreen : VBoxContainer
     private readonly Dictionary<PitchSquare, PitchTileView> _pitchTiles = [];
     private readonly Dictionary<Guid, Button> _rosterButtons = [];
 
-    private Label _homeHudLabel = null!;
+    private RichTextLabel _homeHudLabel = null!;
     private Label _turnHudLabel = null!;
-    private Label _awayHudLabel = null!;
+    private RichTextLabel _awayHudLabel = null!;
     private Label _decisionTitleLabel = null!;
     private Label _summaryLabel = null!;
     private Label _decisionDetailLabel = null!;
-    private Label _lastEventLabel = null!;
+    private RichTextLabel _lastEventLabel = null!;
     private Label _selectedLabel = null!;
     private VBoxContainer _eventLogList = null!;
     private VBoxContainer _rosterList = null!;

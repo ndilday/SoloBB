@@ -23,12 +23,15 @@ public partial class MatchScreen : VBoxContainer
         hud.AddThemeConstantOverride("separation", 8);
         panel.AddChild(hud);
 
-        _homeHudLabel = new Label
+        _homeHudLabel = new RichTextLabel
         {
             SizeFlagsHorizontal = SizeFlags.ExpandFill,
-            HorizontalAlignment = HorizontalAlignment.Left
+            BbcodeEnabled = true,
+            FitContent = true,
+            ScrollActive = false,
+            AutowrapMode = TextServer.AutowrapMode.Off
         };
-        _homeHudLabel.AddThemeFontSizeOverride("font_size", 14);
+        _homeHudLabel.AddThemeFontSizeOverride("normal_font_size", 14);
         hud.AddChild(_homeHudLabel);
 
         _turnHudLabel = new Label
@@ -39,12 +42,15 @@ public partial class MatchScreen : VBoxContainer
         _turnHudLabel.AddThemeFontSizeOverride("font_size", 14);
         hud.AddChild(_turnHudLabel);
 
-        _awayHudLabel = new Label
+        _awayHudLabel = new RichTextLabel
         {
             SizeFlagsHorizontal = SizeFlags.ExpandFill,
-            HorizontalAlignment = HorizontalAlignment.Right
+            BbcodeEnabled = true,
+            FitContent = true,
+            ScrollActive = false,
+            AutowrapMode = TextServer.AutowrapMode.Off
         };
-        _awayHudLabel.AddThemeFontSizeOverride("font_size", 14);
+        _awayHudLabel.AddThemeFontSizeOverride("normal_font_size", 14);
         hud.AddChild(_awayHudLabel);
 
         return panel;
@@ -297,12 +303,15 @@ public partial class MatchScreen : VBoxContainer
             HorizontalAlignment = HorizontalAlignment.Center
         });
 
-        _lastEventLabel = new Label
+        _lastEventLabel = new RichTextLabel
         {
             Text = "No match events yet.",
+            BbcodeEnabled = true,
+            FitContent = true,
+            ScrollActive = false,
             AutowrapMode = TextServer.AutowrapMode.WordSmart
         };
-        _lastEventLabel.AddThemeFontSizeOverride("font_size", 12);
+        _lastEventLabel.AddThemeFontSizeOverride("normal_font_size", 12);
         stack.AddChild(_lastEventLabel);
 
         var scroll = new ScrollContainer

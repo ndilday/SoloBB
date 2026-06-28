@@ -386,7 +386,8 @@ public sealed partial class MatchService
             strength,
             pending.Rolls,
             roll,
-            pending.PreventFollowUp);
+            pending.PreventFollowUp,
+            allowTeamReroll: !pending.AlreadyRerolled);
     }
 
     public MatchState RerollPendingBlock(
@@ -2025,8 +2026,10 @@ public sealed partial class MatchService
 
     private MatchState PushPlayerIntoCrowd(MatchState match, Ruleset ruleset, PlayerPlacement placement)
     {
-        var injuryState = ResolveInjury(Roll2D6());
-        var apothecary = CreatePendingApothecaryIfAvailable(match, placement, placement.PlayerId.ToString(), injuryState);
+        var injuryRoll = Roll2D6();
+        var playerName = PlayerName(placement.PlayerId);
+        var injuryState = ResolveInjury(injuryRoll);
+        var apothecary = CreatePendingApothecaryIfAvailable(match, placement, playerName, injuryState);
         match = apothecary.Match;
         injuryState = apothecary.Injury;
         var crowdState = injuryState.State is PlayerPitchState.KnockedOut or PlayerPitchState.Casualty or PlayerPitchState.Dead
@@ -2062,11 +2065,12 @@ public sealed partial class MatchService
 
         var crowdLog = new List<MatchLogEntry>
         {
-            new() { Message = $"{PlayerName(placement.PlayerId)} is pushed into the crowd: {FormatPitchState(crowdState)}." }
+            new() { Message = $"{playerName} injury roll {injuryRoll}: {FormatInjuryOutcome(crowdState)}." },
+            new() { Message = $"{playerName} is pushed into the crowd: {FormatInjuryOutcome(crowdState)}." }
         };
         if (injuryState.Casualty is not null)
         {
-            crowdLog.Add(new MatchLogEntry { Message = $"{PlayerName(placement.PlayerId)} casualty roll {injuryState.Casualty.Roll}: {FormatCasualtyResult(injuryState.Casualty.Result)}." });
+            crowdLog.Add(new MatchLogEntry { Message = $"{playerName} casualty roll {injuryState.Casualty.Roll}: {FormatCasualtyResult(injuryState.Casualty.Result)}." });
         }
         crowdLog.AddRange(apothecary.Log);
         crowdLog.AddRange(log);
@@ -2231,7 +2235,7 @@ public sealed partial class MatchService
 
         if (armorBroken && injuryRoll is int roll)
         {
-            log.Add(new MatchLogEntry { Message = $"{victim.Name} injury roll {FormatModifiedRoll(roll, injuryModifier)}: {FormatPitchState(injury.State)}." });
+            log.Add(new MatchLogEntry { Message = $"{victim.Name} injury roll {FormatModifiedRoll(roll, injuryModifier)}: {FormatInjuryOutcome(injury.State)}." });
         }
 
         if (injury.Casualty is not null)

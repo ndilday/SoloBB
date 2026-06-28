@@ -169,7 +169,9 @@ public sealed partial class LeagueService
 
         ValidateStaff(cheerleaders, assistantCoaches, apothecaries);
 
-        var playerCost = existingTeam.Players.Sum(player => FindPosition(roster, player.PositionId).Cost);
+        var playerCost = existingTeam.Players
+            .Where(IsCurrentRosterPlayer)
+            .Sum(player => PreGameService.PlayerValue(ruleset, roster, player));
         var rerollCost = rerolls * roster.RerollCost;
         var dedicatedFansCost = Math.Max(0, dedicatedFans - 1) * DedicatedFanCost;
         var staffCost = (cheerleaders * CheerleaderCost) + (assistantCoaches * AssistantCoachCost) + (apothecaries * ApothecaryCost);
@@ -220,7 +222,7 @@ public sealed partial class LeagueService
         };
     }
 
-    public League ApplyMatchCasualties(League league, Ruleset ruleset, MatchState match)
+    public League ApplyMatchCasualties(League league, Ruleset ruleset, MatchState match, RosterSet? rosterSet = null)
     {
         var casualtyPlacements = match.Placements
             .Where(placement => placement.Casualty is not null || placement.State == PlayerPitchState.Dead)
@@ -235,11 +237,17 @@ public sealed partial class LeagueService
             .ToArray();
 
         teams = ApplyPlagueRidden(ruleset, teams, casualtyPlacements);
+        if (rosterSet is not null)
+        {
+            teams = teams
+                .Select(team => RecalculateTeamValue(ruleset, rosterSet, team))
+                .ToArray();
+        }
 
         return league with { Teams = teams };
     }
 
-    public League CompleteScheduledMatch(League league, Ruleset ruleset, Guid scheduledMatchId, MatchState match)
+    public League CompleteScheduledMatch(League league, Ruleset ruleset, Guid scheduledMatchId, MatchState match, RosterSet? rosterSet = null)
     {
         if (match.Phase != MatchPhase.Complete)
         {
@@ -302,6 +310,13 @@ public sealed partial class LeagueService
                     ? ApplyPostMatchTeamUpdates(team, awards, awayWinnings, match.AwayTreasurySpent, match.AwayScore, match.HomeScore)
                     : team)
             .ToArray();
+
+        if (rosterSet is not null)
+        {
+            updatedTeams = updatedTeams
+                .Select(team => RecalculateTeamValue(ruleset, rosterSet, team))
+                .ToArray();
+        }
 
         return AdvanceSeasonWeek(afterCasualties with { Teams = updatedTeams }, season.Id);
     }
@@ -569,7 +584,7 @@ public sealed partial class LeagueService
             ?? throw new InvalidOperationException("Player is not part of this team.");
 
         var targetNumber = up ? player.Number - 1 : player.Number + 1;
-        var neighbor = team.Players.FirstOrDefault(current => current.Number == targetNumber);
+        var neighbor = team.Players.FirstOrDefault(current => IsCurrentRosterPlayer(current) && current.Number == targetNumber);
         if (neighbor is null)
         {
             return league;
@@ -664,6 +679,41 @@ public sealed partial class LeagueService
             Apothecaries = apothecaries,
             Players = players
         };
+    }
+
+    private static LeagueTeam RecalculateTeamValue(Ruleset ruleset, RosterSet rosterSet, LeagueTeam team)
+    {
+        var roster = rosterSet.Rosters.FirstOrDefault(current => string.Equals(current.Id, team.RosterId, StringComparison.OrdinalIgnoreCase));
+        if (roster is null)
+        {
+            return team;
+        }
+
+        var playerCost = team.Players
+            .Where(IsCurrentRosterPlayer)
+            .Sum(player => SafePlayerValue(ruleset, roster, player));
+        var rerollCost = team.Rerolls * roster.RerollCost;
+        var dedicatedFansCost = Math.Max(0, team.DedicatedFans - 1) * DedicatedFanCost;
+        var staffCost = (team.Cheerleaders * CheerleaderCost) + (team.AssistantCoaches * AssistantCoachCost) + (team.Apothecaries * ApothecaryCost);
+
+        return team with { TeamValue = playerCost + rerollCost + dedicatedFansCost + staffCost };
+    }
+
+    private static int SafePlayerValue(Ruleset ruleset, TeamRoster roster, Player player)
+    {
+        try
+        {
+            return PreGameService.PlayerValue(ruleset, roster, player);
+        }
+        catch (InvalidOperationException)
+        {
+            return 0;
+        }
+    }
+
+    private static bool IsCurrentRosterPlayer(Player player)
+    {
+        return player.Status is not PlayerStatus.Dead and not PlayerStatus.Retired;
     }
 
     private static League PurchaseSkillAdvancement(League league, Ruleset ruleset, TeamRoster roster, Guid teamId, Guid playerId, SkillDefinition skill, bool isRandom, bool? costAsPrimary = null)

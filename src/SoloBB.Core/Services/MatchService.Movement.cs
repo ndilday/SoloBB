@@ -666,7 +666,7 @@ public sealed partial class MatchService
             new() { Message = $"{player.Name} go-for-it {goForItNumber}: rolled {roll}, failed." }
         };
         log.AddRange(injury.Log ?? []);
-        log.Add(new MatchLogEntry { Message = $"{player.Name} falls at {destination.X},{destination.Y} and is {FormatPitchState(injury.State)}." });
+        log.Add(new MatchLogEntry { Message = $"{player.Name} falls at {destination.X},{destination.Y} and is {FormatInjuryOutcome(injury.State)}." });
         log.AddRange(apothecary.Log);
         injuryMatch = ApplyPlayerPitchState(injuryMatch, player.Id, injury.State, OccupiesPitch(injury.State) ? destination : null, injury.Casualty);
 
@@ -712,7 +712,7 @@ public sealed partial class MatchService
             new() { Message = $"{player.Name} dodges to {destination.X},{destination.Y}: rolled {roll} vs {target}+, failed." }
         };
         log.AddRange(injury.Log ?? []);
-        log.Add(new MatchLogEntry { Message = $"{player.Name} falls at {destination.X},{destination.Y} and is {FormatPitchState(injury.State)}{(armBarApplies ? " after Arm Bar" : "")}." });
+        log.Add(new MatchLogEntry { Message = $"{player.Name} falls at {destination.X},{destination.Y} and is {FormatInjuryOutcome(injury.State)}{(armBarApplies ? " after Arm Bar" : "")}." });
         log.AddRange(apothecary.Log);
         injuryMatch = ApplyPlayerPitchState(injuryMatch, player.Id, injury.State, OccupiesPitch(injury.State) ? destination : null, injury.Casualty);
 

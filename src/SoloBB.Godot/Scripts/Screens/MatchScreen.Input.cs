@@ -431,7 +431,9 @@ public partial class MatchScreen : VBoxContainer
         _match = service.FoulPlayer(_match, _ruleset, ActiveTeam(), foulerId, OpponentTeam(), victimId);
         _previewFoulVictimId = null;
 
-        if (_match.ActiveTeamId == activeTeamBeforeFoul && IsPlayerTurnPhase())
+        if (_match.ActiveTeamId == activeTeamBeforeFoul &&
+            IsPlayerTurnPhase() &&
+            IsActivationOngoing(foulerId))
         {
             _selectedPlayerId = foulerId;
             _currentActivationPlayerId = foulerId;

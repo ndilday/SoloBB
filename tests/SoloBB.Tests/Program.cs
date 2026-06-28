@@ -577,11 +577,23 @@ Assert(redraftBudget.Base == 1_000_000, "redraft base budget should be 1,000,000
 Assert(redraftBudget.Subtotal == 1_000_000 + updatedCampaignHome.Treasury + 20_000 + 20_000, "redraft subtotal should add treasury plus 20k per fixture played and 20k per win");
 Assert(redraftBudget.Total == Math.Min(redraftBudget.Subtotal, 1_300_000), "redraft budget should be capped at 1,300,000 gp");
 
-var redraftRetainedIds = updatedCampaignHome.Players.Where(player => player.Status == PlayerStatus.Available).Select(player => player.Id).ToArray();
-var redraftedLeague = leagueService.RedraftTeam(afterFirstCampaignMatch, ruleset, humanRoster, campaignHomeTeam.Id, redraftRetainedIds, [], rerolls: 0, cheerleaders: 0, assistantCoaches: 0, apothecaries: 0);
+var unretainedRedraftPlayer = updatedCampaignHome.Players.First(player => player.Status == PlayerStatus.Available);
+var redraftRetainedIds = updatedCampaignHome.Players.Where(player => player.Status == PlayerStatus.Available && player.Id != unretainedRedraftPlayer.Id).Select(player => player.Id).ToArray();
+var redraftedLeague = leagueService.RedraftTeam(
+    afterFirstCampaignMatch,
+    ruleset,
+    humanRoster,
+    campaignHomeTeam.Id,
+    redraftRetainedIds,
+    [new PlayerDraftPick("Replacement Player", unretainedRedraftPlayer.PositionId)],
+    rerolls: 0,
+    cheerleaders: 0,
+    assistantCoaches: 0,
+    apothecaries: 0);
 var redraftedTeam = redraftedLeague.Teams.Single(team => team.Id == campaignHomeTeam.Id);
-Assert(redraftedTeam.Players.Count == redraftRetainedIds.Length, "redraft should retain the chosen players");
-Assert(redraftedTeam.Players.All(player => player.Status == PlayerStatus.Available), "redrafted players should be available for the new season");
+Assert(redraftedTeam.Players.Count(player => player.Status is not PlayerStatus.Dead and not PlayerStatus.Retired) == redraftRetainedIds.Length + 1, "redraft should retain the chosen players plus new draft picks as the active roster");
+Assert(redraftedTeam.Players.Where(player => redraftRetainedIds.Contains(player.Id)).All(player => player.Status == PlayerStatus.Available), "redrafted players should be available for the new season");
+Assert(redraftedTeam.Players.Any(player => player.Status == PlayerStatus.Retired), "redraft should preserve unretained players as previous players");
 Assert(redraftedTeam.DedicatedFans == updatedCampaignHome.DedicatedFans, "Dedicated Fans should carry over through the redraft");
 Assert(redraftedTeam.Rerolls == 0, "redraft should rebuild rerolls from the chosen amount");
 var redraftFansCost = Math.Max(0, redraftedTeam.DedicatedFans - 1) * 10_000;
@@ -1568,6 +1580,54 @@ Assert(scoredMatch.Ball.CarrierPlayerId is null && scoredMatch.Ball.Square is nu
 Assert(scoredMatch.Placements.Any(placement => placement.TeamId == loadedLeague.Teams[0].Id && placement.State == PlayerPitchState.Reserve), "touchdown should reset available players to reserve");
 Assert(scoredMatch.Placements.Single(placement => placement.PlayerId == loadedLeague.Teams[0].Players[1].Id).State == PlayerPitchState.Reserve, "touchdown should recover knocked out players on 4+");
 Assert(scoredMatch.Placements.Single(placement => placement.PlayerId == awayPlayerToPlace.Id).State == PlayerPitchState.KnockedOut, "touchdown should leave failed knockout recoveries knocked out");
+
+var homeOwnGoalMatch = touchdownService.MovePlayer(
+    offensiveTurnMatch with
+    {
+        Ball = new BallState { CarrierPlayerId = playerToPlace.Id },
+        Placements = offensiveTurnMatch.Placements
+            .Select(placement => placement.PlayerId == playerToPlace.Id
+                ? placement with { Square = new PitchSquare(1, 0), State = PlayerPitchState.Standing }
+                : placement with { Square = null, State = PlayerPitchState.Reserve })
+            .ToArray()
+    },
+    ruleset,
+    loadedLeague.Teams[0],
+    playerToPlace.Id,
+    new(0, 0));
+Assert(homeOwnGoalMatch.HomeScore == 0 && homeOwnGoalMatch.AwayScore == 0, "home ball carrier should not score in their own end zone");
+Assert(homeOwnGoalMatch.Phase == MatchPhase.OffensivePlayerTurn, "reaching your own end zone should leave normal play active");
+
+var awayTouchdownService = new MatchService(new FixedDiceRoller());
+var awayTouchdownBase = offensiveTurnMatch with
+{
+    ActiveTeamId = awayLeague.Teams[0].Id,
+    Ball = new BallState { CarrierPlayerId = awayPlayerToPlace.Id },
+    Placements = offensiveTurnMatch.Placements
+        .Select(placement => placement.PlayerId == awayPlayerToPlace.Id
+            ? placement with { Square = new PitchSquare(1, 0), State = PlayerPitchState.Standing }
+            : placement with { Square = null, State = PlayerPitchState.Reserve })
+        .ToArray()
+};
+var awayScoredMatch = awayTouchdownService.MovePlayer(awayTouchdownBase, ruleset, awayLeague.Teams[0], awayPlayerToPlace.Id, new(0, 0));
+Assert(awayScoredMatch.AwayScore == 1, "away ball carrier should score in home end zone");
+Assert(awayScoredMatch.HomeScore == 0, "home score should not change on away touchdown");
+
+var awayOwnGoalMatch = awayTouchdownService.MovePlayer(
+    awayTouchdownBase with
+    {
+        Ball = new BallState { CarrierPlayerId = awayPlayerToPlace.Id },
+        Placements = awayTouchdownBase.Placements
+            .Select(placement => placement.PlayerId == awayPlayerToPlace.Id
+                ? placement with { Square = new PitchSquare(ruleset.PitchWidth - 2, 0), State = PlayerPitchState.Standing }
+                : placement)
+            .ToArray()
+    },
+    ruleset,
+    awayLeague.Teams[0],
+    awayPlayerToPlace.Id,
+    new(ruleset.PitchWidth - 1, 0));
+Assert(awayOwnGoalMatch.HomeScore == 0 && awayOwnGoalMatch.AwayScore == 0, "away ball carrier should not score in their own end zone");
 
 var pickMeUpTouchdownService = new MatchService(new FixedDiceRoller(d6: [3]));
 var pickMeUpScore = pickMeUpTouchdownService.MovePlayer(
@@ -2731,6 +2791,7 @@ crowdPushResult = crowdPushService.ResolvePendingFollowUp(crowdPushResult, rules
 crowdedPlayer = crowdPushResult.Placements.Single(placement => placement.PlayerId == awayPlayerToPlace.Id);
 Assert(crowdedPlayer.Square is null, "sideline push with no legal on-pitch destination should push the player off the pitch");
 Assert(crowdedPlayer.State == PlayerPitchState.Reserve, "crowd push with no lasting injury should put the player in reserve");
+Assert(crowdPushResult.Log.Any(entry => entry.Message.Contains("injury roll 3: reserve.")), "crowd push should display the crowd injury roll");
 Assert(crowdPushResult.Placements.Single(placement => placement.PlayerId == playerToPlace.Id).Square == new PitchSquare(0, 1), "following up a crowd push should move into the surfed player's original square");
 
 var crowdThrowInCatchService = new MatchService(new FixedDiceRoller(d6: [3, 1, 2, 1], d8: [5, 5]));
@@ -2900,6 +2961,8 @@ var deadAttacker = deathBlockMatch.Placements.Single(placement => placement.Play
 
 Assert(deadAttacker.State == PlayerPitchState.Dead, "dead should come from the casualty table rather than the injury roll");
 Assert(deadAttacker.Casualty?.Result == CasualtyResult.Dead, "casualty roll of 15-16 should be dead");
+Assert(deathBlockMatch.Log.Any(entry => entry.Message.Contains("injury roll") && entry.Message.Contains("Casualty!")), "injury roll of 10+ should display as Casualty!");
+Assert(deathBlockMatch.Log.Any(entry => entry.Message.Contains("casualty roll 16") && entry.Message.Contains("dead")), "casualty table death should display as dead");
 
 var apothecaryBlockService = new MatchService(new FixedDiceRoller(d6: [1, 6, 6, 6, 6], d16: [16, 1]));
 var apothecaryBlockPending = apothecaryBlockService.BlockPlayer(
@@ -2972,12 +3035,14 @@ var postMatchCasualties = offensiveTurnMatch with
                 : placement)
         .ToArray()
 };
-var updatedCasualtyLeague = leagueService.ApplyMatchCasualties(postMatchCasualtyLeague, ruleset, postMatchCasualties);
+var updatedCasualtyLeague = leagueService.ApplyMatchCasualties(postMatchCasualtyLeague, ruleset, postMatchCasualties, rosterSet);
 var injuredRosterPlayer = updatedCasualtyLeague.Teams.Single(team => team.Id == plagueTeam.Id).Players.Single(player => player.Id == playerToPlace.Id);
 var deadRosterPlayer = updatedCasualtyLeague.Teams.Single(team => team.Id == awayLeague.Teams[0].Id).Players.Single(player => player.Id == awayPlayerToPlace.Id);
 Assert(injuredRosterPlayer.Status == PlayerStatus.MissNextGame, "lasting injuries should mark players as missing the next game");
 Assert(injuredRosterPlayer.Stats.Movement == playerToPlace.Stats.Movement - 1, "lasting injuries should apply a stat modifier");
 Assert(deadRosterPlayer.Status == PlayerStatus.Dead, "dead casualty results should be applied back to league rosters");
+var deadPlayerValue = fixture.OrcRoster.Positions.Single(position => string.Equals(position.Id, awayPlayerToPlace.PositionId, StringComparison.OrdinalIgnoreCase)).Cost;
+Assert(updatedCasualtyLeague.Teams.Single(team => team.Id == awayLeague.Teams[0].Id).TeamValue == awayLeague.Teams[0].TeamValue - deadPlayerValue, "dead players should no longer count toward stored team value");
 Assert(updatedCasualtyLeague.Teams.Single(team => team.Id == plagueTeam.Id).Players.Count == plagueTeam.Players.Count + 1, "Plague Ridden should add a replacement player after an opposing death when roster space exists");
 
 var blitzReadyMatch = offensiveTurnMatch with
@@ -3134,6 +3199,13 @@ var blockRerolledChoice = blockRerollPendingService.RerollPendingBlock(blockRero
 Assert(blockRerolledChoice.PendingBlock?.Rolls.SequenceEqual([6, 6]) == true, "rerolling a pending block should reroll all dice and re-present the choice");
 Assert(blockRerolledChoice.HomeRerollsRemaining == loadedLeague.Teams[0].Rerolls - 1, "rerolling a pending block should spend a team reroll");
 
+var failedRerolledBlockService = new MatchService(new FixedDiceRoller(d6: [1, 1, 1, 1, 1, 1, 1, 1], d8: [5]));
+var failedRerolledBlock = failedRerolledBlockService.BlockPlayer(assistedBlockMatch, ruleset, loadedLeague.Teams[0], playerToPlace.Id, awayLeague.Teams[0], awayPlayerToPlace.Id);
+failedRerolledBlock = failedRerolledBlockService.RerollPendingBlock(failedRerolledBlock, ruleset, loadedLeague.Teams[0], awayLeague.Teams[0]);
+var failedRerolledBlockResult = failedRerolledBlockService.ChooseBlockDie(failedRerolledBlock, ruleset, loadedLeague.Teams[0], awayLeague.Teams[0], roll: 1);
+Assert(failedRerolledBlockResult.PendingBlockReroll is null, "choosing attacker down from already-rerolled block dice must not offer a second team reroll");
+Assert(failedRerolledBlockResult.Phase == MatchPhase.DefensiveTurn, "choosing attacker down from already-rerolled block dice should resolve the turnover");
+
 var guardTeam = loadedLeague.Teams[0] with
 {
     Players = loadedLeague.Teams[0].Players
@@ -3254,6 +3326,7 @@ var foulService = new MatchService(new FixedDiceRoller(d6: [5, 6, 3, 4]));
 var foulMatch = foulService.FoulPlayer(foulReadyMatch, ruleset, loadedLeague.Teams[0], playerToPlace.Id, awayLeague.Teams[0], awayPlayerToPlace.Id);
 
 Assert(foulMatch.Activations.Single(activation => activation.PlayerId == playerToPlace.Id).Action == PlayerTurnAction.Foul, "foul should activate the fouler");
+Assert(foulMatch.Activations.Single(activation => activation.PlayerId == playerToPlace.Id).Completed, "normal foul should complete the fouler's activation");
 Assert(foulMatch.Placements.Single(placement => placement.PlayerId == awayPlayerToPlace.Id).State == PlayerPitchState.Stunned, "foul armor break should resolve injury against the victim");
 Assert(foulMatch.Phase == MatchPhase.OffensivePlayerTurn, "foul without doubles should not cause a turnover");
 
@@ -3297,6 +3370,7 @@ var bribeFoulResolved = bribeFoulService.ResolvePendingSendOff(bribeFoulPending,
 Assert(bribeFoulResolved.HomeBribesRemaining == 0, "foul bribe choice should spend the bribe");
 Assert(bribeFoulResolved.Placements.Single(placement => placement.PlayerId == playerToPlace.Id).State == PlayerPitchState.Standing, "successful foul bribe should keep the fouler on the pitch");
 Assert(bribeFoulResolved.Phase == MatchPhase.OffensivePlayerTurn, "successful foul bribe should avoid the send-off turnover");
+Assert(bribeFoulResolved.Activations.Single(activation => activation.PlayerId == playerToPlace.Id).Completed, "successful foul bribe should still leave the fouler's activation complete");
 
 var declinedBribeFoulService = new MatchService(new FixedDiceRoller(d6: [6, 6, 4, 5]));
 var declinedBribeFoulPending = declinedBribeFoulService.FoulPlayer(foulReadyMatch with { HomeBribesRemaining = 1 }, ruleset, loadedLeague.Teams[0], playerToPlace.Id, awayLeague.Teams[0], awayPlayerToPlace.Id);
@@ -3316,6 +3390,7 @@ var sneakyGitMoveMatch = sneakyGitService.MovePlayer(sneakyGitFoulMatch, ruleset
 var sneakyGitActivation = sneakyGitMoveMatch.Activations.Single(activation => activation.PlayerId == playerToPlace.Id);
 Assert(sneakyGitMoveMatch.Placements.Single(placement => placement.PlayerId == playerToPlace.Id).Square == new PitchSquare(1, 2), "Sneaky Git should allow the fouler to keep moving after a non-send-off foul");
 Assert(sneakyGitActivation.Action == PlayerTurnAction.Foul && !sneakyGitActivation.MayMoveAfterFoul, "Sneaky Git movement should preserve the spent foul action and consume the continuation");
+Assert(!sneakyGitActivation.Completed, "Sneaky Git continuation should keep the fouler activation open after the foul");
 
 var goForItService = new MatchService(new FixedDiceRoller(d6: [2]));
 var goForItMatch = goForItService.MovePlayer(offensiveTurnMatch, ruleset, loadedLeague.Teams[0], playerToPlace.Id, new(7, 0));

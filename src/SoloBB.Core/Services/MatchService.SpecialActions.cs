@@ -618,8 +618,8 @@ public sealed partial class MatchService
             log.Add(new MatchLogEntry
             {
                 Message = dirtyPlayerInjuryBonus > 0
-                    ? $"{victim.Name} injury roll {injuryRoll.Total} +1 Dirty Player = {injuryTotal}: {FormatPitchState(injury.State)}."
-                    : $"{victim.Name} injury roll {injuryRoll.Total}: {FormatPitchState(injury.State)}."
+                    ? $"{victim.Name} injury roll {injuryRoll.Total} +1 Dirty Player = {injuryTotal}: {FormatInjuryOutcome(injury.State)}."
+                    : $"{victim.Name} injury roll {injuryRoll.Total}: {FormatInjuryOutcome(injury.State)}."
             });
             if (injury.Casualty is not null)
             {
@@ -633,10 +633,15 @@ public sealed partial class MatchService
         }
 
         nextMatch = nextMatch with { Log = [.. nextMatch.Log, .. log] };
+        var canContinueWithSneakyGit = hasSneakyGit && allowSneakyGitMove && !sentOff;
+        if (!canContinueWithSneakyGit)
+        {
+            nextMatch = CompleteActivation(nextMatch, fouler.Id, foulingTeam.Id);
+        }
 
         if (!sentOff)
         {
-            if (hasSneakyGit && allowSneakyGitMove)
+            if (canContinueWithSneakyGit)
             {
                 nextMatch = nextMatch with
                 {
@@ -906,7 +911,7 @@ public sealed partial class MatchService
             [
                 .. knockedMatch.Log,
                 new MatchLogEntry { Message = $"{description}: armor {armorText} vs AV {target.Stats.Armor}+, broken." },
-                new MatchLogEntry { Message = $"{target.Name} injury roll {injuryRoll.Total}: {FormatPitchState(injury.State)}." }
+                new MatchLogEntry { Message = $"{target.Name} injury roll {injuryRoll.Total}: {FormatInjuryOutcome(injury.State)}." }
             ]
         };
 

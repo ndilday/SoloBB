@@ -13,6 +13,7 @@ public partial class TeamRosterScreen : VBoxContainer
     private RosterSet _rosterSet = null!;
     private LeagueTeam _team = null!;
     private TeamRoster _roster = null!;
+    private string _latestSeasonName = "";
     private Func<Guid, string, Task> _renamePlayer = (_, _) => Task.CompletedTask;
     private Func<Guid, string, Task> _purchaseSelectedSkill = (_, _) => Task.CompletedTask;
     private Func<Guid, bool, Task> _purchaseRandomSkill = (_, _) => Task.CompletedTask;
@@ -45,11 +46,13 @@ public partial class TeamRosterScreen : VBoxContainer
     private Button _moveUpButton = null!;
     private Button _moveDownButton = null!;
     private AcceptDialog _developmentDialog = null!;
+    private AcceptDialog _previousPlayersDialog = null!;
 
     public void Setup(
         Ruleset ruleset,
         RosterSet rosterSet,
         LeagueTeam team,
+        string latestSeasonName,
         Func<Guid, string, Task> renamePlayer,
         Func<Guid, string, Task> purchaseSelectedSkill,
         Func<Guid, bool, Task> purchaseRandomSkill,
@@ -67,6 +70,7 @@ public partial class TeamRosterScreen : VBoxContainer
         _rosterSet = rosterSet;
         _team = team;
         _roster = rosterSet.Rosters.First(roster => string.Equals(roster.Id, team.RosterId, StringComparison.OrdinalIgnoreCase));
+        _latestSeasonName = latestSeasonName;
         _renamePlayer = renamePlayer;
         _purchaseSelectedSkill = purchaseSelectedSkill;
         _purchaseRandomSkill = purchaseRandomSkill;
@@ -116,6 +120,10 @@ public partial class TeamRosterScreen : VBoxContainer
         var backButton = ScreenStyles.StyledButton("Back to Team");
         backButton.Pressed += back;
         actions.AddChild(backButton);
+
+        var previousButton = ScreenStyles.StyledButton("Previous Players");
+        previousButton.Pressed += OpenPreviousPlayers;
+        actions.AddChild(previousButton);
     }
 
     private void BuildBody()
@@ -150,6 +158,8 @@ public partial class TeamRosterScreen : VBoxContainer
 
         _developmentDialog = BuildDevelopmentDialog();
         AddChild(_developmentDialog);
+        _previousPlayersDialog = BuildPreviousPlayersDialog();
+        AddChild(_previousPlayersDialog);
     }
 
     private Control BuildPlayerTable()
@@ -203,7 +213,7 @@ public partial class TeamRosterScreen : VBoxContainer
         var stack = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
         stack.AddThemeConstantOverride("separation", 8);
 
-        var queued = _team.Players.Where(CanLevelUp).ToArray();
+        var queued = CurrentPlayers().Where(CanLevelUp).ToArray();
         if (queued.Length == 0)
         {
             stack.AddChild(ScreenStyles.MutedLabel("No players currently have enough SPP for an advancement."));
@@ -442,11 +452,90 @@ public partial class TeamRosterScreen : VBoxContainer
         return stack;
     }
 
+    private AcceptDialog BuildPreviousPlayersDialog()
+    {
+        var popup = new AcceptDialog
+        {
+            Title = "Previous Players",
+            Unresizable = false,
+            MinSize = new Vector2I(760, 460)
+        };
+        popup.GetOkButton().Text = "Close";
+
+        var tree = new Tree
+        {
+            Columns = 5,
+            HideRoot = true,
+            ColumnTitlesVisible = true,
+            CustomMinimumSize = new Vector2(720, 360),
+            SizeFlagsHorizontal = SizeFlags.ExpandFill
+        };
+        tree.SetColumnTitle(0, "Player");
+        tree.SetColumnTitle(1, "Position");
+        tree.SetColumnTitle(2, "Title");
+        tree.SetColumnTitle(3, "Status");
+        tree.SetColumnTitle(4, "SPP");
+
+        int[] columnExpandRatios = [5, 4, 2, 4, 0];
+        for (var column = 0; column < tree.Columns; column++)
+        {
+            var ratio = columnExpandRatios[column];
+            var expands = ratio > 0;
+            tree.SetColumnExpand(column, expands);
+            if (expands)
+            {
+                tree.SetColumnExpandRatio(column, ratio);
+            }
+
+            tree.SetColumnTitleAlignment(
+                column,
+                column == 4 ? HorizontalAlignment.Right : HorizontalAlignment.Left);
+        }
+
+        tree.SetColumnCustomMinimumWidth(0, 190);
+        tree.SetColumnCustomMinimumWidth(1, 140);
+        tree.SetColumnCustomMinimumWidth(2, 80);
+        tree.SetColumnCustomMinimumWidth(3, 190);
+        tree.SetColumnCustomMinimumWidth(4, 48);
+        tree.AddThemeConstantOverride("h_separation", 10);
+        tree.AddThemeConstantOverride("v_separation", 5);
+
+        var root = tree.CreateItem();
+        foreach (var player in PreviousPlayers().OrderBy(player => player.Number).ThenBy(player => player.Name, StringComparer.OrdinalIgnoreCase))
+        {
+            var item = tree.CreateItem(root);
+            item.SetText(0, $"#{player.Number} {player.Name}");
+            item.SetText(1, FindPosition(player.PositionId).Name);
+            item.SetText(2, LeagueService.PlayerTitle(_roster, player));
+            item.SetText(3, FormatPreviousStatus(player));
+            item.SetText(4, player.StarPlayerPoints.ToString());
+            for (var column = 0; column < tree.Columns; column++)
+            {
+                item.SetTextAlignment(
+                    column,
+                    column == 4 ? HorizontalAlignment.Right : HorizontalAlignment.Left);
+            }
+
+            item.SetCustomMinimumHeight(28);
+        }
+
+        if (PreviousPlayers().Length == 0)
+        {
+            var item = tree.CreateItem(root);
+            item.SetText(0, "No previous players yet.");
+            item.SetCustomColor(0, ScreenStyles.MutedText);
+        }
+
+        popup.AddChild(tree);
+        return popup;
+    }
+
     private void RefreshPlayers()
     {
         _playerTree.Clear();
         var root = _playerTree.CreateItem();
-        foreach (var player in _team.Players.OrderBy(player => player.Number))
+        var currentPlayers = CurrentPlayers();
+        foreach (var player in currentPlayers.OrderBy(player => player.Number))
         {
             var item = _playerTree.CreateItem(root);
             item.SetText(0, $"#{player.Number} {player.Name}");
@@ -471,7 +560,7 @@ public partial class TeamRosterScreen : VBoxContainer
             item.SetCustomMinimumHeight(28);
         }
 
-        _healthLabel.Text = $"Ready: {_team.Players.Count(player => player.Status == PlayerStatus.Available)}\nMissing next game: {_team.Players.Count(player => player.Status == PlayerStatus.MissNextGame)}\nCan level up: {_team.Players.Count(CanLevelUp)}\nTotal SPP: {_team.Players.Sum(player => player.StarPlayerPoints)}";
+        _healthLabel.Text = $"Ready: {currentPlayers.Count(player => player.Status == PlayerStatus.Available)}\nMissing next game: {currentPlayers.Count(player => player.Status == PlayerStatus.MissNextGame)}\nCan level up: {currentPlayers.Count(CanLevelUp)}\nTotal SPP: {currentPlayers.Sum(player => player.StarPlayerPoints)}";
     }
 
     private void OnPlayerTreeItemMouseSelected(Vector2 mousePosition, long mouseButtonIndex)
@@ -561,8 +650,9 @@ public partial class TeamRosterScreen : VBoxContainer
             return;
         }
 
-        _moveUpButton.Disabled = player.Number <= _team.Players.Min(current => current.Number);
-        _moveDownButton.Disabled = player.Number >= _team.Players.Max(current => current.Number);
+        var currentPlayers = CurrentPlayers();
+        _moveUpButton.Disabled = player.Number <= currentPlayers.Min(current => current.Number);
+        _moveDownButton.Disabled = player.Number >= currentPlayers.Max(current => current.Number);
 
         var position = FindPosition(player.PositionId);
         _inspectorTitle.Text = player.Name;
@@ -873,14 +963,34 @@ public partial class TeamRosterScreen : VBoxContainer
 
     private string LevelQueueBadge()
     {
-        var count = _team.Players.Count(CanLevelUp);
+        var count = CurrentPlayers().Count(CanLevelUp);
         return count == 0 ? "None" : $"{count} available";
     }
 
     private string HealthBadge()
     {
-        var missing = _team.Players.Count(player => player.Status == PlayerStatus.MissNextGame);
+        var missing = CurrentPlayers().Count(player => player.Status == PlayerStatus.MissNextGame);
         return missing == 0 ? "Healthy" : $"{missing} MNG";
+    }
+
+    private void OpenPreviousPlayers()
+    {
+        _previousPlayersDialog.PopupCentered(new Vector2I(780, 500));
+    }
+
+    private Player[] CurrentPlayers()
+    {
+        return _team.Players.Where(IsCurrentPlayer).ToArray();
+    }
+
+    private Player[] PreviousPlayers()
+    {
+        return _team.Players.Where(player => !IsCurrentPlayer(player)).ToArray();
+    }
+
+    private static bool IsCurrentPlayer(Player player)
+    {
+        return player.Status is not PlayerStatus.Dead and not PlayerStatus.Retired;
     }
 
     private static string FormatStatus(PlayerStatus status)
@@ -890,6 +1000,17 @@ public partial class TeamRosterScreen : VBoxContainer
             PlayerStatus.Available => "Ready",
             PlayerStatus.MissNextGame => "MNG",
             _ => status.ToString()
+        };
+    }
+
+    private string FormatPreviousStatus(Player player)
+    {
+        return player.Status switch
+        {
+            PlayerStatus.Dead => "Dead",
+            PlayerStatus.Retired when !string.IsNullOrWhiteSpace(_latestSeasonName) => $"Not Resigned After {_latestSeasonName}",
+            PlayerStatus.Retired => "Not Resigned",
+            _ => FormatStatus(player.Status)
         };
     }
 

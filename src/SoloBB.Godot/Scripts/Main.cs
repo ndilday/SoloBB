@@ -11,11 +11,20 @@ namespace SoloBB.Godot.Scripts;
 
 public partial class Main : Control
 {
+    private const int ForegroundMaxFps = 60;
+    private const int BackgroundMaxFps = 15;
+    private const int BackgroundSleepUsec = 50000;
+    private const int DefaultShellMargin = 24;
+    private const int MatchShellMargin = 6;
+    private const int DefaultMatchStackSeparation = 12;
+    private const int CompactMatchStackSeparation = 4;
+
     private readonly JsonGameDataStore _store = new();
     private readonly LeagueService _leagueService = new();
     private readonly MatchService _matchService = new();
     private readonly PreGameService _preGameService = new();
 
+    private MarginContainer _contentMargin = null!;
     private ScrollContainer _shellScroll = null!;
     private VBoxContainer _scrollStack = null!;
     private VBoxContainer _matchStack = null!;
@@ -34,8 +43,10 @@ public partial class Main : Control
 
     public override void _Ready()
     {
+        ApplyForegroundPerformanceMode();
         AddThemeStyleboxOverride("panel", ScreenStyles.FlatStyle(ScreenStyles.ScreenBackground));
         GetNode<PanelContainer>("Panel").AddThemeStyleboxOverride("panel", ScreenStyles.FlatStyle(new Color("111816"), ScreenStyles.PanelBorder, 2));
+        _contentMargin = GetNode<MarginContainer>("Panel/Margin");
         _shellScroll = GetNode<ScrollContainer>("Panel/Margin/Scroll");
         _scrollStack = GetNode<VBoxContainer>("Panel/Margin/Scroll/Stack");
         _matchStack = GetNode<VBoxContainer>("Panel/Margin/MatchStack");
@@ -43,6 +54,32 @@ public partial class Main : Control
         _matchStack.SizeFlagsVertical = SizeFlags.ExpandFill;
         ShowMainMenu();
         _ = LoadCatalogAsync();
+    }
+
+    public override void _Notification(int what)
+    {
+        switch (what)
+        {
+            case (int)NotificationApplicationFocusIn:
+                ApplyForegroundPerformanceMode();
+                break;
+            case (int)NotificationApplicationFocusOut:
+                ApplyBackgroundPerformanceMode();
+                break;
+        }
+    }
+
+    private static void ApplyForegroundPerformanceMode()
+    {
+        Engine.MaxFps = ForegroundMaxFps;
+        OS.LowProcessorUsageMode = false;
+    }
+
+    private static void ApplyBackgroundPerformanceMode()
+    {
+        Engine.MaxFps = BackgroundMaxFps;
+        OS.LowProcessorUsageModeSleepUsec = BackgroundSleepUsec;
+        OS.LowProcessorUsageMode = true;
     }
 
     private async Task LoadCatalogAsync()
@@ -394,6 +431,7 @@ public partial class Main : Control
             ruleset: _ruleset,
             rosterSet: _rosterSet,
             team: team,
+            latestSeasonName: _activeLeague.Seasons.LastOrDefault()?.Name ?? "",
             renamePlayer: async (playerId, playerName) => await RenamePlayerAsync(team.Id, playerId, playerName, screen),
             purchaseSelectedSkill: async (playerId, skillId) => await PurchaseSelectedSkillAsync(team.Id, playerId, skillId, screen),
             purchaseRandomSkill: async (playerId, secondary) => await PurchaseRandomSkillAsync(team.Id, playerId, secondary, screen),
@@ -705,7 +743,7 @@ public partial class Main : Control
             _activeScheduledMatchId is Guid scheduledMatchId &&
             match.Phase == MatchPhase.Complete)
         {
-            _activeLeague = _leagueService.CompleteScheduledMatch(_activeLeague, _ruleset, scheduledMatchId, match);
+            _activeLeague = _leagueService.CompleteScheduledMatch(_activeLeague, _ruleset, scheduledMatchId, match, _rosterSet);
             await SaveActiveLeagueAsync();
         }
     }
@@ -718,6 +756,7 @@ public partial class Main : Control
         var fillsViewport = isMatchScreen || screen is PreGameScreen;
         ClearScreenHost(_scrollStack);
         ClearScreenHost(_matchStack);
+        ConfigureScreenChrome(isMatchScreen);
 
         _shellScroll.Visible = !fillsViewport;
         _matchStack.Visible = fillsViewport;
@@ -730,6 +769,16 @@ public partial class Main : Control
         screen.SizeFlagsVertical = fillsViewport ? SizeFlags.ExpandFill : SizeFlags.Fill;
         (fillsViewport ? _matchStack : _scrollStack).AddChild(screen);
         return screen;
+    }
+
+    private void ConfigureScreenChrome(bool isMatchScreen)
+    {
+        var margin = isMatchScreen ? MatchShellMargin : DefaultShellMargin;
+        _contentMargin.AddThemeConstantOverride("margin_left", margin);
+        _contentMargin.AddThemeConstantOverride("margin_top", margin);
+        _contentMargin.AddThemeConstantOverride("margin_right", margin);
+        _contentMargin.AddThemeConstantOverride("margin_bottom", margin);
+        _matchStack.AddThemeConstantOverride("separation", isMatchScreen ? CompactMatchStackSeparation : DefaultMatchStackSeparation);
     }
 
     private static void ClearScreenHost(Node host)
