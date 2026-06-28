@@ -390,6 +390,24 @@ fullRosterLeague = leagueService.AddTeam(
 
 Assert(fullRosterLeague.Teams[0].Players.Count == 16, "league teams should allow sixteen-player rosters");
 
+var hiredCatcherPosition = humanRoster.Positions.Single(position => position.Id == "catcher");
+var hiredCatcherLeague = leagueService.HirePlayer(loadedLeague, ruleset, humanRoster, numberedTeam.Id, "catcher", "");
+var hiredCatcherTeam = hiredCatcherLeague.Teams[0];
+var hiredCatcher = hiredCatcherTeam.Players.Single(player => !numberedTeam.Players.Any(existing => existing.Id == player.Id));
+Assert(hiredCatcherTeam.Players.Count == 12, "hiring a player should add them to the roster");
+Assert(hiredCatcher.Name == "Catcher 2", "hiring without a name should generate a position-based name");
+Assert(hiredCatcher.Number == 12, "hired players should take the next free jersey number");
+Assert(hiredCatcher.PositionId == "catcher" && hiredCatcher.Skills.SequenceEqual(hiredCatcherPosition.StartingSkills), "hired players should use the selected position template");
+Assert(hiredCatcherTeam.Treasury == numberedTeam.Treasury - hiredCatcherPosition.Cost, "hiring should spend team treasury");
+Assert(hiredCatcherTeam.TeamValue == numberedTeam.TeamValue + hiredCatcherPosition.Cost, "hiring should increase team value by the new player value");
+
+AssertThrows(
+    () => leagueService.HirePlayer(loadedLeague, ruleset, humanRoster, numberedTeam.Id, "ogre", "Second Ogre"),
+    "hiring should reject positions already at roster maximum");
+AssertThrows(
+    () => leagueService.HirePlayer(fullRosterLeague, ruleset, humanRoster, fullRosterLeague.Teams[0].Id, "lineman", "Overflow"),
+    "hiring should reject rosters above sixteen players");
+
 var fanFactorLeague = leagueService.CreateLeague("Fan Factor League", ruleset, [rosterSet]);
 fanFactorLeague = leagueService.AddTeam(
     fanFactorLeague,
@@ -434,6 +452,75 @@ staffLeague = leagueService.AddTeam(
 
 Assert(staffLeague.Teams[0].TeamValue == 630_000, "team value should include cheerleaders, assistant coaches, and apothecaries");
 Assert(staffLeague.Teams[0].Treasury == 370_000, "staff purchases should reduce treasury");
+
+var managedTeam = numberedTeam with { Treasury = 250_000 };
+var managedLeague = loadedLeague with
+{
+    Teams = loadedLeague.Teams
+        .Select(team => team.Id == numberedTeam.Id ? managedTeam : team)
+        .ToArray()
+};
+var rerollManagedLeague = leagueService.UpdateTeamManagement(
+    managedLeague,
+    ruleset,
+    humanRoster,
+    numberedTeam.Id,
+    managedTeam.Name,
+    managedTeam.CoachName,
+    rerolls: managedTeam.Rerolls + 1,
+    dedicatedFans: managedTeam.DedicatedFans,
+    cheerleaders: managedTeam.Cheerleaders,
+    assistantCoaches: managedTeam.AssistantCoaches,
+    apothecaries: managedTeam.Apothecaries);
+var rerollManagedTeam = rerollManagedLeague.Teams.Single(team => team.Id == numberedTeam.Id);
+Assert(rerollManagedTeam.Treasury == 150_000, "post-creation rerolls should cost double the roster reroll price from treasury");
+Assert(rerollManagedTeam.TeamValue == managedTeam.TeamValue + humanRoster.RerollCost, "post-creation rerolls should add only the normal reroll value to TV");
+
+var assetManagedLeague = leagueService.UpdateTeamManagement(
+    rerollManagedLeague,
+    ruleset,
+    humanRoster,
+    numberedTeam.Id,
+    rerollManagedTeam.Name,
+    rerollManagedTeam.CoachName,
+    rerolls: rerollManagedTeam.Rerolls,
+    dedicatedFans: rerollManagedTeam.DedicatedFans + 1,
+    cheerleaders: rerollManagedTeam.Cheerleaders + 1,
+    assistantCoaches: rerollManagedTeam.AssistantCoaches + 1,
+    apothecaries: rerollManagedTeam.Apothecaries + 1);
+var assetManagedTeam = assetManagedLeague.Teams.Single(team => team.Id == numberedTeam.Id);
+Assert(assetManagedTeam.Treasury == 70_000, "post-creation fan, staff, and apothecary purchases should spend treasury at normal cost");
+Assert(assetManagedTeam.TeamValue == rerollManagedTeam.TeamValue + 80_000, "post-creation fan, staff, and apothecary purchases should add their normal value to TV");
+
+AssertThrows(
+    () => leagueService.UpdateTeamManagement(
+        assetManagedLeague,
+        ruleset,
+        humanRoster,
+        numberedTeam.Id,
+        assetManagedTeam.Name,
+        assetManagedTeam.CoachName,
+        rerolls: assetManagedTeam.Rerolls - 1,
+        dedicatedFans: assetManagedTeam.DedicatedFans,
+        cheerleaders: assetManagedTeam.Cheerleaders,
+        assistantCoaches: assetManagedTeam.AssistantCoaches,
+        apothecaries: assetManagedTeam.Apothecaries),
+    "team management should reject reducing rerolls");
+
+AssertThrows(
+    () => leagueService.UpdateTeamManagement(
+        assetManagedLeague,
+        ruleset,
+        humanRoster,
+        numberedTeam.Id,
+        assetManagedTeam.Name,
+        assetManagedTeam.CoachName,
+        rerolls: assetManagedTeam.Rerolls + 1,
+        dedicatedFans: assetManagedTeam.DedicatedFans,
+        cheerleaders: assetManagedTeam.Cheerleaders,
+        assistantCoaches: assetManagedTeam.AssistantCoaches,
+        apothecaries: assetManagedTeam.Apothecaries),
+    "team management should reject purchases the treasury cannot afford");
 
 var scheduledLeague = leagueService.CreateLeague("Scheduled League", ruleset, [rosterSet], targetTeamCount: 4);
 for (var teamIndex = 1; teamIndex <= 4; teamIndex++)

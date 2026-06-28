@@ -168,6 +168,20 @@ public sealed partial class LeagueService
         }
 
         ValidateStaff(cheerleaders, assistantCoaches, apothecaries);
+        ValidateNoTeamAssetDecrease(existingTeam, rerolls, dedicatedFans, cheerleaders, assistantCoaches, apothecaries);
+
+        var purchaseCost = TeamManagementPurchaseCost(
+            existingTeam,
+            roster,
+            rerolls,
+            dedicatedFans,
+            cheerleaders,
+            assistantCoaches,
+            apothecaries);
+        if (purchaseCost > existingTeam.Treasury)
+        {
+            throw new InvalidOperationException($"{existingTeam.Name} needs {purchaseCost - existingTeam.Treasury:N0} gp more for these team asset purchases.");
+        }
 
         var playerCost = existingTeam.Players
             .Where(IsCurrentRosterPlayer)
@@ -180,6 +194,7 @@ public sealed partial class LeagueService
         {
             Name = RequireText(teamName, "Team name is required."),
             CoachName = string.IsNullOrWhiteSpace(coachName) ? "Solo Coach" : coachName.Trim(),
+            Treasury = existingTeam.Treasury - purchaseCost,
             TeamValue = playerCost + rerollCost + dedicatedFansCost + staffCost,
             Rerolls = rerolls,
             DedicatedFans = dedicatedFans,
@@ -192,6 +207,63 @@ public sealed partial class LeagueService
         {
             Teams = league.Teams
                 .Select(team => team.Id == teamId ? updatedTeam : team)
+                .ToArray()
+        };
+    }
+
+    public League HirePlayer(
+        League league,
+        Ruleset ruleset,
+        TeamRoster roster,
+        Guid teamId,
+        string positionId,
+        string playerName)
+    {
+        var team = league.Teams.FirstOrDefault(current => current.Id == teamId)
+            ?? throw new InvalidOperationException("Team is not part of this league.");
+        if (!string.Equals(team.RosterId, roster.Id, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("Roster does not match the selected team.");
+        }
+
+        var currentPlayers = team.Players.Where(IsCurrentRosterPlayer).ToArray();
+        if (currentPlayers.Length >= MaximumRosterPlayers)
+        {
+            throw new InvalidOperationException($"Roster already has {MaximumRosterPlayers} players.");
+        }
+
+        var position = FindPosition(roster, positionId);
+        var positionCount = currentPlayers.Count(player => string.Equals(player.PositionId, position.Id, StringComparison.OrdinalIgnoreCase));
+        if (positionCount >= position.Max)
+        {
+            throw new InvalidOperationException($"Roster already has the maximum {position.Max} '{position.Name}' players.");
+        }
+
+        if (team.Treasury < position.Cost)
+        {
+            throw new InvalidOperationException($"{team.Name} needs {position.Cost - team.Treasury:N0} gp more to hire a {position.Name}.");
+        }
+
+        var player = CreatePlayer(
+            roster,
+            new PlayerDraftPick(
+                string.IsNullOrWhiteSpace(playerName) ? $"{position.Name} {positionCount + 1}" : playerName,
+                position.Id)) with
+            {
+                Number = NextRosterNumber(currentPlayers)
+            };
+        var updatedTeam = team with
+        {
+            Treasury = team.Treasury - position.Cost,
+            Players = [.. team.Players, player]
+        };
+
+        updatedTeam = updatedTeam with { TeamValue = CalculateTeamValue(ruleset, roster, updatedTeam) };
+
+        return league with
+        {
+            Teams = league.Teams
+                .Select(current => current.Id == team.Id ? updatedTeam : current)
                 .ToArray()
         };
     }
@@ -681,6 +753,62 @@ public sealed partial class LeagueService
         };
     }
 
+    private static void ValidateNoTeamAssetDecrease(
+        LeagueTeam team,
+        int rerolls,
+        int dedicatedFans,
+        int cheerleaders,
+        int assistantCoaches,
+        int apothecaries)
+    {
+        if (rerolls < team.Rerolls)
+        {
+            throw new InvalidOperationException("Team rerolls cannot be reduced from the team management screen.");
+        }
+
+        if (dedicatedFans < team.DedicatedFans)
+        {
+            throw new InvalidOperationException("Dedicated Fans cannot be reduced from the team management screen.");
+        }
+
+        if (cheerleaders < team.Cheerleaders)
+        {
+            throw new InvalidOperationException("Cheerleaders cannot be reduced from the team management screen.");
+        }
+
+        if (assistantCoaches < team.AssistantCoaches)
+        {
+            throw new InvalidOperationException("Assistant coaches cannot be reduced from the team management screen.");
+        }
+
+        if (apothecaries < team.Apothecaries)
+        {
+            throw new InvalidOperationException("Apothecaries cannot be reduced from the team management screen.");
+        }
+    }
+
+    private static int TeamManagementPurchaseCost(
+        LeagueTeam team,
+        TeamRoster roster,
+        int rerolls,
+        int dedicatedFans,
+        int cheerleaders,
+        int assistantCoaches,
+        int apothecaries)
+    {
+        var rerollPurchaseCost = Math.Max(0, rerolls - team.Rerolls) * roster.RerollCost * 2;
+        var dedicatedFansPurchaseCost = Math.Max(0, dedicatedFans - team.DedicatedFans) * DedicatedFanCost;
+        var cheerleaderPurchaseCost = Math.Max(0, cheerleaders - team.Cheerleaders) * CheerleaderCost;
+        var assistantCoachPurchaseCost = Math.Max(0, assistantCoaches - team.AssistantCoaches) * AssistantCoachCost;
+        var apothecaryPurchaseCost = Math.Max(0, apothecaries - team.Apothecaries) * ApothecaryCost;
+
+        return rerollPurchaseCost +
+            dedicatedFansPurchaseCost +
+            cheerleaderPurchaseCost +
+            assistantCoachPurchaseCost +
+            apothecaryPurchaseCost;
+    }
+
     private static LeagueTeam RecalculateTeamValue(Ruleset ruleset, RosterSet rosterSet, LeagueTeam team)
     {
         var roster = rosterSet.Rosters.FirstOrDefault(current => string.Equals(current.Id, team.RosterId, StringComparison.OrdinalIgnoreCase));
@@ -689,6 +817,11 @@ public sealed partial class LeagueService
             return team;
         }
 
+        return team with { TeamValue = CalculateTeamValue(ruleset, roster, team) };
+    }
+
+    private static int CalculateTeamValue(Ruleset ruleset, TeamRoster roster, LeagueTeam team)
+    {
         var playerCost = team.Players
             .Where(IsCurrentRosterPlayer)
             .Sum(player => SafePlayerValue(ruleset, roster, player));
@@ -696,14 +829,14 @@ public sealed partial class LeagueService
         var dedicatedFansCost = Math.Max(0, team.DedicatedFans - 1) * DedicatedFanCost;
         var staffCost = (team.Cheerleaders * CheerleaderCost) + (team.AssistantCoaches * AssistantCoachCost) + (team.Apothecaries * ApothecaryCost);
 
-        return team with { TeamValue = playerCost + rerollCost + dedicatedFansCost + staffCost };
+        return playerCost + rerollCost + dedicatedFansCost + staffCost;
     }
 
     private static int SafePlayerValue(Ruleset ruleset, TeamRoster roster, Player player)
     {
         try
         {
-            return PreGameService.PlayerValue(ruleset, roster, player);
+            return PlayerValue(ruleset, roster, player);
         }
         catch (InvalidOperationException)
         {
@@ -711,9 +844,20 @@ public sealed partial class LeagueService
         }
     }
 
+    public static int PlayerValue(Ruleset ruleset, TeamRoster roster, Player player)
+    {
+        return PreGameService.PlayerValue(ruleset, roster, player);
+    }
+
     private static bool IsCurrentRosterPlayer(Player player)
     {
         return player.Status is not PlayerStatus.Dead and not PlayerStatus.Retired;
+    }
+
+    private static int NextRosterNumber(IReadOnlyList<Player> currentPlayers)
+    {
+        return Enumerable.Range(1, MaximumRosterPlayers)
+            .First(number => currentPlayers.All(player => player.Number != number));
     }
 
     private static League PurchaseSkillAdvancement(League league, Ruleset ruleset, TeamRoster roster, Guid teamId, Guid playerId, SkillDefinition skill, bool isRandom, bool? costAsPrimary = null)

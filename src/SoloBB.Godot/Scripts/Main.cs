@@ -420,7 +420,8 @@ public partial class Main : Control
             rollCharacteristic: playerId => RollCharacteristicAsync(team.Id, playerId, screen),
             applyCharacteristic: async (playerId, roll, characteristic) => await ApplyCharacteristicAsync(team.Id, playerId, roll, characteristic, screen),
             applyCharacteristicSkill: async (playerId, skillId) => await ApplyCharacteristicSkillAsync(team.Id, playerId, skillId, screen),
-            movePlayer: async (playerId, up) => await MovePlayerAsync(team.Id, playerId, up, screen));
+            movePlayer: async (playerId, up) => await MovePlayerAsync(team.Id, playerId, up, screen),
+            hirePlayer: async (positionId, playerName) => await HirePlayerAsync(team.Id, positionId, playerName, screen));
     }
 
     private async Task SaveTeamAsync(TeamDraftRequest request, TeamCreationScreen screen)
@@ -597,6 +598,37 @@ public partial class Main : Control
         catch (Exception ex)
         {
             screen.SetStatus($"Reordering players failed: {ex.Message}");
+        }
+    }
+
+    private async Task HirePlayerAsync(Guid teamId, string positionId, string playerName, TeamCreationScreen screen)
+    {
+        try
+        {
+            if (_activeLeague is null || _ruleset is null || _rosterSet is null)
+            {
+                throw new InvalidOperationException("League data is not ready.");
+            }
+
+            var team = _activeLeague.Teams.First(current => current.Id == teamId);
+            var roster = _rosterSet.Rosters.First(current => string.Equals(current.Id, team.RosterId, StringComparison.OrdinalIgnoreCase));
+            var previousPlayerIds = team.Players.Select(player => player.Id).ToHashSet();
+
+            _activeLeague = _leagueService.HirePlayer(_activeLeague, _ruleset, roster, teamId, positionId, playerName);
+            await SaveActiveLeagueAsync();
+            ShowTeamEditingScreen(teamId, _teamEditingBack);
+
+            var updatedTeam = _activeLeague.Teams.First(current => current.Id == teamId);
+            var hiredPlayer = updatedTeam.Players.FirstOrDefault(player => !previousPlayerIds.Contains(player.Id));
+            if (CurrentScreen is TeamCreationScreen teamScreen && hiredPlayer is not null)
+            {
+                teamScreen.SelectPlayerById(hiredPlayer.Id);
+                teamScreen.SetStatus($"Hired {hiredPlayer.Name}.");
+            }
+        }
+        catch (Exception ex)
+        {
+            screen.SetStatus($"Hire failed: {ex.Message}");
         }
     }
 
