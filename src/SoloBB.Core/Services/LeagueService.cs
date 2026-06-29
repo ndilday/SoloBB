@@ -351,18 +351,55 @@ public sealed partial class LeagueService
             ?? throw new InvalidOperationException("Away team is not part of this league.");
         var awards = AppendMostValuablePlayerAwards(EnrichPlayerAwards(match.PlayerAwards, match, homeTeam, awayTeam), homeTeam, awayTeam);
         var (homeWinnings, awayWinnings) = CalculateWinnings(match.HomeFanFactor + match.AwayFanFactor, match.HomeScore, match.AwayScore);
+
+        var afterCasualties = ApplyMatchCasualties(ReleaseMissNextGamePlayers(league, match), ruleset, match);
+        var homeDedicatedFansChange = 0;
+        var awayDedicatedFansChange = 0;
+        var updatedTeams = afterCasualties.Teams
+            .Select(team =>
+            {
+                if (team.Id == match.HomeTeamId)
+                {
+                    var dedicatedFans = UpdateDedicatedFans(team.DedicatedFans, match.HomeScore, match.AwayScore);
+                    homeDedicatedFansChange = dedicatedFans - team.DedicatedFans;
+                    return ApplyPostMatchTeamUpdates(team, awards, homeWinnings, match.HomeTreasurySpent, dedicatedFans);
+                }
+
+                if (team.Id == match.AwayTeamId)
+                {
+                    var dedicatedFans = UpdateDedicatedFans(team.DedicatedFans, match.AwayScore, match.HomeScore);
+                    awayDedicatedFansChange = dedicatedFans - team.DedicatedFans;
+                    return ApplyPostMatchTeamUpdates(team, awards, awayWinnings, match.AwayTreasurySpent, dedicatedFans);
+                }
+
+                return team;
+            })
+            .ToArray();
+
+        if (rosterSet is not null)
+        {
+            updatedTeams = updatedTeams
+                .Select(team => RecalculateTeamValue(ruleset, rosterSet, team))
+                .ToArray();
+        }
+
         var result = new MatchResult
         {
             HomeScore = match.HomeScore,
             AwayScore = match.AwayScore,
+            HomeFanFactor = match.HomeFanFactor,
+            AwayFanFactor = match.AwayFanFactor,
             HomeWinnings = homeWinnings,
             AwayWinnings = awayWinnings,
+            HomeDedicatedFansChange = homeDedicatedFansChange,
+            AwayDedicatedFansChange = awayDedicatedFansChange,
             PlayerAwards = awards
         };
 
-        var withResult = league with
+        var completedLeague = afterCasualties with
         {
-            Seasons = league.Seasons
+            Teams = updatedTeams,
+            Seasons = afterCasualties.Seasons
                 .Select(currentSeason => currentSeason.Id == season.Id
                     ? currentSeason with
                     {
@@ -374,23 +411,7 @@ public sealed partial class LeagueService
                 .ToArray()
         };
 
-        var afterCasualties = ApplyMatchCasualties(ReleaseMissNextGamePlayers(withResult, match), ruleset, match);
-        var updatedTeams = afterCasualties.Teams
-            .Select(team => team.Id == match.HomeTeamId
-                ? ApplyPostMatchTeamUpdates(team, awards, homeWinnings, match.HomeTreasurySpent, match.HomeScore, match.AwayScore)
-                : team.Id == match.AwayTeamId
-                    ? ApplyPostMatchTeamUpdates(team, awards, awayWinnings, match.AwayTreasurySpent, match.AwayScore, match.HomeScore)
-                    : team)
-            .ToArray();
-
-        if (rosterSet is not null)
-        {
-            updatedTeams = updatedTeams
-                .Select(team => RecalculateTeamValue(ruleset, rosterSet, team))
-                .ToArray();
-        }
-
-        return AdvanceSeasonWeek(afterCasualties with { Teams = updatedTeams }, season.Id);
+        return AdvanceSeasonWeek(completedLeague, season.Id);
     }
 
     public League PurchaseSelectedSkillAdvancement(League league, Ruleset ruleset, TeamRoster roster, Guid teamId, Guid playerId, string skillId)
@@ -994,8 +1015,7 @@ public sealed partial class LeagueService
         IReadOnlyList<MatchPlayerAward> awards,
         int winnings,
         int treasurySpent,
-        int scoreFor,
-        int scoreAgainst)
+        int dedicatedFans)
     {
         var sppByPlayer = awards
             .Where(award => award.TeamId == team.Id)
@@ -1005,7 +1025,7 @@ public sealed partial class LeagueService
         return team with
         {
             Treasury = Math.Max(0, team.Treasury - treasurySpent) + winnings,
-            DedicatedFans = UpdateDedicatedFans(team.DedicatedFans, scoreFor, scoreAgainst),
+            DedicatedFans = dedicatedFans,
             Players = team.Players
                 .Select(player => sppByPlayer.TryGetValue(player.Id, out var spp)
                     ? player with { StarPlayerPoints = player.StarPlayerPoints + spp }

@@ -349,23 +349,6 @@ public partial class Main : Control
             back: ShowLeagueHomeScreen);
     }
 
-    private void ShowTeamHomeScreen(Guid teamId)
-    {
-        if (_activeLeague is null)
-        {
-            return;
-        }
-
-        var team = _activeLeague.Teams.FirstOrDefault(current => current.Id == teamId);
-        if (team is null)
-        {
-            return;
-        }
-
-        var screen = ShowScreen<TeamHomeScreen>("res://scenes/screens/team_home_screen.tscn");
-        screen.Setup(team, ShowLeagueHomeScreen);
-    }
-
     private void ShowTeamEditingScreen(Guid teamId)
     {
         ShowTeamEditingScreen(teamId, ShowLeagueTeamsScreen);

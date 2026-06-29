@@ -646,6 +646,7 @@ Assert(enrichedTouchdownAward.PlayerName == campaignScorer.Name && enrichedTouch
 Assert(enrichedCasualtyAward.PlayerName == returningPlayer.Name && enrichedCasualtyAward.VictimPlayerName == injuredAwayPlayer.Name && enrichedCasualtyAward.CasualtyResult == CasualtyResult.SeriouslyHurt, "post-match should enrich casualty SPP awards with victim names and casualty results");
 Assert(afterFirstCampaignMatch.Seasons.Single().CurrentWeek == 1, "league week should not advance until every game in the week is complete");
 Assert(updatedCampaignHome.Treasury == campaignHomeTeam.Treasury - 100_000 + firstCampaignResult.HomeWinnings, "post-match should apply pre-game treasury spend and winnings");
+Assert(firstCampaignResult.HomeFanFactor == 4 && firstCampaignResult.AwayFanFactor == 3, "post-match result should store the game Fan Factors used for attendance");
 // BB2020 winnings: Fan Attendance (4 + 3 = 7) / 2 = 3, plus touchdowns scored, multiplied by 10,000.
 Assert(firstCampaignResult.HomeWinnings == 50_000, "BB2020 winnings should be (Fan Attendance / 2 + touchdowns) * 10,000 for the home team");
 Assert(firstCampaignResult.AwayWinnings == 40_000, "BB2020 winnings should be (Fan Attendance / 2 + touchdowns) * 10,000 for the away team");
@@ -692,6 +693,8 @@ Assert(nextSeasonLeague.Seasons.Count == afterFirstCampaignMatch.Seasons.Count +
 Assert(nextSeasonLeague.Seasons.Last().Schedule.Count > 0, "the new season should have a generated schedule");
 Assert(updatedCampaignHome.Players.Single(player => player.Id == returningPlayer.Id).Status == PlayerStatus.Available, "post-match should clear old Miss Next Game status after the missed match");
 Assert(updatedCampaignHome.DedicatedFans == campaignHomeTeam.DedicatedFans + 1, "post-match win should improve the team's Dedicated Fans");
+Assert(firstCampaignResult.HomeDedicatedFansChange == updatedCampaignHome.DedicatedFans - campaignHomeTeam.DedicatedFans, "post-match result should store the home Dedicated Fans change");
+Assert(firstCampaignResult.AwayDedicatedFansChange == updatedCampaignAway.DedicatedFans - campaignAwayTeam.DedicatedFans, "post-match result should store the away Dedicated Fans change");
 Assert(updatedCampaignAway.Players.Single(player => player.Id == injuredAwayPlayer.Id).Status == PlayerStatus.MissNextGame, "post-match should apply current-match casualty roster status");
 
 var selectedAdvancementLeague = leagueService.PurchaseSelectedSkillAdvancement(afterFirstCampaignMatch, ruleset, humanRoster, campaignHomeTeam.Id, campaignScorer.Id, "block");

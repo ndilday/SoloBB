@@ -96,6 +96,8 @@ public partial class TeamCreationScreen : VBoxContainer
     private Button _hireButton = null!;
     private AcceptDialog _developmentDialog = null!;
     private AcceptDialog _previousPlayersDialog = null!;
+    private AcceptDialog _gameHistoryDialog = null!;
+    private MarginContainer _gameHistoryContent = null!;
     private AcceptDialog _playerHistoryDialog = null!;
     private MarginContainer _playerHistoryContent = null!;
     private Label _developmentDialogLabel = null!;
@@ -211,7 +213,8 @@ public partial class TeamCreationScreen : VBoxContainer
             "Save Changes",
             async () => await SaveManagementAsync(),
             back,
-            OpenPreviousPlayers);
+            OpenPreviousPlayers,
+            OpenGameHistory);
 
         _selectedRoster = FindRoster(team.RosterId);
 
@@ -258,6 +261,8 @@ public partial class TeamCreationScreen : VBoxContainer
         AddChild(_developmentDialog);
         _previousPlayersDialog = BuildPreviousPlayersDialog();
         AddChild(_previousPlayersDialog);
+        _gameHistoryDialog = BuildGameHistoryDialog();
+        AddChild(_gameHistoryDialog);
         _playerHistoryDialog = BuildPlayerHistoryDialog();
         AddChild(_playerHistoryDialog);
         SelectFirstPlayer();
@@ -268,7 +273,8 @@ public partial class TeamCreationScreen : VBoxContainer
         string primaryAction,
         Func<Task> save,
         Action back,
-        Action? previousPlayers = null)
+        Action? previousPlayers = null,
+        Action? gameHistory = null)
     {
         var panel = new PanelContainer
         {
@@ -324,6 +330,14 @@ public partial class TeamCreationScreen : VBoxContainer
             previousButton.CustomMinimumSize = new Vector2(0, 30);
             previousButton.Pressed += previousPlayers;
             actions.AddChild(previousButton);
+        }
+
+        if (gameHistory is not null)
+        {
+            var historyButton = ScreenStyles.StyledButton("Game History");
+            historyButton.CustomMinimumSize = new Vector2(0, 30);
+            historyButton.Pressed += gameHistory;
+            actions.AddChild(historyButton);
         }
 
         _saveButton = ScreenStyles.StyledButton(primaryAction, primary: true, disabled: true);
@@ -875,19 +889,8 @@ public partial class TeamCreationScreen : VBoxContainer
 
     private AcceptDialog BuildDevelopmentDialog()
     {
-        var popup = new AcceptDialog
-        {
-            Title = "Player Development",
-            Unresizable = false,
-            MinSize = new Vector2I(720, 620)
-        };
-        popup.GetOkButton().Text = "Close";
-
-        var margin = new MarginContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
-        margin.AddThemeConstantOverride("margin_left", 8);
-        margin.AddThemeConstantOverride("margin_top", 8);
-        margin.AddThemeConstantOverride("margin_right", 8);
-        margin.AddThemeConstantOverride("margin_bottom", 8);
+        var popup = ScreenStyles.Dialog("Player Development", new Vector2I(720, 620));
+        var margin = ScreenStyles.DialogContent();
         popup.AddChild(margin);
 
         var stack = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
@@ -1017,13 +1020,15 @@ public partial class TeamCreationScreen : VBoxContainer
 
     private AcceptDialog BuildPreviousPlayersDialog()
     {
-        var popup = new AcceptDialog
-        {
-            Title = "Previous Players",
-            Unresizable = false,
-            MinSize = new Vector2I(780, 460)
-        };
-        popup.GetOkButton().Text = "Close";
+        var popup = ScreenStyles.Dialog("Previous Players", new Vector2I(780, 460));
+        HorizontalAlignment[] columnAlignments =
+        [
+            HorizontalAlignment.Left,
+            HorizontalAlignment.Left,
+            HorizontalAlignment.Left,
+            HorizontalAlignment.Left,
+            HorizontalAlignment.Right
+        ];
 
         var tree = new Tree
         {
@@ -1043,6 +1048,7 @@ public partial class TeamCreationScreen : VBoxContainer
         tree.SetColumnCustomMinimumWidth(2, 120);
         tree.SetColumnCustomMinimumWidth(3, 180);
         tree.SetColumnCustomMinimumWidth(4, 52);
+        ScreenStyles.StyleTable(tree, columnAlignments);
 
         var root = tree.CreateItem();
         var previousPlayers = PreviousPlayers();
@@ -1056,7 +1062,7 @@ public partial class TeamCreationScreen : VBoxContainer
             item.SetText(4, player.StarPlayerPoints.ToString());
             for (var column = 0; column < tree.Columns; column++)
             {
-                item.SetTextAlignment(column, column == 4 ? HorizontalAlignment.Right : HorizontalAlignment.Left);
+                item.SetTextAlignment(column, columnAlignments[column]);
             }
 
             item.SetCustomMinimumHeight(28);
@@ -1069,32 +1075,49 @@ public partial class TeamCreationScreen : VBoxContainer
             item.SetCustomColor(0, ScreenStyles.MutedText);
         }
 
-        popup.AddChild(tree);
+        var content = ScreenStyles.DialogContent();
+        content.AddChild(tree);
+        popup.AddChild(content);
         return popup;
     }
 
     private AcceptDialog BuildPlayerHistoryDialog()
     {
-        var popup = new AcceptDialog
-        {
-            Title = "Player History",
-            Unresizable = false,
-            MinSize = new Vector2I(1020, 500)
-        };
-        popup.GetOkButton().Text = "Close";
-
-        _playerHistoryContent = new MarginContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
-        _playerHistoryContent.AddThemeConstantOverride("margin_left", 8);
-        _playerHistoryContent.AddThemeConstantOverride("margin_top", 8);
-        _playerHistoryContent.AddThemeConstantOverride("margin_right", 8);
-        _playerHistoryContent.AddThemeConstantOverride("margin_bottom", 8);
+        var popup = ScreenStyles.Dialog("Player History", new Vector2I(1020, 500));
+        _playerHistoryContent = ScreenStyles.DialogContent();
         popup.AddChild(_playerHistoryContent);
+        return popup;
+    }
+
+    private AcceptDialog BuildGameHistoryDialog()
+    {
+        var popup = ScreenStyles.Dialog("Game History", new Vector2I(900, 460));
+        _gameHistoryContent = ScreenStyles.DialogContent();
+        popup.AddChild(_gameHistoryContent);
         return popup;
     }
 
     private void OpenPreviousPlayers()
     {
         _previousPlayersDialog.PopupCentered(new Vector2I(780, 500));
+    }
+
+    private void OpenGameHistory()
+    {
+        if (_editingTeam is null)
+        {
+            return;
+        }
+
+        foreach (var child in _gameHistoryContent.GetChildren())
+        {
+            _gameHistoryContent.RemoveChild(child);
+            child.QueueFree();
+        }
+
+        _gameHistoryDialog.Title = $"{_editingTeam.Name} Game History";
+        _gameHistoryContent.AddChild(BuildGameHistoryTable());
+        _gameHistoryDialog.PopupCentered(new Vector2I(900, 460));
     }
 
     private void OpenPlayerHistory()
@@ -1119,6 +1142,19 @@ public partial class TeamCreationScreen : VBoxContainer
     private Control BuildPlayerHistoryTable(Player player)
     {
         var history = PlayerHistory(player);
+        HorizontalAlignment[] columnAlignments =
+        [
+            HorizontalAlignment.Left,
+            HorizontalAlignment.Left,
+            HorizontalAlignment.Left,
+            HorizontalAlignment.Right,
+            HorizontalAlignment.Right,
+            HorizontalAlignment.Right,
+            HorizontalAlignment.Right,
+            HorizontalAlignment.Right,
+            HorizontalAlignment.Right,
+            HorizontalAlignment.Right
+        ];
         var tree = new Tree
         {
             Columns = 10,
@@ -1147,6 +1183,7 @@ public partial class TeamCreationScreen : VBoxContainer
         tree.SetColumnCustomMinimumWidth(7, 48);
         tree.SetColumnCustomMinimumWidth(8, 52);
         tree.SetColumnCustomMinimumWidth(9, 52);
+        ScreenStyles.StyleTable(tree, columnAlignments);
 
         var root = tree.CreateItem();
         if (history.Length == 0)
@@ -1172,12 +1209,88 @@ public partial class TeamCreationScreen : VBoxContainer
             item.SetText(9, row.StarPlayerPoints.ToString());
             for (var column = 0; column < tree.Columns; column++)
             {
-                item.SetTextAlignment(column, column >= 3 ? HorizontalAlignment.Right : HorizontalAlignment.Left);
+                item.SetTextAlignment(column, columnAlignments[column]);
             }
 
             if (row.StarPlayerPoints > 0)
             {
                 item.SetCustomColor(9, ScreenStyles.Brass);
+            }
+
+            item.SetCustomMinimumHeight(28);
+        }
+
+        return tree;
+    }
+
+    private Control BuildGameHistoryTable()
+    {
+        var history = TeamHistory();
+        HorizontalAlignment[] columnAlignments =
+        [
+            HorizontalAlignment.Left,
+            HorizontalAlignment.Left,
+            HorizontalAlignment.Left,
+            HorizontalAlignment.Right,
+            HorizontalAlignment.Right,
+            HorizontalAlignment.Right,
+            HorizontalAlignment.Right
+        ];
+        var tree = new Tree
+        {
+            Columns = 7,
+            HideRoot = true,
+            ColumnTitlesVisible = true,
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            SizeFlagsVertical = SizeFlags.ExpandFill
+        };
+        tree.SetColumnTitle(0, "Game");
+        tree.SetColumnTitle(1, "Opponent");
+        tree.SetColumnTitle(2, "Final");
+        tree.SetColumnTitle(3, "Cas F");
+        tree.SetColumnTitle(4, "Cas A");
+        tree.SetColumnTitle(5, "Fans");
+        tree.SetColumnTitle(6, "Winnings");
+        tree.SetColumnCustomMinimumWidth(0, 110);
+        tree.SetColumnCustomMinimumWidth(1, 220);
+        tree.SetColumnCustomMinimumWidth(2, 100);
+        tree.SetColumnCustomMinimumWidth(3, 58);
+        tree.SetColumnCustomMinimumWidth(4, 58);
+        tree.SetColumnCustomMinimumWidth(5, 70);
+        tree.SetColumnCustomMinimumWidth(6, 110);
+        ScreenStyles.StyleTable(tree, columnAlignments);
+
+        var root = tree.CreateItem();
+        if (history.Length == 0)
+        {
+            var empty = tree.CreateItem(root);
+            empty.SetText(0, "No completed match history yet.");
+            empty.SetCustomColor(0, ScreenStyles.MutedText);
+            return tree;
+        }
+
+        foreach (var row in history)
+        {
+            var item = tree.CreateItem(root);
+            item.SetText(0, row.Game);
+            item.SetText(1, row.Opponent);
+            item.SetText(2, row.FinalScore);
+            item.SetText(3, row.CasualtiesFor.ToString());
+            item.SetText(4, row.CasualtiesAgainst.ToString());
+            item.SetText(5, FormatSigned(row.DedicatedFansChange));
+            item.SetText(6, FormatGold(row.Winnings));
+            for (var column = 0; column < tree.Columns; column++)
+            {
+                item.SetTextAlignment(column, columnAlignments[column]);
+            }
+
+            if (row.DedicatedFansChange > 0)
+            {
+                item.SetCustomColor(5, ScreenStyles.Brass);
+            }
+            else if (row.DedicatedFansChange < 0)
+            {
+                item.SetCustomColor(5, ScreenStyles.Warning);
             }
 
             item.SetCustomMinimumHeight(28);
@@ -1824,24 +1937,24 @@ public partial class TeamCreationScreen : VBoxContainer
 
     private void ShowCharacteristicChoice(Guid playerId, CharacteristicAdvancementRoll roll)
     {
-        var popup = new AcceptDialog
-        {
-            Title = "Characteristic Improvement",
-            Unresizable = false,
-            MinSize = new Vector2I(320, 0)
-        };
+        var popup = ScreenStyles.Dialog("Characteristic Improvement", new Vector2I(360, 0));
+        var margin = ScreenStyles.DialogContent();
 
         var content = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
         content.AddThemeConstantOverride("separation", 8);
-        content.AddChild(new Label { Text = $"Rolled {roll.Roll} on the D16 table. Spends {roll.Cost} SPP." });
+        var rollLabel = new Label { Text = $"Rolled {roll.Roll} on the D16 table. Spends {roll.Cost} SPP." };
+        rollLabel.AddThemeColorOverride("font_color", ScreenStyles.Text);
+        content.AddChild(rollLabel);
 
         if (roll.Options.Count == 0)
         {
-            content.AddChild(new Label
+            var emptyLabel = new Label
             {
                 Text = "This roll unlocks no characteristic this player can improve.",
                 AutowrapMode = TextServer.AutowrapMode.WordSmart
-            });
+            };
+            emptyLabel.AddThemeColorOverride("font_color", ScreenStyles.MutedText);
+            content.AddChild(emptyLabel);
         }
         else
         {
@@ -1891,7 +2004,8 @@ public partial class TeamCreationScreen : VBoxContainer
             content.AddChild(skillButton);
         }
 
-        popup.AddChild(content);
+        margin.AddChild(content);
+        popup.AddChild(margin);
         popup.Confirmed += popup.QueueFree;
         popup.Canceled += popup.QueueFree;
         AddChild(popup);
@@ -1976,6 +2090,50 @@ public partial class TeamCreationScreen : VBoxContainer
     private Player[] PreviousPlayers()
     {
         return _editingTeam?.Players.Where(player => !IsCurrentPlayer(player)).ToArray() ?? Array.Empty<Player>();
+    }
+
+    private TeamHistoryRow[] TeamHistory()
+    {
+        if (_league is null || _editingTeam is null)
+        {
+            return Array.Empty<TeamHistoryRow>();
+        }
+
+        return _league.Seasons
+            .SelectMany(season => season.Schedule
+                .Where(match => match.Result is not null && (match.HomeTeamId == _editingTeam.Id || match.AwayTeamId == _editingTeam.Id))
+                .Select(match => CreateTeamHistoryRow(season.Name, match)))
+            .ToArray();
+    }
+
+    private TeamHistoryRow CreateTeamHistoryRow(string seasonName, ScheduledMatch match)
+    {
+        var result = match.Result!;
+        var isHome = match.HomeTeamId == _editingTeam!.Id;
+        var opponentId = isHome ? match.AwayTeamId : match.HomeTeamId;
+        var opponent = _league?.Teams.FirstOrDefault(team => team.Id == opponentId);
+        var teamScore = isHome ? result.HomeScore : result.AwayScore;
+        var opponentScore = isHome ? result.AwayScore : result.HomeScore;
+        var outcome = teamScore > opponentScore
+            ? "W"
+            : teamScore < opponentScore
+                ? "L"
+                : "D";
+        var casualtiesFor = result.PlayerAwards.Count(award =>
+            award.TeamId == _editingTeam.Id &&
+            award.Kind == MatchPlayerAwardKind.Casualty);
+        var casualtiesAgainst = result.PlayerAwards.Count(award =>
+            award.TeamId == opponentId &&
+            award.Kind == MatchPlayerAwardKind.Casualty);
+
+        return new TeamHistoryRow(
+            $"{seasonName} W{match.Week}",
+            opponent?.Name ?? "Unknown Team",
+            $"{outcome} {teamScore}-{opponentScore}",
+            casualtiesFor,
+            casualtiesAgainst,
+            isHome ? result.HomeDedicatedFansChange : result.AwayDedicatedFansChange,
+            isHome ? result.HomeWinnings : result.AwayWinnings);
     }
 
     private PlayerHistoryRow[] PlayerHistory(Player player)
@@ -2076,6 +2234,15 @@ public partial class TeamCreationScreen : VBoxContainer
         return player.Status is not PlayerStatus.Dead and not PlayerStatus.Retired;
     }
 
+    private sealed record TeamHistoryRow(
+        string Game,
+        string Opponent,
+        string FinalScore,
+        int CasualtiesFor,
+        int CasualtiesAgainst,
+        int DedicatedFansChange,
+        int Winnings);
+
     private sealed record PlayerHistoryRow(
         string Game,
         string Opponent,
@@ -2091,5 +2258,10 @@ public partial class TeamCreationScreen : VBoxContainer
     private static string FormatGold(int value)
     {
         return $"{value:N0} gp";
+    }
+
+    private static string FormatSigned(int value)
+    {
+        return value > 0 ? $"+{value}" : value.ToString();
     }
 }

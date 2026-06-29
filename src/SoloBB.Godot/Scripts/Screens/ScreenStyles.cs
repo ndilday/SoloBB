@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Godot;
 
 namespace SoloBB.Godot.Scripts.Screens;
@@ -17,6 +18,41 @@ internal static class ScreenStyles
     public static readonly Color Warning = new("f0c45b");
     public static readonly Color Danger = new("d66a58");
     public static readonly string TeamManagementTexturePath = "res://assets/ui/team_management_texture.png";
+
+    public static AcceptDialog Dialog(string title, Vector2I minSize)
+    {
+        var dialog = new AcceptDialog
+        {
+            Title = title,
+            Unresizable = false,
+            MinSize = minSize
+        };
+        ApplyDialogStyle(dialog);
+        dialog.GetOkButton().Text = "Close";
+        return dialog;
+    }
+
+    public static MarginContainer DialogContent()
+    {
+        var content = new MarginContainer
+        {
+            SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
+            SizeFlagsVertical = Control.SizeFlags.ExpandFill
+        };
+        content.AddThemeConstantOverride("margin_left", 12);
+        content.AddThemeConstantOverride("margin_top", 12);
+        content.AddThemeConstantOverride("margin_right", 12);
+        content.AddThemeConstantOverride("margin_bottom", 12);
+        return content;
+    }
+
+    public static void ApplyDialogStyle(AcceptDialog dialog)
+    {
+        dialog.AddThemeColorOverride("title_color", Text);
+        dialog.AddThemeColorOverride("close_hl_color", Text);
+        dialog.AddThemeStyleboxOverride("embedded_border", FlatStyle(PanelBackground, PanelBorder, 2));
+        ApplyButtonStyle(dialog.GetOkButton());
+    }
 
     public static PanelContainer ScreenHeader(string eyebrow, string title, string subtitle, Control? actions = null)
     {
@@ -146,6 +182,12 @@ internal static class ScreenStyles
     public static Button StyledButton(string text, bool primary = false, bool danger = false, bool disabled = false)
     {
         var button = new Button { Text = text, Disabled = disabled, CustomMinimumSize = new Vector2(0, 34) };
+        ApplyButtonStyle(button, primary, danger);
+        return button;
+    }
+
+    public static void ApplyButtonStyle(Button button, bool primary = false, bool danger = false)
+    {
         var background = primary
             ? new Color("9b7430")
             : danger
@@ -163,7 +205,28 @@ internal static class ScreenStyles
         button.AddThemeStyleboxOverride("disabled", FlatStyle(new Color("242a26"), new Color("343a35")));
         button.AddThemeColorOverride("font_color", primary ? new Color("15110a") : Text);
         button.AddThemeColorOverride("font_disabled_color", DimText);
-        return button;
+    }
+
+    public static void StyleTable(Tree tree, IReadOnlyList<HorizontalAlignment> columnAlignments)
+    {
+        tree.AddThemeStyleboxOverride("panel", FlatStyle(new Color("181e1a"), PanelBorderSoft));
+        tree.AddThemeStyleboxOverride("title_button_normal", FlatStyle(new Color("111412"), PanelBorderSoft));
+        tree.AddThemeStyleboxOverride("title_button_hover", FlatStyle(new Color("202720"), PanelBorder));
+        tree.AddThemeStyleboxOverride("title_button_pressed", FlatStyle(new Color("111412"), PanelBorderSoft));
+        tree.AddThemeStyleboxOverride("selected", FlatStyle(new Color("626862"), new Color("737b71")));
+        tree.AddThemeStyleboxOverride("selected_focus", FlatStyle(new Color("626862"), new Color("737b71")));
+        tree.AddThemeStyleboxOverride("cursor", new StyleBoxEmpty());
+        tree.AddThemeColorOverride("font_color", MutedText);
+        tree.AddThemeColorOverride("font_selected_color", Text);
+        tree.AddThemeColorOverride("title_button_color", Text);
+        tree.AddThemeColorOverride("font_outline_color", new Color(0, 0, 0, 0));
+        tree.AddThemeConstantOverride("h_separation", 10);
+        tree.AddThemeConstantOverride("v_separation", 5);
+
+        for (var column = 0; column < tree.Columns && column < columnAlignments.Count; column++)
+        {
+            tree.SetColumnTitleAlignment(column, columnAlignments[column]);
+        }
     }
 
     public static Label MutedLabel(string text)
