@@ -680,6 +680,14 @@ public sealed partial class MatchService
             log.Add(new MatchLogEntry { Message = $"Ball scatters to {scatterSquare.X},{scatterSquare.Y}." });
             log.AddRange(landing.Log);
         }
+        else if (ball.CarrierPlayerId is null && ball.Square == destination && OccupiesPitch(injury.State))
+        {
+            var preLandingLog = injuryMatch.Log;
+            var landing = ResolveLooseBall(injuryMatch with { Ball = new BallState() }, ruleset, destination);
+            injuryMatch = landing.Match with { Log = preLandingLog };
+            ball = injuryMatch.Ball;
+            log.AddRange(landing.Log);
+        }
 
         var fallenMatch = injuryMatch with
         {
@@ -724,6 +732,14 @@ public sealed partial class MatchService
             injuryMatch = landing.Match with { Log = preLandingLog };
             ball = injuryMatch.Ball;
             log.Add(new MatchLogEntry { Message = $"Ball scatters to {scatterSquare.X},{scatterSquare.Y}." });
+            log.AddRange(landing.Log);
+        }
+        else if (ball.CarrierPlayerId is null && ball.Square == destination && OccupiesPitch(injury.State))
+        {
+            var preLandingLog = injuryMatch.Log;
+            var landing = ResolveLooseBall(injuryMatch with { Ball = new BallState() }, ruleset, destination);
+            injuryMatch = landing.Match with { Log = preLandingLog };
+            ball = injuryMatch.Ball;
             log.AddRange(landing.Log);
         }
 

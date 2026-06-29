@@ -1047,6 +1047,7 @@ var kegRecoveryMatch = fixedInducementMatch with
 };
 var kegRecoveryResult = new MatchService(new FixedDiceRoller(d6: [3, 1, 1, 1])).AdvanceTurn(kegRecoveryMatch, ruleset);
 Assert(kegRecoveryResult.Placements.Single(placement => placement.PlayerId == knockedOutHomePlayer.PlayerId).State == PlayerPitchState.Reserve, "one Bloodweiser Keg should improve knockout recovery from 4+ to 3+");
+Assert(kegRecoveryResult.Log.Any(entry => entry.Message.Contains("rolled 3 + 1 Bloodweiser vs 3+, recovered.", StringComparison.Ordinal)), "Bloodweiser knockout recovery logs should show the modifier instead of only the adjusted target");
 
 var inducementTurn = fixedInducementMatch with
 {
@@ -1742,6 +1743,7 @@ var pickMeUpScore = pickMeUpTouchdownService.MovePlayer(
     playerToPlace.Id,
     new(ruleset.PitchWidth - 1, 0));
 Assert(pickMeUpScore.Placements.Single(placement => placement.PlayerId == loadedLeague.Teams[0].Players[1].Id).State == PlayerPitchState.Reserve, "Pick-me-up should improve friendly knockout recovery to 3+");
+Assert(pickMeUpScore.Log.Any(entry => entry.Message.Contains("rolled 3 + 1 Pick-me-up vs 3+, recovered.", StringComparison.Ordinal)), "Pick-me-up knockout recovery logs should show the modifier instead of only the adjusted target");
 
 var secretWeaponTouchdownService = new MatchService(new FixedDiceRoller(d6: [4]));
 var secretWeaponPending = secretWeaponTouchdownService.MovePlayer(
@@ -3612,6 +3614,23 @@ Assert(failedGoForItMatch.PendingBlock is null && failedGoForItMatch.PendingPush
 Assert(failedGoForItPlayer.State == PlayerPitchState.Casualty, "failed go-for-it injury roll of 10+ should injure the player");
 Assert(failedGoForItMatch.Ball.CarrierPlayerId is null, "failed ball carrier go-for-it should drop the ball");
 Assert(failedGoForItMatch.Ball.Square == new PitchSquare(8, 0), "failed ball carrier go-for-it should scatter the ball");
+
+var failedGoForItOntoBallService = new MatchService(new FixedDiceRoller(d6: [1, 1, 1], d8: [5]));
+failedGoForItOntoBallService.RegisterTeams(loadedLeague.Teams[0], awayLeague.Teams[0]);
+var failedGoForItOntoBallPending = failedGoForItOntoBallService.MovePlayer(
+    offensiveTurnMatch with { Ball = new BallState { Square = new PitchSquare(7, 0) } },
+    ruleset,
+    loadedLeague.Teams[0],
+    playerToPlace.Id,
+    new(7, 0));
+Assert(failedGoForItOntoBallPending.PendingReroll?.Kind == PendingRerollKind.GoForIt, "failed go-for-it onto a loose ball should pause for a reroll choice");
+var failedGoForItOntoBallResult = failedGoForItOntoBallService.ResolvePendingReroll(failedGoForItOntoBallPending, ruleset, loadedLeague.Teams[0], useTeamReroll: false);
+var failedGoForItOntoBallPlayer = failedGoForItOntoBallResult.Placements.Single(placement => placement.PlayerId == playerToPlace.Id);
+
+Assert(failedGoForItOntoBallPlayer.State == PlayerPitchState.Prone, "a player who fails a go-for-it onto the ball should fall on the target square");
+Assert(failedGoForItOntoBallPlayer.Square == new PitchSquare(7, 0), "failed go-for-it onto the ball should leave the prone player on the attempted square");
+Assert(failedGoForItOntoBallResult.Ball.CarrierPlayerId is null, "failed go-for-it onto a loose ball should not pick it up");
+Assert(failedGoForItOntoBallResult.Ball.Square == new PitchSquare(8, 0), "a loose ball under a failed go-for-it fall should bounce off the prone player");
 
 // BB2020 permits multiple team rerolls in one team turn, provided the team has rerolls remaining
 // and no individual dice roll is rerolled more than once.

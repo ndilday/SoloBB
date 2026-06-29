@@ -37,6 +37,7 @@ public partial class PreGameScreen : VBoxContainer
     private int _step;
     private Label _statusLabel = null!;
     private Button _continueButton = null!;
+    private ScrollContainer? _contentScroll;
 
     public void Setup(
         Ruleset ruleset,
@@ -64,11 +65,14 @@ public partial class PreGameScreen : VBoxContainer
 
         AddThemeConstantOverride("separation", 14);
         AddThemeStyleboxOverride("panel", FlatStyle(FieldBg, Line, 2));
-        Render(scheduledMatch.Week);
+        Render(scheduledMatch.Week, preserveScroll: false);
     }
 
-    private void Render(int week)
+    private void Render(int week, bool preserveScroll = true)
     {
+        var scrollVertical = preserveScroll && _contentScroll is not null && GodotObject.IsInstanceValid(_contentScroll)
+            ? _contentScroll.ScrollVertical
+            : 0;
         Clear();
 
         var activeTeam = _step == 0 ? _firstTeam : _secondTeam;
@@ -83,6 +87,7 @@ public partial class PreGameScreen : VBoxContainer
             SizeFlagsVertical = SizeFlags.ExpandFill,
             HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled
         };
+        _contentScroll = scroll;
         AddChild(scroll);
 
         var body = new HBoxContainer
@@ -110,6 +115,7 @@ public partial class PreGameScreen : VBoxContainer
         AddChild(BuildFooter(week, planError));
 
         UpdateStatus(planError);
+        CallDeferred(nameof(RestoreScrollPosition), scroll, scrollVertical);
     }
 
     private Control BuildHeader(int week)
@@ -456,7 +462,7 @@ public partial class PreGameScreen : VBoxContainer
             else
             {
                 _step = 0;
-                Render(week);
+                Render(week, preserveScroll: false);
             }
         };
         row.AddChild(backButton);
@@ -472,7 +478,7 @@ public partial class PreGameScreen : VBoxContainer
             if (_step == 0)
             {
                 _step = 1;
-                Render(week);
+                Render(week, preserveScroll: false);
             }
             else
             {
@@ -827,10 +833,21 @@ public partial class PreGameScreen : VBoxContainer
 
     private void Clear()
     {
+        _contentScroll = null;
         foreach (var child in GetChildren())
         {
             child.QueueFree();
         }
+    }
+
+    private static void RestoreScrollPosition(ScrollContainer scroll, int scrollVertical)
+    {
+        if (!GodotObject.IsInstanceValid(scroll))
+        {
+            return;
+        }
+
+        scroll.ScrollVertical = scrollVertical;
     }
 
     private sealed class TeamDraftState(LeagueTeam team, TeamPreGameSummary summary)

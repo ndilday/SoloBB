@@ -1280,7 +1280,10 @@ public sealed partial class MatchService
             }
 
             var roll = _dice.RollD6();
-            var recoveryBonus = TeamBloodweiserKegs(match, placement.TeamId) + (HasActivePickMeUp(match, placement.TeamId) ? 1 : 0);
+            var bloodweiserBonus = TeamBloodweiserKegs(match, placement.TeamId);
+            var pickMeUpBonus = HasActivePickMeUp(match, placement.TeamId) ? 1 : 0;
+            var recoveryBonus = bloodweiserBonus + pickMeUpBonus;
+            var rollText = FormatKnockoutRecoveryRoll(roll, bloodweiserBonus, pickMeUpBonus);
             var target = Math.Max(2, 4 - recoveryBonus);
             if (roll >= target)
             {
@@ -1292,12 +1295,12 @@ public sealed partial class MatchService
                     StunnedRecoveryTurn = null,
                     Casualty = null
                 });
-                log.Add(new MatchLogEntry { Message = $"Knockout recovery {PlayerName(placement.PlayerId)}: rolled {roll} vs {target}+, recovered." });
+                log.Add(new MatchLogEntry { Message = $"Knockout recovery {PlayerName(placement.PlayerId)}: rolled {rollText} vs {target}+, recovered." });
                 continue;
             }
 
             placements.Add(placement with { Square = null });
-            log.Add(new MatchLogEntry { Message = $"Knockout recovery {PlayerName(placement.PlayerId)}: rolled {roll} vs {target}+, remains knocked out." });
+            log.Add(new MatchLogEntry { Message = $"Knockout recovery {PlayerName(placement.PlayerId)}: rolled {rollText} vs {target}+, remains knocked out." });
         }
 
         return log.Count == 0
@@ -1307,6 +1310,24 @@ public sealed partial class MatchService
                 Placements = placements,
                 Log = [.. match.Log, .. log]
             };
+    }
+
+    private static string FormatKnockoutRecoveryRoll(int roll, int bloodweiserBonus, int pickMeUpBonus)
+    {
+        var modifiers = new List<string>();
+        if (bloodweiserBonus > 0)
+        {
+            modifiers.Add($"{bloodweiserBonus} Bloodweiser");
+        }
+
+        if (pickMeUpBonus > 0)
+        {
+            modifiers.Add($"{pickMeUpBonus} Pick-me-up");
+        }
+
+        return modifiers.Count == 0
+            ? $"{roll}"
+            : $"{roll} + {string.Join(" + ", modifiers)}";
     }
 
     private static bool HasActivePickMeUp(MatchState match, Guid teamId)
