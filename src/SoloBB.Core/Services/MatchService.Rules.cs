@@ -489,16 +489,27 @@ public sealed partial class MatchService
             {
                 PlayerId = player.Id,
                 TeamId = homeTeam.Id,
-                State = PlayerPitchState.Reserve,
+                State = InitialPitchState(player),
                 IsLarge = player.Stats.IsLarge
             }),
             .. awayTeam.Players.Select(player => new PlayerPlacement
             {
                 PlayerId = player.Id,
                 TeamId = awayTeam.Id,
-                State = PlayerPitchState.Reserve,
+                State = InitialPitchState(player),
                 IsLarge = player.Stats.IsLarge
             })
         ];
+    }
+
+    private static PlayerPitchState InitialPitchState(Player player)
+    {
+        return player.Status switch
+        {
+            PlayerStatus.Available => PlayerPitchState.Reserve,
+            PlayerStatus.KnockedOut => PlayerPitchState.KnockedOut,
+            PlayerStatus.Dead => PlayerPitchState.Dead,
+            _ => PlayerPitchState.Casualty
+        };
     }
 }

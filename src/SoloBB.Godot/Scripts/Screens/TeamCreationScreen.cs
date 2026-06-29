@@ -430,18 +430,14 @@ public partial class TeamCreationScreen : VBoxContainer
     {
         var stack = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
         stack.AddThemeConstantOverride("separation", 6);
-        stack.AddChild(BudgetRow("Current TV", FormatGold(team.TeamValue)));
         _budgetPlayersLabel = AddBudgetValue(stack, "Players");
         _budgetRerollsLabel = AddBudgetValue(stack, "Rerolls");
         _budgetStaffLabel = AddBudgetValue(stack, "Staff");
+        _budgetRemainingLabel = AddBudgetValue(stack, "Team Value");
         _budgetPurchaseLabel = CreateBudgetValueLabel();
         _budgetPurchaseRow = BudgetRow("Purchase Cost", _budgetPurchaseLabel);
         _budgetPurchaseRow.Visible = false;
         stack.AddChild(_budgetPurchaseRow);
-        _budgetRemainingLabel = CreateBudgetValueLabel();
-        _budgetRemainingRow = BudgetRow("After Save", _budgetRemainingLabel);
-        _budgetRemainingRow.Visible = false;
-        stack.AddChild(_budgetRemainingRow);
         return stack;
     }
 
@@ -890,12 +886,26 @@ public partial class TeamCreationScreen : VBoxContainer
     private AcceptDialog BuildDevelopmentDialog()
     {
         var popup = ScreenStyles.Dialog("Player Development", new Vector2I(720, 620));
+        popup.Borderless = true;
+        popup.GetOkButton().Visible = false;
         var margin = ScreenStyles.DialogContent();
         popup.AddChild(margin);
 
         var stack = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
         stack.AddThemeConstantOverride("separation", 10);
         margin.AddChild(stack);
+
+        var header = new HBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        header.AddThemeConstantOverride("separation", 10);
+        var title = DevelopmentHeading("Player Development");
+        title.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+        header.AddChild(title);
+
+        var closeButton = ScreenStyles.StyledButton("Close");
+        closeButton.CustomMinimumSize = new Vector2(76, 30);
+        closeButton.Pressed += popup.Hide;
+        header.AddChild(closeButton);
+        stack.AddChild(header);
 
         _developmentDialogLabel = new Label { AutowrapMode = TextServer.AutowrapMode.WordSmart };
         _developmentDialogLabel.AddThemeColorOverride("font_color", ScreenStyles.MutedText);

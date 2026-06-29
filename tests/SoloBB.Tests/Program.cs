@@ -969,6 +969,13 @@ Assert(missingBlitzerSummary.Home.TeamValue == loadedLeague.Teams[0].TeamValue -
 Assert(missingBlitzerSummary.Home.PettyCash == 235_000, "petty cash should use current team value after unavailable players and journeymen");
 var missingBlitzerPlan = preGameService.CreateDefaultPlan(ruleset, rosterSet, teamWithMissingAdvancedBlitzer, richerAwayTeam);
 Assert(missingBlitzerPlan.Home.PettyCash == 235_000, "roster-aware plan creation should use current team value");
+var preparedMissingBlitzerMatch = preGameService.PrepareMatch(ruleset, rosterSet, teamWithMissingAdvancedBlitzer, richerAwayTeam, missingBlitzerPlan);
+var missingBlitzerMatch = matchService.CreateHotseatMatch(ruleset, preparedMissingBlitzerMatch.HomeTeam, preparedMissingBlitzerMatch.AwayTeam, preparedMissingBlitzerMatch.Inducements.Home, preparedMissingBlitzerMatch.Inducements.Away);
+var missingBlitzerPlacement = missingBlitzerMatch.Placements.Single(placement => placement.PlayerId == missingBlitzer.Id);
+Assert(missingBlitzerPlacement.State == PlayerPitchState.Casualty, "players marked MNG should start the match unavailable instead of in reserve");
+AssertThrows(
+    () => matchService.PlacePlayer(missingBlitzerMatch with { ActiveTeamId = teamWithMissingAdvancedBlitzer.Id }, ruleset, missingBlitzer.Id, new PitchSquare(2, 11)),
+    "setup should reject placing a player marked MNG");
 Assert(preGameSummary.Home.JourneymenNeeded == 0, "full teams should not need journeymen");
 Assert(preparedDepletedMatch.Summary.Home.JourneymenNeeded == 8, "pre-game should identify journeymen needed to reach eleven available players");
 Assert(preparedDepletedMatch.HomeTeam.Players.Count == 11, "pre-game should add temporary journeymen to the match team");
