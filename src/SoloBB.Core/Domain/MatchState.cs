@@ -256,6 +256,15 @@ public sealed record PendingBlockPushResolution
     public required PitchSquare Destination { get; init; }
     public bool KnockDefenderDown { get; init; }
     public bool StripBall { get; init; }
+    public IReadOnlyList<PendingChainPushResolution> ChainPushes { get; init; } = [];
+}
+
+public sealed record PendingChainPushResolution
+{
+    public required Guid PlayerId { get; init; }
+    public required string PlayerName { get; init; }
+    public required PitchSquare Source { get; init; }
+    public required PitchSquare Destination { get; init; }
 }
 
 public sealed record PendingBallPlacementChoice

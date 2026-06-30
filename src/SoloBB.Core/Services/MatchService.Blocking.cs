@@ -485,7 +485,24 @@ public sealed partial class MatchService
 
         if (pending.Continuation is PendingPushContinuation continuation)
         {
-            var chainPushedMatch = PushPlacement(match with { PendingPush = null }, ruleset, null, pending.DefenderPlayerId, PlayerName(pending.DefenderPlayerId), pending.DefenderSquare, square, knockDown: false, () => new InjuryResolution(PlayerPitchState.Standing), stripBall: false);
+            var continuationBaseMatch = match with { PendingPush = null };
+            var chainPushedName = PlayerName(pending.DefenderPlayerId);
+            var deferChainPush = IsOnPitch(ruleset, square);
+            var chainPushedMatch = deferChainPush
+                ? MovePushedPlayer(continuationBaseMatch, pending.DefenderPlayerId, square)
+                : PushPlacement(continuationBaseMatch, ruleset, null, pending.DefenderPlayerId, chainPushedName, pending.DefenderSquare, square, knockDown: false, () => new InjuryResolution(PlayerPitchState.Standing), stripBall: false);
+            IReadOnlyList<PendingChainPushResolution>? deferredChainPushes = deferChainPush
+                ?
+                [
+                    new PendingChainPushResolution
+                    {
+                        PlayerId = pending.DefenderPlayerId,
+                        PlayerName = chainPushedName,
+                        Source = pending.DefenderSquare,
+                        Destination = square
+                    }
+                ]
+                : null;
             var continuedDefender = FindTeamPlayer(defenderTeam, continuation.PlayerId);
             var continuedAttacker = FindTeamPlayer(attackerTeam, pending.AttackerPlayerId);
             var continuedStripBall = ShouldStripBall(ruleset, continuedAttacker, continuedDefender, chainPushedMatch.Ball.CarrierPlayerId == continuedDefender.Id, continuation.KnockDown);
@@ -495,7 +512,7 @@ public sealed partial class MatchService
                 Log =
                 [
                     .. continuedMovedMatch.Log,
-                    new MatchLogEntry { Message = $"{pending.ResultMessage} {PlayerName(pending.DefenderPlayerId)} is chain-pushed to {square.X},{square.Y}." },
+                    new MatchLogEntry { Message = $"{pending.ResultMessage} {chainPushedName} is chain-pushed to {square.X},{square.Y}." },
                     new MatchLogEntry { Message = $"{continuation.ResultMessage} {continuedDefender.Name} is pushed to {continuation.Destination.X},{continuation.Destination.Y}." }
                 ]
             };
@@ -511,7 +528,8 @@ public sealed partial class MatchService
                 continuation.Destination,
                 continuation.KnockDown,
                 continuedStripBall,
-                pending.PreventFollowUp);
+                pending.PreventFollowUp,
+                deferredChainPushes);
         }
 
         var defender = FindTeamPlayer(defenderTeam, pending.DefenderPlayerId);
@@ -941,7 +959,19 @@ public sealed partial class MatchService
                     DefenderStrengthBonus = defenderStrengthBonus,
                     PreventFollowUp = preventFollowUp
                 },
-                $"{attacker.Name} uses Dauntless against {defender.Name}: rolled {dauntlessRoll} vs {strength.DauntlessTarget}+, did not match strength. Choose whether to reroll.");
+                FormatDauntlessRoll(attacker, defender, strength, " Choose whether to reroll."));
+        }
+
+        if (strength.DauntlessRoll is not null)
+        {
+            match = match with
+            {
+                Log =
+                [
+                    .. match.Log,
+                    new MatchLogEntry { Message = FormatDauntlessRoll(attacker, defender, strength) }
+                ]
+            };
         }
 
         var rolls = Enumerable.Range(0, strength.Dice).Select(_ => _dice.RollD6()).ToArray();
@@ -1444,7 +1474,8 @@ public sealed partial class MatchService
         PitchSquare defenderDestination,
         bool knockDefenderDown,
         bool stripBall,
-        bool preventFollowUp = false)
+        bool preventFollowUp = false,
+        IReadOnlyList<PendingChainPushResolution>? chainPushes = null)
     {
         var blocksMadeBeforePush = GetBlocksMade(match, attacker.Id, attackerTeam.Id);
         var countedMatch = IncrementActivationBlocksMade(match, attacker.Id, attackerTeam.Id);
@@ -1453,7 +1484,8 @@ public sealed partial class MatchService
             Source = followUpSquare,
             Destination = defenderDestination,
             KnockDefenderDown = knockDefenderDown,
-            StripBall = stripBall
+            StripBall = stripBall,
+            ChainPushes = chainPushes ?? []
         };
 
         if (preventFollowUp)
@@ -1638,6 +1670,12 @@ public sealed partial class MatchService
         return new BlockStrength(attackerStrength, defenderStrength, dice, dauntlessRoll, dauntlessReached, dauntlessTarget);
     }
 
+    private static string FormatDauntlessRoll(Player attacker, Player defender, BlockStrength strength, string suffix = "")
+    {
+        var result = strength.DauntlessReachedStrength ? "matched strength" : "did not match strength";
+        return $"{attacker.Name} uses Dauntless against {defender.Name}: rolled {strength.DauntlessRoll} vs {strength.DauntlessTarget}+, {result}.{suffix}";
+    }
+
     private int CountAssists(MatchState match, Ruleset ruleset, LeagueTeam assistingTeam, LeagueTeam opposingTeam, PlayerPlacement targetPlacement, Guid primaryPlayerId)
     {
         return match.Placements.Count(placement =>
@@ -1811,8 +1849,24 @@ public sealed partial class MatchService
         Player defender,
         PendingBlockPushResolution push)
     {
-        var resolvedMatch = PushPlayer(
-            match,
+        var resolvedMatch = match;
+        foreach (var chainPush in push.ChainPushes)
+        {
+            resolvedMatch = PushPlacement(
+                resolvedMatch,
+                ruleset,
+                null,
+                chainPush.PlayerId,
+                chainPush.PlayerName,
+                chainPush.Source,
+                chainPush.Destination,
+                knockDown: false,
+                () => new InjuryResolution(PlayerPitchState.Standing),
+                stripBall: false);
+        }
+
+        resolvedMatch = PushPlayer(
+            resolvedMatch,
             ruleset,
             defender,
             push.Source,

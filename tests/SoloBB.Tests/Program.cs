@@ -2832,6 +2832,23 @@ chainPushResult = chainPushService.ChoosePushSquare(chainPushResult, ruleset, lo
 Assert(chainPushResult.Placements.Single(placement => placement.PlayerId == awayPlayerToPlace.Id).Square == new PitchSquare(3, 1), "push into an occupied square should move the original pushed player there");
 Assert(chainPushResult.Placements.Single(placement => placement.PlayerId == chainPushedPlayer.Id).Square == new PitchSquare(4, 0), "push into an occupied square should chain-push the occupying player");
 
+var chainPushOntoBallService = new MatchService(new FixedDiceRoller(d6: [3], d8: [5]));
+var chainPushOntoBallPending = chainPushOntoBallService.BlockPlayer(
+    chainPushMatch with { Ball = new BallState { Square = new PitchSquare(4, 0) } },
+    ruleset,
+    loadedLeague.Teams[0],
+    playerToPlace.Id,
+    awayLeague.Teams[0],
+    awayPlayerToPlace.Id);
+chainPushOntoBallPending = ConfirmBlockDie(chainPushOntoBallService, chainPushOntoBallPending, ruleset, loadedLeague.Teams[0], awayLeague.Teams[0]);
+var chainPushOntoBallResult = chainPushOntoBallService.ChoosePushSquare(chainPushOntoBallPending, ruleset, loadedLeague.Teams[0], awayLeague.Teams[0], new PitchSquare(3, 1));
+chainPushOntoBallResult = chainPushOntoBallService.ChoosePushSquare(chainPushOntoBallResult, ruleset, loadedLeague.Teams[0], awayLeague.Teams[0], new PitchSquare(4, 0));
+
+Assert(chainPushOntoBallResult.PendingFollowUp is not null, "a chain push onto the ball should offer follow-up before ball scatter rolls");
+Assert(chainPushOntoBallResult.Ball.Square == new PitchSquare(4, 0), "a chain push onto the ball should not scatter the ball until after the follow-up decision");
+chainPushOntoBallResult = chainPushOntoBallService.ResolvePendingFollowUp(chainPushOntoBallResult, ruleset, loadedLeague.Teams[0], awayLeague.Teams[0], useFollowUp: false);
+Assert(chainPushOntoBallResult.Ball.Square == new PitchSquare(5, 0), "a chain push onto the ball should scatter the ball after the follow-up decision");
+
 var fourthChainPushedPlayer = awayLeague.Teams[0].Players[4];
 var cascadePushMatch = chainPushMatch with
 {
@@ -2997,6 +3014,7 @@ var dauntlessService = new MatchService(new FixedDiceRoller(d6: [2, 6, 1]));
 var dauntlessBlock = dauntlessService.BlockPlayer(blockReadyMatch, ruleset, dauntlessTeam, playerToPlace.Id, strongerAwayTeam, awayPlayerToPlace.Id);
 
 Assert(dauntlessBlock.PendingBlock?.Rolls.Count == 1, "successful dauntless should treat the blocker as equal raw strength before assists and roll one block die");
+Assert(dauntlessBlock.Log.Any(entry => entry.Message.Contains("uses Dauntless") && entry.Message.Contains("rolled 2 vs 2+") && entry.Message.Contains("matched strength")), "successful dauntless should log the Dauntless roll before block dice");
 dauntlessBlock = ConfirmBlockDie(dauntlessService, dauntlessBlock, ruleset, dauntlessTeam, strongerAwayTeam);
 Assert(dauntlessBlock.PendingPush?.KnockDefenderDown == true, "successful dauntless should consume its roll before the one block die is resolved");
 
@@ -3006,6 +3024,7 @@ var dauntlessRerollPending = dauntlessRerollService.BlockPlayer(blockReadyMatch,
 Assert(dauntlessRerollPending.PendingReroll?.Kind == PendingRerollKind.Dauntless, "a failed Dauntless roll should offer a reroll before the block dice");
 var dauntlessRerolled = dauntlessRerollService.ResolvePendingReroll(dauntlessRerollPending, ruleset, dauntlessTeam, useTeamReroll: true, opposingTeam: strongerAwayTeam);
 Assert(dauntlessRerolled.PendingBlock?.Rolls.Count == 1, "a successful Dauntless reroll should equalise strength and roll one block die");
+Assert(dauntlessRerolled.Log.Any(entry => entry.Message.Contains("uses Dauntless") && entry.Message.Contains("rolled 6 vs 2+") && entry.Message.Contains("matched strength")), "successful dauntless reroll should log the final Dauntless roll before block dice");
 
 var badBlockService = new MatchService(new FixedDiceRoller(d6: [1, 6, 6, 6, 6], d8: [5]));
 var badBlockPending = badBlockService.BlockPlayer(

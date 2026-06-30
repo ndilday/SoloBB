@@ -31,6 +31,7 @@ public partial class MatchScreen : VBoxContainer
         foreach (var player in activeTeam.Players.OrderBy(player => player.Number))
         {
             var placement = _match.Placements.FirstOrDefault(current => current.PlayerId == player.Id);
+            var spritePlacement = placement is null ? null : SpritePlacementForDisplay(placement);
             var state = RosterStatusLabel(placement);
             var marker = PlayerMarker(player.Id);
             var activationState = ActivationDisplayState(player.Id, placement);
@@ -40,7 +41,7 @@ public partial class MatchScreen : VBoxContainer
                 Alignment = HorizontalAlignment.Left,
                 SizeFlagsHorizontal = SizeFlags.ExpandFill,
                 Disabled = !CanSelectPlayer(player.Id),
-                Icon = PlayerSprite(activeTeam, player, placement),
+                Icon = PlayerSprite(activeTeam, player, spritePlacement),
                 ExpandIcon = false
             };
             button.AddThemeFontSizeOverride("font_size", 11);
@@ -157,11 +158,12 @@ public partial class MatchScreen : VBoxContainer
             var isSelected = placement.PlayerId == _selectedPlayerId;
             var player = FindPlayer(placement.PlayerId);
             var team = TeamById(placement.TeamId);
+            var spritePlacement = SpritePlacementForDisplay(placement);
             var pieceModulate = ActivationDisplayState(placement.PlayerId, placement) == "Activated"
                 ? ActivatedPieceModulate
                 : Colors.White;
             tile.SetPiece(
-                player is null ? null : PlayerSprite(team, player, placement),
+                player is null ? null : PlayerSprite(team, player, spritePlacement),
                 pieceModulate,
                 player is not null && IsLargePlayer(team, player));
             tile.SetStatus(placement.State == PlayerPitchState.Stunned ? StunnedSprite(0) : null);

@@ -240,6 +240,19 @@ public partial class MatchScreen : VBoxContainer
         return AtlasCell(_humanSpriteSheet, $"human:{humanColumn}:{row}", humanColumn, row);
     }
 
+    private PlayerPlacement SpritePlacementForDisplay(PlayerPlacement placement)
+    {
+        var pendingFollowUp = _match.PendingFollowUp;
+        if (pendingFollowUp?.DefenderPlayerId == placement.PlayerId &&
+            pendingFollowUp.DeferredBlockPush?.KnockDefenderDown == true &&
+            placement.State == PlayerPitchState.Standing)
+        {
+            return placement with { State = PlayerPitchState.Prone };
+        }
+
+        return placement;
+    }
+
     private static bool IsLargePlayer(LeagueTeam team, Player player)
     {
         return (string.Equals(team.RosterId, "human", StringComparison.OrdinalIgnoreCase) &&
