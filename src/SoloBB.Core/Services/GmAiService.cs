@@ -165,9 +165,11 @@ public sealed class GmAiService
             ?? BestCandidate(ruleset, roster, gm, minRerolls: 0, maxRerolls)
             ?? throw new InvalidOperationException($"The AI GM could not build a legal starting team for roster '{roster.Id}'.");
 
+        // Generated coach names carry the personality so it is visible anywhere the coach is
+        // shown; an explicitly provided name is used as-is.
         return new GmTeamPlan(
             teamName ?? GenerateTeamName(),
-            coachName ?? GenerateCoachName(),
+            coachName ?? $"{GenerateCoachName()} ({gm.Describe()})",
             roster,
             best.Draft,
             best.Rerolls,

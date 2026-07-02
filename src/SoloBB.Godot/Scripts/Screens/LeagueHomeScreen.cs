@@ -249,9 +249,7 @@ public partial class LeagueHomeScreen : VBoxContainer
         name.AddThemeColorOverride("font_color", ScreenStyles.Text);
         _teamPreview.AddChild(name);
         _teamPreview.AddChild(ScreenStyles.MutedLabel(team.IsAiControlled
-            ? team.GmPersonality is null
-                ? $"Coach: {team.CoachName} [AI GM]"
-                : $"Coach: {team.CoachName} [AI GM - {team.GmPersonality.Describe()}]"
+            ? $"Coach: {team.CoachName} [AI GM]"
             : $"Coach: {team.CoachName}"));
 
         var details = new GridContainer { Columns = 2, SizeFlagsHorizontal = SizeFlags.ExpandFill };

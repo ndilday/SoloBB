@@ -624,6 +624,12 @@ var gmFinesseElfPlan = gmAi.PlanInitialTeam(ruleset, gmWoodElfRoster, personalit
 Assert(gmBashElfPlan.Draft.Any(pick => pick.PositionId == "treeman"), "a bash wood-elf GM should draft the Treeman");
 Assert(gmFinesseElfPlan.Draft.All(pick => pick.PositionId != "treeman"), "a finesse wood-elf GM should skip the Treeman");
 
+// Generated coach names embed the personality descriptor so it is visible wherever the coach is
+// shown; explicitly provided names are used untouched.
+var gmNamedPlan = gmAi.PlanInitialTeam(ruleset, humanRoster, personality: new GmPersonality { BashFinesse = -2, RiskAversion = 2 }, teamName: "Named Team");
+Assert(gmNamedPlan.CoachName.EndsWith("(Cautious, Smashmouth)"), "generated AI coach names should embed the personality descriptor");
+Assert(gmBashOrcPlan.CoachName == "GM", "explicit coach names should not gain a personality descriptor");
+
 // The risk axis: cautious GMs never carry fewer rerolls than reckless ones.
 var gmCautiousPlan = gmAi.PlanInitialTeam(ruleset, humanRoster, personality: new GmPersonality { RiskAversion = 2 }, teamName: "Cautious Humans", coachName: "GM");
 var gmRecklessPlan = gmAi.PlanInitialTeam(ruleset, humanRoster, personality: new GmPersonality { RiskAversion = -2 }, teamName: "Reckless Humans", coachName: "GM");
