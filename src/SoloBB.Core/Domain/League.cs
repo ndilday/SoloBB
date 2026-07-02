@@ -21,6 +21,35 @@ public sealed record LeagueSettings
     public bool TrackPlayerAdvancement { get; init; } = true;
 }
 
+// The two-axis disposition of an AI GM, each running -2..+2. BashFinesse spans all-bash (-2) to
+// all-finesse (+2); RiskAversion spans reckless (-2) to cautious (+2). Human teams have none.
+public sealed record GmPersonality
+{
+    public int BashFinesse { get; init; }
+    public int RiskAversion { get; init; }
+
+    public string Describe()
+    {
+        var risk = RiskAversion switch
+        {
+            <= -2 => "Reckless",
+            -1 => "Daring",
+            0 => "Measured",
+            1 => "Careful",
+            _ => "Cautious"
+        };
+        var style = BashFinesse switch
+        {
+            <= -2 => "Smashmouth",
+            -1 => "Bruising",
+            0 => "Adaptable",
+            1 => "Nimble",
+            _ => "Flashy"
+        };
+        return $"{risk}, {style}";
+    }
+}
+
 public sealed record LeagueTeam
 {
     public required Guid Id { get; init; }
@@ -28,6 +57,7 @@ public sealed record LeagueTeam
     public required string RosterId { get; init; }
     public string CoachName { get; init; } = "Solo Coach";
     public bool IsAiControlled { get; init; }
+    public GmPersonality? GmPersonality { get; init; }
     public int Treasury { get; init; }
     public int TeamValue { get; init; }
     public int Rerolls { get; init; }

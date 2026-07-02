@@ -10,7 +10,8 @@ public sealed record GmTeamPlan(
     TeamRoster Roster,
     IReadOnlyList<PlayerDraftPick> Draft,
     int Rerolls,
-    int Apothecaries);
+    int Apothecaries,
+    GmPersonality Personality);
 
 // The AI GM: builds starting rosters and manages AI-controlled teams between matches (spending
 // SPP, hiring replacements, and buying team assets). All league mutations are made through
@@ -76,6 +77,32 @@ public sealed class GmAiService
         "sidestep", "sure-feet", "pro", "dirty-player"
     ];
 
+    // Style is derived from what a player IS (stats and skills), not from the roster it belongs
+    // to, so a finesse GM naturally favors goblins on a Black Orc team and catchers on an elf
+    // team: the personality picks within whatever palette the roster sheet offers.
+    private static readonly HashSet<string> BashStyleSkills = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "mighty-blow", "guard", "frenzy", "grab", "brawler", "juggernaut", "stand-firm",
+        "claws", "horns", "tackle", "break-tackle", "arm-bar", "pile-driver", "thick-skull"
+    };
+
+    private static readonly HashSet<string> FinesseStyleSkills = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "dodge", "catch", "pass", "sure-hands", "sidestep", "sprint", "sure-feet", "diving-catch",
+        "on-the-ball", "leap", "jump-up", "dump-off", "nerves-of-steel", "accurate", "safe-pass",
+        "running-pass", "safe-pair-of-hands", "stunty"
+    };
+
+    private static readonly HashSet<string> SafeSkills = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "block", "sure-hands", "sure-feet", "fend", "thick-skull", "safe-pair-of-hands", "sidestep"
+    };
+
+    private static readonly HashSet<string> RiskySkills = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "frenzy", "dauntless", "juggernaut", "pile-driver", "dirty-player", "sprint", "leap", "multiple-block"
+    };
+
     private readonly IDiceRoller _dice;
     private readonly LeagueService _leagueService;
 
@@ -115,16 +142,27 @@ public sealed class GmAiService
         return $"{CoachFirstNames[RollIndex(CoachFirstNames.Length)]} {CoachLastNames[RollIndex(CoachLastNames.Length)]}";
     }
 
+    public GmPersonality RollPersonality()
+    {
+        return new GmPersonality
+        {
+            BashFinesse = RollIndex(5) - 2,
+            RiskAversion = RollIndex(5) - 2
+        };
+    }
+
     // Builds the best starting team the GM can find for the roster: candidate builds are generated
     // for each affordable reroll count (positional players bought greedily by cost, filled out with
     // linemen), then compared with a simple value heuristic.
-    public GmTeamPlan PlanInitialTeam(Ruleset ruleset, TeamRoster roster, string? teamName = null, string? coachName = null)
+    public GmTeamPlan PlanInitialTeam(Ruleset ruleset, TeamRoster roster, GmPersonality? personality = null, string? teamName = null, string? coachName = null)
     {
+        var gm = personality ?? new GmPersonality();
+
         // Rerolls double in price after creation, so the GM never starts below two unless the
         // roster genuinely cannot afford a legal draft alongside them.
         var maxRerolls = Math.Min(ruleset.RerollCap, 6);
-        var best = BestCandidate(ruleset, roster, minRerolls: Math.Min(2, maxRerolls), maxRerolls)
-            ?? BestCandidate(ruleset, roster, minRerolls: 0, maxRerolls)
+        var best = BestCandidate(ruleset, roster, gm, minRerolls: Math.Min(2, maxRerolls), maxRerolls)
+            ?? BestCandidate(ruleset, roster, gm, minRerolls: 0, maxRerolls)
             ?? throw new InvalidOperationException($"The AI GM could not build a legal starting team for roster '{roster.Id}'.");
 
         return new GmTeamPlan(
@@ -133,13 +171,14 @@ public sealed class GmAiService
             roster,
             best.Draft,
             best.Rerolls,
-            best.Apothecaries);
+            best.Apothecaries,
+            gm);
     }
 
     // Creates an AI-controlled team from a plan and adds it to the league.
     public League AddPlannedTeam(League league, Ruleset ruleset, GmTeamPlan plan)
     {
-        return _leagueService.AddTeam(
+        var next = _leagueService.AddTeam(
             league,
             ruleset,
             plan.TeamName,
@@ -149,6 +188,9 @@ public sealed class GmAiService
             rerolls: plan.Rerolls,
             apothecaries: plan.Apothecaries,
             isAiControlled: true);
+
+        var added = next.Teams[^1] with { GmPersonality = plan.Personality };
+        return next with { Teams = [.. next.Teams.Take(next.Teams.Count - 1), added] };
     }
 
     // Post-match management pass for the AI-controlled teams among teamIds: spends SPP on skill
@@ -165,9 +207,10 @@ public sealed class GmAiService
                 continue;
             }
 
-            league = SpendStarPlayerPoints(league, ruleset, roster, teamId);
-            league = HireReplacements(league, ruleset, roster, teamId);
-            league = PurchaseTeamAssets(league, ruleset, roster, teamId);
+            var gm = team.GmPersonality ?? new GmPersonality();
+            league = SpendStarPlayerPoints(league, ruleset, roster, teamId, gm);
+            league = HireReplacements(league, ruleset, roster, teamId, gm);
+            league = PurchaseTeamAssets(league, ruleset, roster, teamId, gm);
         }
 
         return league;
@@ -175,7 +218,7 @@ public sealed class GmAiService
 
     private sealed record DraftCandidate(IReadOnlyList<PlayerDraftPick> Draft, int Rerolls, int Apothecaries, int Score);
 
-    private static DraftCandidate? BestCandidate(Ruleset ruleset, TeamRoster roster, int minRerolls, int maxRerolls)
+    private static DraftCandidate? BestCandidate(Ruleset ruleset, TeamRoster roster, GmPersonality gm, int minRerolls, int maxRerolls)
     {
         DraftCandidate? best = null;
         for (var rerolls = minRerolls; rerolls <= maxRerolls; rerolls++)
@@ -186,7 +229,7 @@ public sealed class GmAiService
                 break;
             }
 
-            var candidate = BuildDraftCandidate(ruleset, roster, budget, rerolls);
+            var candidate = BuildDraftCandidate(ruleset, roster, gm, budget, rerolls);
             if (candidate is not null && (best is null || candidate.Score > best.Score))
             {
                 best = candidate;
@@ -196,7 +239,7 @@ public sealed class GmAiService
         return best;
     }
 
-    private static DraftCandidate? BuildDraftCandidate(Ruleset ruleset, TeamRoster roster, int budget, int rerolls)
+    private static DraftCandidate? BuildDraftCandidate(Ruleset ruleset, TeamRoster roster, GmPersonality gm, int budget, int rerolls)
     {
         var linemanPosition = LinemanPosition(roster);
         var counts = roster.Positions.ToDictionary(position => position.Id, _ => 0, StringComparer.OrdinalIgnoreCase);
@@ -216,18 +259,20 @@ public sealed class GmAiService
             return null;
         }
 
-        // Positional players are bought most expensive first (cost tracks quality on a roster
-        // sheet), always reserving enough to fill the remaining required slots with linemen.
+        // Positional players are bought in order of how much this GM values them: the premium over
+        // a lineman body, scaled by how well the position's style matches the GM's bash/finesse
+        // lean. The reserve keeps enough back to fill the remaining required slots with linemen.
         // Secret-weapon players are left for coaches who enjoy bribes.
         var positionals = roster.Positions
             .Where(position => !string.Equals(position.Id, linemanPosition.Id, StringComparison.OrdinalIgnoreCase))
             .Where(position => !position.StartingSkills.Contains("secret-weapon", StringComparer.OrdinalIgnoreCase))
-            .OrderByDescending(position => position.Cost)
+            .OrderByDescending(position => AdjustedPremium(position, linemanPosition, gm))
             .ThenBy(position => position.Id, StringComparer.OrdinalIgnoreCase);
 
         foreach (var position in positionals)
         {
-            while (playerCount < ruleset.PlayersPerSide && counts[position.Id] < position.Max)
+            var personalityCap = PersonalityCap(position, gm);
+            while (playerCount < ruleset.PlayersPerSide && counts[position.Id] < personalityCap)
             {
                 var remainingAfter = budget - position.Cost;
                 var linemenStillNeeded = ruleset.PlayersPerSide - (playerCount + 1);
@@ -238,7 +283,7 @@ public sealed class GmAiService
 
                 counts[position.Id]++;
                 playerCount++;
-                positionalPremium += position.Cost - linemanPosition.Cost;
+                positionalPremium += AdjustedPremium(position, linemanPosition, gm);
                 budget = remainingAfter;
             }
         }
@@ -264,21 +309,26 @@ public sealed class GmAiService
             budget -= ApothecaryCost;
         }
 
-        // Spend meaningful leftovers on bench linemen rather than banking gold.
-        while (playerCount < TargetSquadSize && counts[linemanPosition.Id] < linemanPosition.Max && budget >= linemanPosition.Cost)
+        // Spend meaningful leftovers on bench linemen rather than banking gold; cautious GMs carry
+        // a deeper bench, reckless ones run lighter.
+        var targetSquadSize = TargetSquadSize + Math.Sign(RiskAversion(gm));
+        while (playerCount < targetSquadSize && counts[linemanPosition.Id] < linemanPosition.Max && budget >= linemanPosition.Cost)
         {
             counts[linemanPosition.Id]++;
             playerCount++;
             budget -= linemanPosition.Cost;
         }
 
-        // A positional player is worth the premium paid over a lineman body (every candidate fields
-        // roughly the same number of bodies, so face-value cost would just reward overspending),
-        // weighted up because starting skills and stats are cheaper at creation than as advancements.
+        // A positional player is worth the (style-adjusted) premium paid over a lineman body (every
+        // candidate fields roughly the same number of bodies, so face-value cost would just reward
+        // overspending), weighted up because starting skills are cheaper at creation than as
+        // advancements. Cautious GMs value the safety assets (rerolls, apothecary, bench) more.
+        var rerollScale = 10 + RiskAversion(gm);
+        var assetScale = 10 + (2 * RiskAversion(gm));
         var score = (positionalPremium * 3 / 2)
-            + RerollMarginalValues.Take(rerolls).Sum()
-            + (apothecaries * ApothecaryScoreValue)
-            + Math.Max(0, playerCount - ruleset.PlayersPerSide) * BenchPlayerScoreValue;
+            + (RerollMarginalValues.Take(rerolls).Sum() * rerollScale / 10)
+            + (apothecaries * ApothecaryScoreValue * assetScale / 10)
+            + (Math.Max(0, playerCount - ruleset.PlayersPerSide) * BenchPlayerScoreValue * assetScale / 10);
 
         var draft = new List<PlayerDraftPick>();
         foreach (var position in roster.Positions)
@@ -290,6 +340,92 @@ public sealed class GmAiService
         }
 
         return new DraftCandidate(draft, rerolls, apothecaries, score);
+    }
+
+    // How many of a position this GM is willing to field. Favored and neutral archetypes fill to
+    // the roster maximum; strongly disfavored ones get squeezed (a finesse GM fields one token
+    // Big 'Un, and skips a strongly mismatched big guy altogether).
+    private static int PersonalityCap(PositionTemplate position, GmPersonality gm)
+    {
+        var alignment = BashFinesse(gm) * PositionStyle(position);
+        if (alignment > -0.8)
+        {
+            return position.Max;
+        }
+
+        if (position.Max == 1)
+        {
+            return alignment <= -1.5 ? 0 : 1;
+        }
+
+        var reduced = alignment <= -1.5 ? position.Max / 3 : position.Max * 2 / 3;
+        return Math.Max(1, reduced);
+    }
+
+    // What this GM thinks a positional player is worth beyond a lineman body: the cost premium,
+    // scaled up to +/-30% by how well the position's style matches the GM's bash/finesse lean.
+    private static int AdjustedPremium(PositionTemplate position, PositionTemplate linemanPosition, GmPersonality gm)
+    {
+        var premium = position.Cost - linemanPosition.Cost;
+        var multiplier = 1.0 + (0.15 * BashFinesse(gm) * PositionStyle(position));
+        return (int)Math.Round(premium * multiplier);
+    }
+
+    // Where a position sits on the bash..finesse spectrum (-1..+1), derived from its stats and
+    // starting skills rather than from the roster it belongs to. That keeps personality relative:
+    // the most finesse option on a Black Orc sheet is still a goblin.
+    private static double PositionStyle(PositionTemplate position)
+    {
+        var bash = 0.0;
+        var finesse = 0.0;
+
+        if (position.Stats.Strength >= 5)
+        {
+            bash += 3;
+        }
+        else if (position.Stats.Strength == 4)
+        {
+            bash += 2;
+        }
+
+        if (position.Stats.Armor >= 10)
+        {
+            bash += 1;
+        }
+
+        if (position.Stats.Movement >= 8)
+        {
+            finesse += 2;
+        }
+        else if (position.Stats.Movement == 7)
+        {
+            finesse += 1;
+        }
+
+        if (position.Stats.Agility <= 2)
+        {
+            finesse += 2;
+        }
+
+        if (position.Stats.Passing <= 3)
+        {
+            finesse += 1;
+        }
+
+        bash += position.StartingSkills.Count(skill => BashStyleSkills.Contains(skill));
+        finesse += position.StartingSkills.Count(skill => FinesseStyleSkills.Contains(skill));
+
+        return Math.Clamp((finesse - bash) / 4.0, -1.0, 1.0);
+    }
+
+    private static int BashFinesse(GmPersonality gm)
+    {
+        return Math.Clamp(gm.BashFinesse, -2, 2);
+    }
+
+    private static int RiskAversion(GmPersonality gm)
+    {
+        return Math.Clamp(gm.RiskAversion, -2, 2);
     }
 
     // The roster's "lineman" slot: the position that can field a whole team, cheapest first.
@@ -309,7 +445,7 @@ public sealed class GmAiService
         return !linemanPosition.StartingSkills.Contains("regeneration", StringComparer.OrdinalIgnoreCase);
     }
 
-    private League SpendStarPlayerPoints(League league, Ruleset ruleset, TeamRoster roster, Guid teamId)
+    private League SpendStarPlayerPoints(League league, Ruleset ruleset, TeamRoster roster, Guid teamId, GmPersonality gm)
     {
         // Repeat until nobody can buy anything else, so a big SPP haul buys multiple advancements.
         var purchased = true;
@@ -319,7 +455,7 @@ public sealed class GmAiService
             var team = league.Teams.First(current => current.Id == teamId);
             foreach (var player in team.Players.Where(IsActiveRosterPlayer))
             {
-                var skill = PreferredSkillPurchase(ruleset, roster, player);
+                var skill = PreferredSkillPurchase(ruleset, roster, player, gm);
                 if (skill is null)
                 {
                     continue;
@@ -334,7 +470,7 @@ public sealed class GmAiService
         return league;
     }
 
-    private static SkillDefinition? PreferredSkillPurchase(Ruleset ruleset, TeamRoster roster, Player player)
+    private static SkillDefinition? PreferredSkillPurchase(Ruleset ruleset, TeamRoster roster, Player player, GmPersonality gm)
     {
         var position = roster.Positions.FirstOrDefault(current => string.Equals(current.Id, player.PositionId, StringComparison.OrdinalIgnoreCase));
         if (position is null)
@@ -365,16 +501,50 @@ public sealed class GmAiService
             return null;
         }
 
-        foreach (var preference in SkillPreferencesFor(player))
+        // Rank the role's preference list, then let personality nudge picks toward or away from
+        // bash/finesse/risky skills. Only skills on the role list are considered so the quality
+        // floor holds regardless of personality.
+        var preferences = SkillPreferencesFor(player);
+        SkillDefinition? bestSkill = null;
+        var bestScore = int.MinValue;
+        for (var index = 0; index < preferences.Length; index++)
         {
-            var match = eligible.FirstOrDefault(skill => string.Equals(skill.Id, preference, StringComparison.OrdinalIgnoreCase));
-            if (match is not null)
+            var candidate = eligible.FirstOrDefault(skill => string.Equals(skill.Id, preferences[index], StringComparison.OrdinalIgnoreCase));
+            if (candidate is null || IsRedundantPick(player, candidate.Id))
             {
-                return match;
+                continue;
+            }
+
+            var score = ((preferences.Length - index) * 2)
+                + (BashFinesse(gm) * SkillStyle(candidate.Id) * 3)
+                + (RiskAversion(gm) * SkillSafety(candidate.Id) * 2);
+            if (score > bestScore)
+            {
+                bestScore = score;
+                bestSkill = candidate;
             }
         }
 
-        return null;
+        return bestSkill;
+    }
+
+    // +1 finesse, -1 bash, 0 neutral.
+    private static int SkillStyle(string skillId)
+    {
+        return FinesseStyleSkills.Contains(skillId) ? 1 : BashStyleSkills.Contains(skillId) ? -1 : 0;
+    }
+
+    // +1 safe, -1 risky, 0 neutral.
+    private static int SkillSafety(string skillId)
+    {
+        return SafeSkills.Contains(skillId) ? 1 : RiskySkills.Contains(skillId) ? -1 : 0;
+    }
+
+    // Block and Wrestle solve the same problem; no GM stacks them on one player.
+    private static bool IsRedundantPick(Player player, string skillId)
+    {
+        return (string.Equals(skillId, "block", StringComparison.OrdinalIgnoreCase) && player.Skills.Contains("wrestle", StringComparer.OrdinalIgnoreCase))
+            || (string.Equals(skillId, "wrestle", StringComparison.OrdinalIgnoreCase) && player.Skills.Contains("block", StringComparer.OrdinalIgnoreCase));
     }
 
     private static string[] SkillPreferencesFor(Player player)
@@ -398,7 +568,7 @@ public sealed class GmAiService
         return LinemanSkillPreferences;
     }
 
-    private League HireReplacements(League league, Ruleset ruleset, TeamRoster roster, Guid teamId)
+    private League HireReplacements(League league, Ruleset ruleset, TeamRoster roster, Guid teamId, GmPersonality gm)
     {
         while (true)
         {
@@ -410,7 +580,7 @@ public sealed class GmAiService
             }
 
             var belowMatchday = activePlayers.Length < ruleset.PlayersPerSide;
-            var hire = ChooseHire(roster, team, activePlayers, belowMatchday);
+            var hire = ChooseHire(roster, team, activePlayers, belowMatchday, gm);
             if (hire is null)
             {
                 return league;
@@ -420,7 +590,7 @@ public sealed class GmAiService
         }
     }
 
-    private static PositionTemplate? ChooseHire(TeamRoster roster, LeagueTeam team, IReadOnlyList<Player> activePlayers, bool belowMatchday)
+    private static PositionTemplate? ChooseHire(TeamRoster roster, LeagueTeam team, IReadOnlyList<Player> activePlayers, bool belowMatchday, GmPersonality gm)
     {
         var affordable = roster.Positions
             .Where(position => !position.StartingSkills.Contains("secret-weapon", StringComparer.OrdinalIgnoreCase))
@@ -438,15 +608,19 @@ public sealed class GmAiService
             return affordable.OrderBy(position => position.Cost).First();
         }
 
-        // With a full squad, only extend the bench while gold is plentiful, best player first.
+        // With a full squad, only extend the bench while gold is plentiful, favorite player first.
+        // Cautious GMs keep a bigger rainy-day fund but also carry a deeper bench.
+        var linemanPosition = LinemanPosition(roster);
+        var savings = Math.Max(0, 50_000 + (RiskAversion(gm) * 25_000));
         var bestAffordable = affordable
-            .Where(position => team.Treasury >= position.Cost + 50_000)
-            .OrderByDescending(position => position.Cost)
+            .Where(position => team.Treasury >= position.Cost + savings)
+            .Where(position => activePlayers.Count(player => string.Equals(player.PositionId, position.Id, StringComparison.OrdinalIgnoreCase)) < PersonalityCap(position, gm))
+            .OrderByDescending(position => AdjustedPremium(position, linemanPosition, gm))
             .FirstOrDefault();
-        return activePlayers.Count < TargetSquadSize ? bestAffordable : null;
+        return activePlayers.Count < TargetSquadSize + Math.Sign(RiskAversion(gm)) ? bestAffordable : null;
     }
 
-    private League PurchaseTeamAssets(League league, Ruleset ruleset, TeamRoster roster, Guid teamId)
+    private League PurchaseTeamAssets(League league, Ruleset ruleset, TeamRoster roster, Guid teamId, GmPersonality gm)
     {
         var team = league.Teams.First(current => current.Id == teamId);
         var linemanPosition = LinemanPosition(roster);
@@ -459,9 +633,11 @@ public sealed class GmAiService
             treasury -= ApothecaryCost;
         }
 
-        // Rerolls cost double after creation, so only top up to the target while gold is spare.
+        // Rerolls cost double after creation, so only top up to the target while gold is spare;
+        // cautious GMs aim one reroll higher.
         var rerolls = team.Rerolls;
-        var targetRerolls = Math.Min(ruleset.RerollCap, roster.RerollCost <= 50_000 ? 3 : 2);
+        var baseTarget = roster.RerollCost <= 50_000 ? 3 : 2;
+        var targetRerolls = Math.Min(ruleset.RerollCap, baseTarget + (RiskAversion(gm) >= 1 ? 1 : 0));
         while (rerolls < targetRerolls && treasury >= roster.RerollCost * 2)
         {
             rerolls++;

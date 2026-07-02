@@ -587,18 +587,62 @@ foreach (var gmRoster in rosterSet.Rosters)
     Assert(gmTeam.Players.All(player => !gmRoster.Positions.Single(position => position.Id == player.PositionId).StartingSkills.Contains("secret-weapon")), $"AI-built {gmRoster.Id} team should not draft secret-weapon players");
 }
 
-// AI teams round-trip through persistence with their AI flag intact.
+// Personality-extreme GMs must still produce legal teams for every roster in the catalog.
+GmPersonality[] gmExtremePersonalities =
+[
+    new() { BashFinesse = -2, RiskAversion = -2 },
+    new() { BashFinesse = -2, RiskAversion = 2 },
+    new() { BashFinesse = 2, RiskAversion = -2 },
+    new() { BashFinesse = 2, RiskAversion = 2 }
+];
+foreach (var gmRoster in rosterSet.Rosters)
+{
+    foreach (var gmPersonality in gmExtremePersonalities)
+    {
+        var gmPlan = gmAi.PlanInitialTeam(ruleset, gmRoster, personality: gmPersonality, teamName: $"AI {gmRoster.Name}", coachName: "AI Coach");
+        var gmLeague = leagueService.CreateLeague($"GM {gmRoster.Id} Personality League", ruleset, [rosterSet]);
+        gmLeague = gmAi.AddPlannedTeam(gmLeague, ruleset, gmPlan);
+        var gmTeam = gmLeague.Teams.Single();
+        Assert(gmTeam.Players.Count >= ruleset.PlayersPerSide && gmTeam.Players.Count <= 16, $"personality-extreme AI {gmRoster.Id} team should have a legal squad size");
+        Assert(gmTeam.Treasury >= 0, $"personality-extreme AI {gmRoster.Id} team should not overspend");
+        Assert(gmTeam.GmPersonality == gmPersonality, $"AI {gmRoster.Id} team should carry its GM personality");
+    }
+}
+
+// The bash/finesse axis works within whatever palette the roster sheet offers: a finesse GM
+// squeezes the bash archetypes on a bash roster, while a bash GM finds the bash option on a
+// finesse roster.
+var gmOrcRoster = rosterSet.Rosters.Single(roster => roster.Id == "orc");
+var gmBashOrcPlan = gmAi.PlanInitialTeam(ruleset, gmOrcRoster, personality: new GmPersonality { BashFinesse = -2 }, teamName: "Bash Orcs", coachName: "GM");
+var gmFinesseOrcPlan = gmAi.PlanInitialTeam(ruleset, gmOrcRoster, personality: new GmPersonality { BashFinesse = 2 }, teamName: "Finesse Orcs", coachName: "GM");
+Assert(gmBashOrcPlan.Draft.Count(pick => pick.PositionId == "big-un") > gmFinesseOrcPlan.Draft.Count(pick => pick.PositionId == "big-un"), "a bash orc GM should field more Big 'Uns than a finesse one");
+Assert(gmFinesseOrcPlan.Draft.All(pick => pick.PositionId != "troll"), "a strongly finesse orc GM should skip the Troll");
+
+var gmWoodElfRoster = rosterSet.Rosters.Single(roster => roster.Id == "wood-elf");
+var gmBashElfPlan = gmAi.PlanInitialTeam(ruleset, gmWoodElfRoster, personality: new GmPersonality { BashFinesse = -2 }, teamName: "Bash Elves", coachName: "GM");
+var gmFinesseElfPlan = gmAi.PlanInitialTeam(ruleset, gmWoodElfRoster, personality: new GmPersonality { BashFinesse = 2 }, teamName: "Finesse Elves", coachName: "GM");
+Assert(gmBashElfPlan.Draft.Any(pick => pick.PositionId == "treeman"), "a bash wood-elf GM should draft the Treeman");
+Assert(gmFinesseElfPlan.Draft.All(pick => pick.PositionId != "treeman"), "a finesse wood-elf GM should skip the Treeman");
+
+// The risk axis: cautious GMs never carry fewer rerolls than reckless ones.
+var gmCautiousPlan = gmAi.PlanInitialTeam(ruleset, humanRoster, personality: new GmPersonality { RiskAversion = 2 }, teamName: "Cautious Humans", coachName: "GM");
+var gmRecklessPlan = gmAi.PlanInitialTeam(ruleset, humanRoster, personality: new GmPersonality { RiskAversion = -2 }, teamName: "Reckless Humans", coachName: "GM");
+Assert(gmCautiousPlan.Rerolls >= gmRecklessPlan.Rerolls, "a cautious GM should not buy fewer rerolls than a reckless one");
+
+// AI teams round-trip through persistence with their AI flag and personality intact.
 var gmSaveLeague = leagueService.CreateLeague("GM Save League", ruleset, [rosterSet]);
-gmSaveLeague = gmAi.AddPlannedTeam(gmSaveLeague, ruleset, gmAi.PlanInitialTeam(ruleset, humanRoster, "AI Save Team", "AI Coach"));
+var gmSavePersonality = new GmPersonality { BashFinesse = -1, RiskAversion = 2 };
+gmSaveLeague = gmAi.AddPlannedTeam(gmSaveLeague, ruleset, gmAi.PlanInitialTeam(ruleset, humanRoster, personality: gmSavePersonality, teamName: "AI Save Team", coachName: "AI Coach"));
 var gmSavePath = Path.Combine(root, "tests", "SoloBB.Tests", "bin", "smoke-gm-league.json");
 await store.SaveLeagueAsync(gmSavePath, gmSaveLeague);
 var gmLoadedLeague = await store.LoadLeagueAsync(gmSavePath);
 Assert(gmLoadedLeague.Teams.Single().IsAiControlled, "IsAiControlled should round-trip through league persistence");
+Assert(gmLoadedLeague.Teams.Single().GmPersonality == gmSavePersonality, "GmPersonality should round-trip through league persistence");
 
 // Post-match development: a battered AI team with SPP to spend and gold in the bank should buy
 // skills, refill the roster, and restock team assets.
 var gmDevLeague = leagueService.CreateLeague("GM Dev League", ruleset, [rosterSet]);
-gmDevLeague = gmAi.AddPlannedTeam(gmDevLeague, ruleset, gmAi.PlanInitialTeam(ruleset, humanRoster, "AI Devs", "AI Coach"));
+gmDevLeague = gmAi.AddPlannedTeam(gmDevLeague, ruleset, gmAi.PlanInitialTeam(ruleset, humanRoster, teamName: "AI Devs", coachName: "AI Coach"));
 var gmDevTeam = gmDevLeague.Teams.Single();
 var gmDeadPlayer = gmDevTeam.Players[0];
 var gmStarPlayer = gmDevTeam.Players[1];

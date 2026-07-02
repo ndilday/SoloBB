@@ -277,6 +277,7 @@ public partial class Main : Control
             var plan = _gmAiService.PlanInitialTeam(
                 _ruleset,
                 roster,
+                personality: _gmAiService.RollPersonality(),
                 teamName: _gmAiService.GenerateTeamName(_activeLeague.Teams.Select(team => team.Name)));
             _activeLeague = _gmAiService.AddPlannedTeam(_activeLeague, _ruleset, plan);
 
@@ -285,7 +286,7 @@ public partial class Main : Control
             if (CurrentScreen is LeagueTeamsScreen leagueTeamsScreen)
             {
                 var savedTeam = _activeLeague.Teams.Last();
-                leagueTeamsScreen.SetStatus($"AI GM {savedTeam.CoachName} drafted '{savedTeam.Name}' ({roster.Name}) with {savedTeam.Players.Count} players.");
+                leagueTeamsScreen.SetStatus($"AI GM {savedTeam.CoachName} ({plan.Personality.Describe()}) drafted '{savedTeam.Name}' ({roster.Name}) with {savedTeam.Players.Count} players.");
             }
         }
         catch (Exception ex)

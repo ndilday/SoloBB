@@ -211,8 +211,9 @@ public partial class TeamCreationScreen : VBoxContainer
 
     private void BuildEditLayout(LeagueTeam team, TeamRecord record, Action back)
     {
+        var aiSuffix = team.GmPersonality is null ? " - AI GM" : $" - AI GM ({team.GmPersonality.Describe()})";
         AddScreenHeader(
-            _viewOnly ? $"{team.Name} ({FormatRecord(record)}) - AI GM" : $"{team.Name} ({FormatRecord(record)})",
+            _viewOnly ? $"{team.Name} ({FormatRecord(record)}){aiSuffix}" : $"{team.Name} ({FormatRecord(record)})",
             "Save Changes",
             async () => await SaveManagementAsync(),
             back,
