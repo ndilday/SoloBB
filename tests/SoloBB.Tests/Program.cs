@@ -618,11 +618,19 @@ var gmFinesseOrcPlan = gmAi.PlanInitialTeam(ruleset, gmOrcRoster, personality: n
 Assert(gmBashOrcPlan.Draft.Count(pick => pick.PositionId == "big-un") > gmFinesseOrcPlan.Draft.Count(pick => pick.PositionId == "big-un"), "a bash orc GM should field more Big 'Uns than a finesse one");
 Assert(gmFinesseOrcPlan.Draft.All(pick => pick.PositionId != "troll"), "a strongly finesse orc GM should skip the Troll");
 
-var gmWoodElfRoster = rosterSet.Rosters.Single(roster => roster.Id == "wood-elf");
-var gmBashElfPlan = gmAi.PlanInitialTeam(ruleset, gmWoodElfRoster, personality: new GmPersonality { BashFinesse = -2 }, teamName: "Bash Elves", coachName: "GM");
-var gmFinesseElfPlan = gmAi.PlanInitialTeam(ruleset, gmWoodElfRoster, personality: new GmPersonality { BashFinesse = 2 }, teamName: "Finesse Elves", coachName: "GM");
-Assert(gmBashElfPlan.Draft.Any(pick => pick.PositionId == "treeman"), "a bash wood-elf GM should draft the Treeman");
-Assert(gmFinesseElfPlan.Draft.All(pick => pick.PositionId != "treeman"), "a finesse wood-elf GM should skip the Treeman");
+var gmBashHumanPlan = gmAi.PlanInitialTeam(ruleset, humanRoster, personality: new GmPersonality { BashFinesse = -2 }, teamName: "Bash Humans", coachName: "GM");
+var gmFinesseHumanPlan = gmAi.PlanInitialTeam(ruleset, humanRoster, personality: new GmPersonality { BashFinesse = 2 }, teamName: "Finesse Humans", coachName: "GM");
+Assert(gmBashHumanPlan.Draft.Any(pick => pick.PositionId == "ogre"), "a bash human GM should draft the Ogre");
+Assert(gmFinesseHumanPlan.Draft.All(pick => pick.PositionId != "ogre"), "a finesse human GM should skip the Ogre");
+
+// Multi-negatrait big guys are creation traps, not auto-buys: orcs skip the Really Stupid troll
+// for reroll money, while goblin teams still field theirs (the only strength on the sheet).
+var gmNeutralOrcPlan = gmAi.PlanInitialTeam(ruleset, gmOrcRoster, teamName: "Neutral Orcs", coachName: "GM");
+Assert(gmNeutralOrcPlan.Draft.All(pick => pick.PositionId != "troll"), "a neutral orc GM should skip the troll at creation");
+Assert(gmNeutralOrcPlan.Draft.Count(pick => pick.PositionId == "big-un") == 4, "a neutral orc GM should still max out Big 'Uns");
+var gmGoblinRoster = rosterSet.Rosters.Single(roster => roster.Id == "goblin");
+var gmGoblinPlan = gmAi.PlanInitialTeam(ruleset, gmGoblinRoster, teamName: "Goblins", coachName: "GM");
+Assert(gmGoblinPlan.Draft.Count(pick => pick.PositionId == "troll") == 2, "a goblin GM should still start both trolls");
 
 // Generated coach names embed the personality descriptor so it is visible wherever the coach is
 // shown; explicitly provided names are used untouched.

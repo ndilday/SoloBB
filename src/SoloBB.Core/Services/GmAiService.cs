@@ -23,7 +23,7 @@ public sealed class GmAiService
 
     // The marginal value the GM assigns to each successive team reroll when comparing candidate
     // builds. Front-loaded so every team wants two or three, but only cheap-reroll teams buy more.
-    private static readonly int[] RerollMarginalValues = [85_000, 70_000, 55_000, 40_000, 25_000, 15_000, 10_000, 5_000];
+    private static readonly int[] RerollMarginalValues = [90_000, 80_000, 65_000, 45_000, 30_000, 18_000, 10_000, 5_000];
     private const int ApothecaryScoreValue = 45_000;
     private const int BenchPlayerScoreValue = 20_000;
 
@@ -101,6 +101,15 @@ public sealed class GmAiService
     private static readonly HashSet<string> RiskySkills = new(StringComparer.OrdinalIgnoreCase)
     {
         "frenzy", "dauntless", "juggernaut", "pile-driver", "dirty-player", "sprint", "leap", "multiple-block"
+    };
+
+    // Skills that tax a player's reliability or availability. Each one discounts the premium the
+    // GM will pay: a triple-negatrait big guy (Loner, Really Stupid, Always Hungry) is a classic
+    // team-creation trap that a savvy GM leaves for later, not a must-buy.
+    private static readonly HashSet<string> NegatraitSkills = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "loner", "really-stupid", "bone-head", "animal-savagery", "always-hungry", "take-root",
+        "bloodlust", "decay"
     };
 
     private readonly IDiceRoller _dice;
@@ -231,17 +240,24 @@ public sealed class GmAiService
                 break;
             }
 
-            var candidate = BuildDraftCandidate(ruleset, roster, gm, budget, rerolls);
-            if (candidate is not null && (best is null || candidate.Score > best.Score))
+            // Two draft shapes per reroll count: one that considers unreliable (multi-negatrait)
+            // players and one that skips them for the gold. Scoring decides which wins per roster,
+            // so orcs can discover that a third reroll beats a Really Stupid troll while goblin
+            // teams still conclude their trolls are the only muscle on the sheet.
+            foreach (var includeUnreliables in (bool[])[true, false])
             {
-                best = candidate;
+                var candidate = BuildDraftCandidate(ruleset, roster, gm, budget, rerolls, includeUnreliables);
+                if (candidate is not null && (best is null || candidate.Score > best.Score))
+                {
+                    best = candidate;
+                }
             }
         }
 
         return best;
     }
 
-    private static DraftCandidate? BuildDraftCandidate(Ruleset ruleset, TeamRoster roster, GmPersonality gm, int budget, int rerolls)
+    private static DraftCandidate? BuildDraftCandidate(Ruleset ruleset, TeamRoster roster, GmPersonality gm, int budget, int rerolls, bool includeUnreliables)
     {
         var linemanPosition = LinemanPosition(roster);
         var counts = roster.Positions.ToDictionary(position => position.Id, _ => 0, StringComparer.OrdinalIgnoreCase);
@@ -268,6 +284,7 @@ public sealed class GmAiService
         var positionals = roster.Positions
             .Where(position => !string.Equals(position.Id, linemanPosition.Id, StringComparison.OrdinalIgnoreCase))
             .Where(position => !position.StartingSkills.Contains("secret-weapon", StringComparer.OrdinalIgnoreCase))
+            .Where(position => includeUnreliables || NegatraitCount(position) < 2)
             .OrderByDescending(position => AdjustedPremium(position, linemanPosition, gm))
             .ThenBy(position => position.Id, StringComparer.OrdinalIgnoreCase);
 
@@ -365,12 +382,19 @@ public sealed class GmAiService
     }
 
     // What this GM thinks a positional player is worth beyond a lineman body: the cost premium,
-    // scaled up to +/-30% by how well the position's style matches the GM's bash/finesse lean.
+    // scaled up to +/-30% by how well the position's style matches the GM's bash/finesse lean,
+    // then discounted 20% per negatrait (compounding) since unreliable players are worth far less
+    // than their sticker price at creation.
     private static int AdjustedPremium(PositionTemplate position, PositionTemplate linemanPosition, GmPersonality gm)
     {
         var premium = position.Cost - linemanPosition.Cost;
         var multiplier = 1.0 + (0.15 * BashFinesse(gm) * PositionStyle(position));
-        return (int)Math.Round(premium * multiplier);
+        return (int)Math.Round(premium * multiplier * Math.Pow(0.8, NegatraitCount(position)));
+    }
+
+    private static int NegatraitCount(PositionTemplate position)
+    {
+        return position.StartingSkills.Count(skill => NegatraitSkills.Contains(skill));
     }
 
     // Where a position sits on the bash..finesse spectrum (-1..+1), derived from its stats and
