@@ -15,17 +15,22 @@ public partial class LeagueTeamsScreen : VBoxContainer
     private Button _editTeamButton = null!;
     private Button _deleteTeamButton = null!;
     private Button _createTeamButton = null!;
+    private Button _createAiTeamButton = null!;
     private Button _createLeagueButton = null!;
     private Label _statusLabel = null!;
     private League _league = null!;
+    private RosterSet? _rosterSet;
     private Action<string, int> _commit = (_, _) => { };
     private Action<Guid> _editTeam = _ => { };
     private Func<Guid, Task> _deleteTeam = _ => Task.CompletedTask;
+    private Func<string?, Task> _createAiTeam = _ => Task.CompletedTask;
 
     public void Setup(
         League league,
+        RosterSet? rosterSet,
         Action<string, int> commit,
         Action createTeam,
+        Func<string?, Task> createAiTeam,
         Action startLeague,
         Action<Guid> editTeam,
         Func<Guid, Task> deleteTeam,
@@ -36,9 +41,11 @@ public partial class LeagueTeamsScreen : VBoxContainer
         AddThemeStyleboxOverride("panel", ScreenStyles.FlatStyle(ScreenStyles.ScreenBackground));
 
         _league = league;
+        _rosterSet = rosterSet;
         _commit = commit;
         _editTeam = editTeam;
         _deleteTeam = deleteTeam;
+        _createAiTeam = createAiTeam;
 
         var headerActions = new HBoxContainer();
         headerActions.AddThemeConstantOverride("separation", 8);
@@ -136,6 +143,11 @@ public partial class LeagueTeamsScreen : VBoxContainer
             CommitAndRefresh();
             createTeam();
         }, primary: true);
+        _createAiTeamButton = AddButtonTo(actionColumn, "Add AI Team", () =>
+        {
+            CommitAndRefresh();
+            OpenAiTeamDialog();
+        });
         sideColumn.AddChild(ScreenStyles.Panel("Team Actions", actionColumn));
 
         _statusLabel = new Label
@@ -168,14 +180,70 @@ public partial class LeagueTeamsScreen : VBoxContainer
         _teamList.Clear();
         foreach (var team in _league.Teams)
         {
-            _teamList.AddItem($"{team.Name} - TV {FormatGold(team.TeamValue)} ({team.CoachName})");
+            var coachLabel = team.IsAiControlled ? $"{team.CoachName} [AI GM]" : team.CoachName;
+            _teamList.AddItem($"{team.Name} - TV {FormatGold(team.TeamValue)} ({coachLabel})");
         }
 
         var targetTeamCount = (int)_teamCountSpin.Value;
         _teamCountLabel.Text = $"{_league.Teams.Count} / {targetTeamCount}";
         _createTeamButton.Disabled = _league.Teams.Count >= targetTeamCount;
+        _createAiTeamButton.Disabled = _league.Teams.Count >= targetTeamCount || _rosterSet is null;
         _createLeagueButton.Disabled = _league.Teams.Count != targetTeamCount;
         UpdateActions();
+    }
+
+    // The AI GM needs no roster-building screen: pick a race (or let the GM pick) and the team is
+    // drafted immediately.
+    private void OpenAiTeamDialog()
+    {
+        if (_rosterSet is null)
+        {
+            SetStatus("Roster data is still loading.");
+            return;
+        }
+
+        var popup = ScreenStyles.Dialog("Add AI Team", new Vector2I(380, 0));
+        popup.GetOkButton().Visible = false;
+        var margin = ScreenStyles.DialogContent();
+
+        var content = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        content.AddThemeConstantOverride("separation", 10);
+
+        var blurb = ScreenStyles.MutedLabel("An AI GM drafts the roster, names the team, and manages it between matches.");
+        blurb.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        content.AddChild(blurb);
+
+        content.AddChild(ScreenStyles.MutedLabel("Roster"));
+        var rosterOption = new OptionButton { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        rosterOption.AddItem("Random Roster");
+        rosterOption.SetItemMetadata(0, Variant.From(""));
+        var rosters = _rosterSet.Rosters
+            .OrderBy(roster => roster.Name, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        for (var index = 0; index < rosters.Length; index++)
+        {
+            rosterOption.AddItem(rosters[index].Name);
+            rosterOption.SetItemMetadata(index + 1, Variant.From(rosters[index].Id));
+        }
+
+        rosterOption.Select(0);
+        content.AddChild(rosterOption);
+
+        var createButton = ScreenStyles.StyledButton("Draft AI Team", primary: true);
+        createButton.Pressed += async () =>
+        {
+            var rosterId = rosterOption.Selected < 0 ? "" : rosterOption.GetItemMetadata(rosterOption.Selected).AsString();
+            popup.Hide();
+            popup.QueueFree();
+            await _createAiTeam(string.IsNullOrEmpty(rosterId) ? null : rosterId);
+        };
+        content.AddChild(createButton);
+
+        margin.AddChild(content);
+        popup.AddChild(margin);
+        popup.Canceled += popup.QueueFree;
+        AddChild(popup);
+        popup.PopupCentered();
     }
 
     private void EditSelectedTeam()
@@ -211,6 +279,11 @@ public partial class LeagueTeamsScreen : VBoxContainer
         var hasSelection = _teamList.GetSelectedItems().Any();
         _editTeamButton.Disabled = !hasSelection;
         _deleteTeamButton.Disabled = !hasSelection;
+
+        var selectedTeam = SelectedTeamId() is Guid teamId
+            ? _league.Teams.FirstOrDefault(team => team.Id == teamId)
+            : null;
+        _editTeamButton.Text = selectedTeam?.IsAiControlled == true ? "View Team" : "Edit Team";
     }
 
     private static int TeamCountFloor(int teamCount)

@@ -567,6 +567,87 @@ var secondHalfSequence = scheduledWeeks.Skip(3).Select(group => string.Join(",",
 
 Assert(!firstHalfSequence.SequenceEqual(secondHalfSequence), "second half schedule should not repeat the first-half sequence in the same order");
 
+smoke.StartSection("AI GM team building and development");
+var gmAi = new GmAiService(new FixedDiceRoller(), leagueService);
+
+// The AI GM must produce a legal, affordable starting team for every roster in the catalog;
+// AddPlannedTeam routes through LeagueService.AddTeam, so draft min/max validation also applies.
+foreach (var gmRoster in rosterSet.Rosters)
+{
+    var gmPlan = gmAi.PlanInitialTeam(ruleset, gmRoster, teamName: $"AI {gmRoster.Name}", coachName: "AI Coach");
+    var gmLeague = leagueService.CreateLeague($"GM {gmRoster.Id} League", ruleset, [rosterSet]);
+    gmLeague = gmAi.AddPlannedTeam(gmLeague, ruleset, gmPlan);
+    var gmTeam = gmLeague.Teams.Single();
+
+    Assert(gmTeam.IsAiControlled, $"AI-built {gmRoster.Id} team should be flagged as AI controlled");
+    Assert(gmTeam.Players.Count >= ruleset.PlayersPerSide && gmTeam.Players.Count <= 16, $"AI-built {gmRoster.Id} team should have a legal squad size");
+    Assert(gmTeam.Treasury >= 0, $"AI-built {gmRoster.Id} team should not overspend the starting treasury");
+    Assert(gmTeam.Rerolls >= 1, $"AI-built {gmRoster.Id} team should buy at least one team reroll");
+    Assert(gmTeam.Players.Count(player => player.PositionId != "lineman") > 0 || gmRoster.Positions.Count == 1, $"AI-built {gmRoster.Id} team should include positional players");
+    Assert(gmTeam.Players.All(player => !gmRoster.Positions.Single(position => position.Id == player.PositionId).StartingSkills.Contains("secret-weapon")), $"AI-built {gmRoster.Id} team should not draft secret-weapon players");
+}
+
+// AI teams round-trip through persistence with their AI flag intact.
+var gmSaveLeague = leagueService.CreateLeague("GM Save League", ruleset, [rosterSet]);
+gmSaveLeague = gmAi.AddPlannedTeam(gmSaveLeague, ruleset, gmAi.PlanInitialTeam(ruleset, humanRoster, "AI Save Team", "AI Coach"));
+var gmSavePath = Path.Combine(root, "tests", "SoloBB.Tests", "bin", "smoke-gm-league.json");
+await store.SaveLeagueAsync(gmSavePath, gmSaveLeague);
+var gmLoadedLeague = await store.LoadLeagueAsync(gmSavePath);
+Assert(gmLoadedLeague.Teams.Single().IsAiControlled, "IsAiControlled should round-trip through league persistence");
+
+// Post-match development: a battered AI team with SPP to spend and gold in the bank should buy
+// skills, refill the roster, and restock team assets.
+var gmDevLeague = leagueService.CreateLeague("GM Dev League", ruleset, [rosterSet]);
+gmDevLeague = gmAi.AddPlannedTeam(gmDevLeague, ruleset, gmAi.PlanInitialTeam(ruleset, humanRoster, "AI Devs", "AI Coach"));
+var gmDevTeam = gmDevLeague.Teams.Single();
+var gmDeadPlayer = gmDevTeam.Players[0];
+var gmStarPlayer = gmDevTeam.Players[1];
+gmDevLeague = gmDevLeague with
+{
+    Teams =
+    [
+        gmDevTeam with
+        {
+            Treasury = 400_000,
+            Rerolls = 1,
+            Apothecaries = 0,
+            Players = gmDevTeam.Players
+                .Select(player => player.Id == gmDeadPlayer.Id
+                    ? player with { Status = PlayerStatus.Dead }
+                    : player.Id == gmStarPlayer.Id
+                        ? player with { StarPlayerPoints = 13 }
+                        : player)
+                .ToArray()
+        }
+    ]
+};
+
+gmDevLeague = gmAi.RunPostMatchDevelopment(gmDevLeague, ruleset, rosterSet, [gmDevTeam.Id]);
+var gmDevelopedTeam = gmDevLeague.Teams.Single();
+var gmDevelopedStar = gmDevelopedTeam.Players.Single(player => player.Id == gmStarPlayer.Id);
+var gmStarPosition = humanRoster.Positions.Single(position => position.Id == gmStarPlayer.PositionId);
+
+Assert(gmDevelopedStar.Skills.Count(skill => !gmStarPosition.StartingSkills.Contains(skill)) == 2, "AI development should buy two chosen-primary skills with 13 SPP");
+Assert(gmDevelopedStar.StarPlayerPoints == 1, "AI development should spend SPP on the purchased advancements");
+Assert(gmDevelopedTeam.Players.Count(player => player.Status is not PlayerStatus.Dead and not PlayerStatus.Retired) >= ruleset.PlayersPerSide, "AI development should rehire up to a legal match-day squad");
+Assert(gmDevelopedTeam.Apothecaries == 1, "AI development should buy an apothecary when affordable");
+Assert(gmDevelopedTeam.Rerolls >= 2, "AI development should restock team rerolls when the treasury allows");
+Assert(gmDevelopedTeam.Treasury >= 0, "AI development should never spend below zero treasury");
+
+// Human-managed teams are never touched by the AI GM.
+var gmNoopLeague = leagueService.CreateLeague("GM Noop League", ruleset, [rosterSet]);
+gmNoopLeague = leagueService.AddTeam(
+    gmNoopLeague,
+    ruleset,
+    "Human Managed",
+    "Tester",
+    humanRoster,
+    Enumerable.Range(1, 11).Select(index => new PlayerDraftPick($"Noop Lineman {index}", "lineman")),
+    rerolls: 2);
+var gmNoopBefore = gmNoopLeague;
+gmNoopLeague = gmAi.RunPostMatchDevelopment(gmNoopLeague, ruleset, rosterSet, [gmNoopLeague.Teams[0].Id]);
+Assert(ReferenceEquals(gmNoopBefore, gmNoopLeague), "AI development should leave human-managed teams untouched");
+
 smoke.StartSection("Post-match campaign lifecycle");
 var campaignWeekOne = scheduledLeague.Seasons.Single().Schedule.Where(match => match.Week == 1).ToArray();
 var firstCampaignMatch = campaignWeekOne[0];

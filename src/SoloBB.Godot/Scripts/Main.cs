@@ -24,6 +24,7 @@ public partial class Main : Control
     private readonly LeagueService _leagueService = new();
     private readonly MatchService _matchService = new();
     private readonly PreGameService _preGameService = new();
+    private readonly GmAiService _gmAiService = new();
 
     private MarginContainer _contentMargin = null!;
     private ScrollContainer _shellScroll = null!;
@@ -221,8 +222,10 @@ public partial class Main : Control
         var screen = ShowScreen<LeagueTeamsScreen>("res://scenes/screens/league_teams_screen.tscn");
         screen.Setup(
             league: _activeLeague,
+            rosterSet: _rosterSet,
             commit: CommitLeagueSetup,
             createTeam: ShowTeamCreationScreen,
+            createAiTeam: async rosterId => await AddAiTeamAsync(rosterId, screen),
             startLeague: async () => await CreateLeagueSeasonAsync(screen),
             editTeam: ShowTeamEditingScreen,
             deleteTeam: async teamId => await DeleteTeamAsync(teamId, screen),
@@ -250,6 +253,45 @@ public partial class Main : Control
             defaultTeamName: $"Team {_activeLeague.Teams.Count + 1}",
             saveTeam: async request => await SaveTeamAsync(request, screen),
             back: ShowLeagueTeamsScreen);
+    }
+
+    private async Task AddAiTeamAsync(string? rosterId, LeagueTeamsScreen screen)
+    {
+        try
+        {
+            if (_ruleset is null || _rosterSet is null || _activeLeague is null)
+            {
+                throw new InvalidOperationException("League data is not ready.");
+            }
+
+            if (_activeLeague.Teams.Count >= _targetTeamCount)
+            {
+                throw new InvalidOperationException("This league is already full.");
+            }
+
+            var roster = rosterId is null
+                ? _gmAiService.PickRandomRoster(_rosterSet)
+                : _rosterSet.Rosters.FirstOrDefault(current => string.Equals(current.Id, rosterId, StringComparison.OrdinalIgnoreCase))
+                    ?? throw new InvalidOperationException($"Roster '{rosterId}' is not available.");
+
+            var plan = _gmAiService.PlanInitialTeam(
+                _ruleset,
+                roster,
+                teamName: _gmAiService.GenerateTeamName(_activeLeague.Teams.Select(team => team.Name)));
+            _activeLeague = _gmAiService.AddPlannedTeam(_activeLeague, _ruleset, plan);
+
+            await SaveActiveLeagueAsync();
+            ShowLeagueTeamsScreen();
+            if (CurrentScreen is LeagueTeamsScreen leagueTeamsScreen)
+            {
+                var savedTeam = _activeLeague.Teams.Last();
+                leagueTeamsScreen.SetStatus($"AI GM {savedTeam.CoachName} drafted '{savedTeam.Name}' ({roster.Name}) with {savedTeam.Players.Count} players.");
+            }
+        }
+        catch (Exception ex)
+        {
+            screen.SetStatus($"AI team creation failed: {ex.Message}");
+        }
     }
 
     private async Task CreateLeagueSeasonAsync(LeagueTeamsScreen screen)
@@ -386,6 +428,25 @@ public partial class Main : Control
             "res://scenes/screens/team_creation_screen.tscn",
             usesCompactShell: true,
             fillsViewport: true);
+
+        if (team.IsAiControlled)
+        {
+            // AI-managed teams are inspectable but not editable; none of the mutation callbacks
+            // are wired so the screen renders as a read-only report.
+            screen.Setup(
+                ruleset: _ruleset,
+                rosterSet: _rosterSet,
+                defaultTeamName: team.Name,
+                saveTeam: _ => Task.CompletedTask,
+                back: back,
+                league: _activeLeague,
+                latestSeasonName: _activeLeague.Seasons.LastOrDefault()?.Name ?? "",
+                editingTeam: team,
+                record: _leagueService.GetTeamRecord(_activeLeague, team.Id),
+                viewOnly: true);
+            return;
+        }
+
         screen.Setup(
             ruleset: _ruleset,
             rosterSet: _rosterSet,
@@ -741,6 +802,17 @@ public partial class Main : Control
             match.Phase == MatchPhase.Complete)
         {
             _activeLeague = _leagueService.CompleteScheduledMatch(_activeLeague, _ruleset, scheduledMatchId, match, _rosterSet);
+            if (_rosterSet is not null)
+            {
+                // AI GMs manage their rosters as soon as the result is in: spend SPP, rehire, and
+                // restock team assets before the next fixture.
+                _activeLeague = _gmAiService.RunPostMatchDevelopment(
+                    _activeLeague,
+                    _ruleset,
+                    _rosterSet,
+                    [match.HomeTeamId, match.AwayTeamId]);
+            }
+
             await SaveActiveLeagueAsync();
         }
     }

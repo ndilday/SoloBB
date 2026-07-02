@@ -72,7 +72,8 @@ public sealed partial class LeagueService
         int dedicatedFans = 1,
         int cheerleaders = 0,
         int assistantCoaches = 0,
-        int apothecaries = 0)
+        int apothecaries = 0,
+        bool isAiControlled = false)
     {
         if (!league.RosterSetIds.Any())
         {
@@ -104,7 +105,10 @@ public sealed partial class LeagueService
 
         ValidateStaff(cheerleaders, assistantCoaches, apothecaries);
 
-        var team = BuildTeam(Guid.NewGuid(), ruleset, teamName, coachName, roster, players, rerolls, dedicatedFans, cheerleaders, assistantCoaches, apothecaries);
+        var team = BuildTeam(Guid.NewGuid(), ruleset, teamName, coachName, roster, players, rerolls, dedicatedFans, cheerleaders, assistantCoaches, apothecaries) with
+        {
+            IsAiControlled = isAiControlled
+        };
 
         return league with { Teams = [.. league.Teams, team] };
     }

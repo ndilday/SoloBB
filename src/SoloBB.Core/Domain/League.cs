@@ -27,6 +27,7 @@ public sealed record LeagueTeam
     public required string Name { get; init; }
     public required string RosterId { get; init; }
     public string CoachName { get; init; } = "Solo Coach";
+    public bool IsAiControlled { get; init; }
     public int Treasury { get; init; }
     public int TeamValue { get; init; }
     public int Rerolls { get; init; }

@@ -45,6 +45,7 @@ public partial class TeamCreationScreen : VBoxContainer
     private League? _league;
     private TeamRoster? _selectedRoster;
     private LeagueTeam? _editingTeam;
+    private bool _viewOnly;
     private string _latestSeasonName = "";
     private Func<TeamDraftRequest, Task> _saveTeam = _ => Task.CompletedTask;
     private Func<TeamManagementRequest, Task> _saveManagement = _ => Task.CompletedTask;
@@ -129,7 +130,8 @@ public partial class TeamCreationScreen : VBoxContainer
         Func<Guid, int, PlayerCharacteristic, Task>? applyCharacteristic = null,
         Func<Guid, string, Task>? applyCharacteristicSkill = null,
         Func<Guid, bool, Task>? movePlayer = null,
-        Func<string, string, Task>? hirePlayer = null)
+        Func<string, string, Task>? hirePlayer = null,
+        bool viewOnly = false)
     {
         Clear();
         AddThemeStyleboxOverride("panel", ScreenStyles.FlatStyle(ScreenStyles.ScreenBackground));
@@ -138,6 +140,7 @@ public partial class TeamCreationScreen : VBoxContainer
         _rosterSet = rosterSet;
         _league = league;
         _editingTeam = editingTeam;
+        _viewOnly = viewOnly;
         _latestSeasonName = latestSeasonName;
         _saveTeam = saveTeam;
         _saveManagement = saveManagement ?? (_ => Task.CompletedTask);
@@ -209,12 +212,13 @@ public partial class TeamCreationScreen : VBoxContainer
     private void BuildEditLayout(LeagueTeam team, TeamRecord record, Action back)
     {
         AddScreenHeader(
-            $"{team.Name} ({FormatRecord(record)})",
+            _viewOnly ? $"{team.Name} ({FormatRecord(record)}) - AI GM" : $"{team.Name} ({FormatRecord(record)})",
             "Save Changes",
             async () => await SaveManagementAsync(),
             back,
             OpenPreviousPlayers,
             OpenGameHistory);
+        _saveButton.Visible = !_viewOnly;
 
         _selectedRoster = FindRoster(team.RosterId);
 
@@ -255,6 +259,18 @@ public partial class TeamCreationScreen : VBoxContainer
         _cheerleadersSpin.Value = team.Cheerleaders;
         _assistantCoachesSpin.Value = team.AssistantCoaches;
         _apothecariesSpin.Value = team.Apothecaries;
+
+        if (_viewOnly)
+        {
+            _teamNameEdit.Editable = false;
+            _coachNameEdit.Editable = false;
+            _rerollsSpin.Editable = false;
+            _dedicatedFansSpin.Editable = false;
+            _cheerleadersSpin.Editable = false;
+            _assistantCoachesSpin.Editable = false;
+            _apothecariesSpin.Editable = false;
+        }
+
         UpdateDraftSummary();
 
         _developmentDialog = BuildDevelopmentDialog();
@@ -470,7 +486,11 @@ public partial class TeamCreationScreen : VBoxContainer
         stack.AddChild(BudgetRow("Ready players", team.Players.Count(player => player.Status == PlayerStatus.Available).ToString()));
         stack.AddChild(BudgetRow("Missing next game", team.Players.Count(player => player.Status == PlayerStatus.MissNextGame).ToString()));
         stack.AddChild(BudgetRow("Can level up", team.Players.Count(CanLevelUp).ToString()));
-        stack.AddChild(BuildHirePlayerPanel(team));
+        if (!_viewOnly)
+        {
+            stack.AddChild(BuildHirePlayerPanel(team));
+        }
+
         return stack;
     }
 
@@ -580,6 +600,7 @@ public partial class TeamCreationScreen : VBoxContainer
         nameRow.AddChild(_playerNameEdit);
         _playerNameButton = ScreenStyles.StyledButton("Edit");
         _playerNameButton.Pressed += async () => await TogglePlayerNameEditAsync();
+        _playerNameButton.Visible = !_viewOnly;
         nameRow.AddChild(_playerNameButton);
         stack.AddChild(nameRow);
 
@@ -600,9 +621,10 @@ public partial class TeamCreationScreen : VBoxContainer
 
         _spendSppButton = ScreenStyles.StyledButton("Spend SPP", primary: true, disabled: true);
         _spendSppButton.Pressed += OpenDevelopmentForSelectedPlayer;
+        _spendSppButton.Visible = !_viewOnly;
         stack.AddChild(_spendSppButton);
 
-        var moveRow = new HBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        var moveRow = new HBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill, Visible = !_viewOnly };
         moveRow.AddThemeConstantOverride("separation", 8);
         _moveUpButton = ScreenStyles.StyledButton("Move Up", disabled: true);
         _moveUpButton.SizeFlagsHorizontal = SizeFlags.ExpandFill;

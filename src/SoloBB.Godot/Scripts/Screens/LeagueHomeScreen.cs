@@ -121,7 +121,7 @@ public partial class LeagueHomeScreen : VBoxContainer
         {
             var item = _standingsTree.CreateItem(root);
             item.SetText(0, position.ToString());
-            item.SetText(1, row.Team.Name);
+            item.SetText(1, row.Team.IsAiControlled ? $"{row.Team.Name} [AI]" : row.Team.Name);
             item.SetText(2, FormatTeamValue(row.Team.TeamValue));
             item.SetText(3, row.Wins.ToString());
             item.SetText(4, row.Losses.ToString());
@@ -248,7 +248,9 @@ public partial class LeagueHomeScreen : VBoxContainer
         name.AddThemeFontSizeOverride("font_size", 18);
         name.AddThemeColorOverride("font_color", ScreenStyles.Text);
         _teamPreview.AddChild(name);
-        _teamPreview.AddChild(ScreenStyles.MutedLabel($"Coach: {team.CoachName}"));
+        _teamPreview.AddChild(ScreenStyles.MutedLabel(team.IsAiControlled
+            ? $"Coach: {team.CoachName} [AI GM]"
+            : $"Coach: {team.CoachName}"));
 
         var details = new GridContainer { Columns = 2, SizeFlagsHorizontal = SizeFlags.ExpandFill };
         details.AddThemeConstantOverride("h_separation", 12);
@@ -259,7 +261,7 @@ public partial class LeagueHomeScreen : VBoxContainer
         AddDetail(details, "Rerolls", team.Rerolls.ToString());
         _teamPreview.AddChild(details);
 
-        var openButton = ScreenStyles.StyledButton("Open Team", primary: true);
+        var openButton = ScreenStyles.StyledButton(team.IsAiControlled ? "View Team" : "Open Team", primary: true);
         var teamId = team.Id;
         openButton.Pressed += () => _openTeam(teamId);
         _teamPreview.AddChild(openButton);
